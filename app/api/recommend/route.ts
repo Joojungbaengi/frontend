@@ -21,7 +21,13 @@ import type { Drink, Recommendation, RecommendResponse, ScoredDrink, SurveyAnswe
 
 const drinks = db.drinks as unknown as Drink[];
 
-function toRecommendation(scored: ScoredDrink, reason: string): Recommendation {
+/** 후보 중 최고 점수 대비 비율로 취향 일치율(%)을 근사 (표시용) */
+function matchPct(scored: ScoredDrink, maxScore: number): number {
+  if (maxScore <= 0) return 80;
+  return Math.round(70 + 28 * (scored.score / maxScore));
+}
+
+function toRecommendation(scored: ScoredDrink, reason: string, maxScore: number): Recommendation {
   const d = scored.drink;
   return {
     id: d.id,
@@ -30,6 +36,8 @@ function toRecommendation(scored: ScoredDrink, reason: string): Recommendation {
     type: d.type,
     abv: d.abv,
     description: d.description,
+    image: d.image,
+    matchPct: matchPct(scored, maxScore),
     reason,
   };
 }
@@ -50,12 +58,13 @@ export async function POST(request: Request) {
 
   // 1차 필터 + 점수 계산 → Top 10
   const candidates = selectCandidates(drinks, answers, 10);
+  const maxScore = candidates[0]?.score ?? 0;
 
   // Bedrock 미설정 시 규칙 기반 fallback
   if (!isBedrockConfigured()) {
     const top3 = candidates.slice(0, 3);
     const body: RecommendResponse = {
-      recommendations: top3.map((c) => toRecommendation(c, fallbackReason(c))),
+      recommendations: top3.map((c) => toRecommendation(c, fallbackReason(c), maxScore)),
       fallback: true,
     };
     return Response.json(body);
@@ -65,7 +74,7 @@ export async function POST(request: Request) {
     const picks = await pickTop3(answers, candidates);
     const byId = new Map(candidates.map((c) => [c.drink.id, c]));
     const body: RecommendResponse = {
-      recommendations: picks.map((p) => toRecommendation(byId.get(p.id)!, p.reason)),
+      recommendations: picks.map((p) => toRecommendation(byId.get(p.id)!, p.reason, maxScore)),
       fallback: false,
     };
     return Response.json(body);
@@ -74,7 +83,7 @@ export async function POST(request: Request) {
     console.error("[recommend] Bedrock 호출 실패, fallback 사용:", error);
     const top3 = candidates.slice(0, 3);
     const body: RecommendResponse = {
-      recommendations: top3.map((c) => toRecommendation(c, fallbackReason(c))),
+      recommendations: top3.map((c) => toRecommendation(c, fallbackReason(c), maxScore)),
       fallback: true,
     };
     return Response.json(body);

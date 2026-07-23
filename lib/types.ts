@@ -41,6 +41,8 @@ export interface Drink {
   /** 존재하면 추천 풀에서 기본 제외 (예: 판매중지 제품) */
   service_caution?: string;
   description: string;
+  /** 제품 이미지 경로 (public/ 기준, 예: /drinks/<id>.png) */
+  image?: string;
 }
 
 /**
@@ -93,6 +95,9 @@ export interface Recommendation {
   type: string;
   abv: number;
   description: string;
+  image?: string;
+  /** 취향 일치율 (%) — 점수 기반 근사치 */
+  matchPct: number;
   /** AI가 작성한 추천 이유 */
   reason: string;
 }
