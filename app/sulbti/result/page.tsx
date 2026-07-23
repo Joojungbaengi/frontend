@@ -1,13 +1,44 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import HangingScroll from "@/components/HangingScroll";
 import ScreenHeader from "@/components/ScreenHeader";
+import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
 
 /**
- * 술BTI 결과 — 족자에 신선 유형이 펼쳐지는 화면.
- * TODO(내용 연결): 신선 유형·취향 축 점수·궁합·추천 3잔을 실제 데이터로 교체.
+ * 술BTI 결과 — 족자 + 취향 지도 + AI 추천 3잔.
+ * 추천 데이터는 /sulbti 에서 sessionStorage("sulbti")에 저장한 것을 읽는다.
+ * TODO(내용 연결): 신선 유형 이름·일러스트·궁합 (유형 일러스트는 후순위 작업)
  */
 
-/** 취향 축 게이지 한 줄 */
+interface StoredResult {
+  answers: SurveyAnswers;
+  result: RecommendResponse;
+}
+
+const RANK_COLORS = ["#b5482f", "#3f5c52", "#8a7656"];
+
+/** 답변으로 취향 지도 게이지(0~100) 계산 */
+function gauges(answers: SurveyAnswers): { label: string; value: number }[] {
+  const pct = (v: number | undefined, invert = false) => {
+    if (v === undefined) return 50;
+    const p = Math.round((v / 5) * 100);
+    return invert ? 100 - p : p;
+  };
+  const abvPct = { low: 20, mid: 55, high: 90, any: 50 }[answers.abvRange ?? "any"];
+  const aroma = (t: NonNullable<SurveyAnswers["aromaTypes"]>[number]) =>
+    answers.aromaTypes?.includes(t) ? 80 : 30;
+  return [
+    { label: "산뜻함", value: pct(answers.body, true) },
+    { label: "단맛", value: pct(answers.sweetness) },
+    { label: "쌀 향", value: aroma("grain") },
+    { label: "특산물 향", value: Math.max(aroma("fruit"), aroma("flower"), aroma("nutty")) },
+    { label: "질감", value: pct(answers.body) },
+    { label: "고도수", value: abvPct },
+  ];
+}
+
 function Gauge({ label, value }: { label: string; value: number }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 15 }}>
@@ -22,66 +53,57 @@ function Gauge({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** 추천 술 카드 (플레이스홀더) */
-function RecCard({ rank, color }: { rank: number; color: string }) {
-  return (
-    <Link
-      href="/drink/placeholder"
-      className="card"
-      style={{ display: "block", padding: 16, borderRadius: 18, color: "inherit" }}
-    >
-      <div style={{ display: "flex", gap: 13, alignItems: "center", marginBottom: 12 }}>
-        <div
-          className="serif"
-          style={{
-            width: 34,
-            height: 34,
-            flexShrink: 0,
-            borderRadius: 8,
-            background: color,
-            color: "#fff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 800,
-            fontSize: 16,
-          }}
-        >
-          {rank}
-        </div>
-        <div className="ph-art" style={{ width: 40, height: 56, flexShrink: 0, borderRadius: 6 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="serif" style={{ fontWeight: 700, fontSize: 16 }}>추천 술 이름 {rank}</div>
-          <div style={{ fontSize: 12, color: "var(--ink-faint)" }}>지역 · 주종 · 도수</div>
-        </div>
-        <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div className="serif" style={{ fontWeight: 800, fontSize: 19, color: "var(--pine)" }}>00%</div>
-          <div style={{ fontSize: 10, color: "#8a9089" }}>취향 일치</div>
-        </div>
-      </div>
+export default function ResultPage() {
+  const [data, setData] = useState<StoredResult | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("sulbti");
+      if (raw) setData(JSON.parse(raw) as StoredResult);
+    } catch {
+      /* 저장된 결과 없음 */
+    }
+    setLoaded(true);
+  }, []);
+
+  // 진단 없이 직접 들어온 경우
+  if (loaded && !data) {
+    return (
       <div
         style={{
-          background: "rgba(63,92,82,.07)",
-          borderLeft: `3px solid ${color}`,
-          borderRadius: "0 10px 10px 0",
-          padding: "11px 13px",
+          position: "relative",
+          zIndex: 5,
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "0 22px",
+          textAlign: "center",
         }}
       >
-        <div style={{ fontSize: 11, color, marginBottom: 4 }}>AI 추천 이유</div>
-        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: "var(--ink-soft)" }}>
-          추천 이유가 들어갈 자리예요. AI가 취향과 연결해 작성합니다. (플레이스홀더)
+        <h1 className="serif" style={{ margin: "0 0 12px", fontWeight: 800, fontSize: 22 }}>
+          아직 진단 결과가 없어요
+        </h1>
+        <p style={{ margin: "0 0 24px", fontSize: 14, color: "var(--ink-soft)" }}>
+          술BTI 취향 진단을 먼저 진행해 주세요.
         </p>
+        <Link href="/age" className="btn-primary" style={{ textAlign: "center", color: "#fff", maxWidth: 280 }}>
+          술BTI 시작하기
+        </Link>
       </div>
-    </Link>
-  );
-}
+    );
+  }
 
-export default function ResultPage() {
+  const recs = data?.result.recommendations ?? [];
+  const axes = data ? gauges(data.answers) : [];
+
   return (
     <div style={{ position: "relative", zIndex: 5 }}>
       <ScreenHeader title="술BTI 결과" backHref="/" />
 
-      {/* ── 신선 유형 족자 ── */}
+      {/* ── 신선 유형 족자 (유형 이름·일러스트는 후순위 TODO) ── */}
       <div style={{ padding: "2px 22px 20px", textAlign: "center" }}>
         <div style={{ fontSize: 12, letterSpacing: ".3em", color: "var(--pine)", marginBottom: 14 }}>
           京畿 神仙 · 나의 술 취향
@@ -96,7 +118,6 @@ export default function ResultPage() {
           }
         >
           <div style={{ display: "flex", gap: 14, textAlign: "left" }}>
-            {/* 세로쓰기 유형 이름 (플레이스홀더) */}
             <div
               className="serif"
               style={{
@@ -140,7 +161,7 @@ export default function ResultPage() {
       </div>
 
       <div style={{ padding: "4px 20px 44px", display: "flex", flexDirection: "column", gap: 30 }}>
-        {/* ── 유형 설명 ── */}
+        {/* ── 유형 설명 (플레이스홀더 유지) ── */}
         <section>
           <div className="section-title">
             <span className="bar" />
@@ -153,24 +174,20 @@ export default function ResultPage() {
           </div>
         </section>
 
-        {/* ── 취향 지도 (게이지) ── */}
+        {/* ── 취향 지도 (답변 기반 계산) ── */}
         <section>
           <div className="section-title">
             <span className="bar" />
             <h2>나의 취향 지도</h2>
           </div>
           <div className="card" style={{ padding: "18px 18px 8px" }}>
-            {/* TODO(내용 연결): 실제 취향 축 점수 */}
-            <Gauge label="산뜻함" value={0} />
-            <Gauge label="단맛" value={0} />
-            <Gauge label="쌀 향" value={0} />
-            <Gauge label="특산물 향" value={0} />
-            <Gauge label="질감" value={0} />
-            <Gauge label="고도수" value={0} />
+            {axes.map((a) => (
+              <Gauge key={a.label} label={a.label} value={a.value} />
+            ))}
           </div>
         </section>
 
-        {/* ── 신선 궁합 ── */}
+        {/* ── 신선 궁합 (플레이스홀더 유지) ── */}
         <section>
           <div className="section-title">
             <span className="bar" />
@@ -188,10 +205,7 @@ export default function ResultPage() {
               }}
             >
               <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 12 }}>잘 맞는 신선</div>
-              <div
-                className="ph-art"
-                style={{ width: 72, height: 72, margin: "0 auto 12px", borderRadius: "50%" }}
-              >
+              <div className="ph-art" style={{ width: 72, height: 72, margin: "0 auto 12px", borderRadius: "50%" }}>
                 <span className="ph-label">신선</span>
               </div>
               <div className="serif" style={{ fontWeight: 700, fontSize: 15, marginBottom: 5 }}>궁합 유형 자리</div>
@@ -208,10 +222,7 @@ export default function ResultPage() {
               }}
             >
               <div style={{ fontSize: 11, color: "var(--seal)", marginBottom: 12 }}>안 맞는 신선</div>
-              <div
-                className="ph-art"
-                style={{ width: 72, height: 72, margin: "0 auto 12px", borderRadius: "50%" }}
-              >
+              <div className="ph-art" style={{ width: 72, height: 72, margin: "0 auto 12px", borderRadius: "50%" }}>
                 <span className="ph-label">신선</span>
               </div>
               <div className="serif" style={{ fontWeight: 700, fontSize: 15, marginBottom: 5 }}>궁합 유형 자리</div>
@@ -220,7 +231,7 @@ export default function ResultPage() {
           </div>
         </section>
 
-        {/* ── 추천 3잔 ── */}
+        {/* ── AI 추천 3잔 ── */}
         <section>
           <div className="section-title" style={{ marginBottom: 6 }}>
             <span className="bar red" />
@@ -228,16 +239,95 @@ export default function ResultPage() {
           </div>
           <p style={{ margin: "0 0 16px", paddingLeft: 14, fontSize: 12.5, lineHeight: 1.55, color: "var(--pine)" }}>
             AI 소믈리에가 <b>취향에 근거해</b> 고른 술 — 탭하면 상세로 이동해요.
+            {data?.result.fallback && (
+              <span style={{ display: "block", marginTop: 4, color: "var(--ink-faint)" }}>
+                (지금은 규칙 기반 추천 — AI 연동 시 이유가 더 정교해져요)
+              </span>
+            )}
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <RecCard rank={1} color="#b5482f" />
-            <RecCard rank={2} color="#3f5c52" />
-            <RecCard rank={3} color="#8a7656" />
+            {recs.map((rec, i) => {
+              const color = RANK_COLORS[i] ?? RANK_COLORS[0];
+              return (
+                <Link
+                  key={rec.id}
+                  href={`/drink/${rec.id}`}
+                  className="card"
+                  style={{ display: "block", padding: 16, borderRadius: 18, color: "inherit" }}
+                >
+                  <div style={{ display: "flex", gap: 13, alignItems: "center", marginBottom: 12 }}>
+                    <div
+                      className="serif"
+                      style={{
+                        width: 34,
+                        height: 34,
+                        flexShrink: 0,
+                        borderRadius: 8,
+                        background: color,
+                        color: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 800,
+                        fontSize: 16,
+                      }}
+                    >
+                      {i + 1}
+                    </div>
+                    {rec.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={rec.image}
+                        alt={rec.name}
+                        style={{
+                          width: 40,
+                          height: 56,
+                          flexShrink: 0,
+                          borderRadius: 6,
+                          objectFit: "contain",
+                          background: "var(--hanji-bright)",
+                          border: "1px solid rgba(32,48,42,.08)",
+                        }}
+                      />
+                    ) : (
+                      <div className="ph-art" style={{ width: 40, height: 56, flexShrink: 0, borderRadius: 6 }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="serif" style={{ fontWeight: 700, fontSize: 16 }}>{rec.name}</div>
+                      <div style={{ fontSize: 12, color: "var(--ink-faint)" }}>
+                        {rec.region.replace(/[시군]$/, "")} · {rec.type} · {rec.abv}도
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div className="serif" style={{ fontWeight: 800, fontSize: 19, color: "var(--pine)" }}>
+                        {rec.matchPct}%
+                      </div>
+                      <div style={{ fontSize: 10, color: "#8a9089" }}>취향 일치</div>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      background: "rgba(63,92,82,.07)",
+                      borderLeft: `3px solid ${color}`,
+                      borderRadius: "0 10px 10px 0",
+                      padding: "11px 13px",
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color, marginBottom: 4 }}>AI 추천 이유</div>
+                    <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: "var(--ink-soft)" }}>{rec.reason}</p>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </section>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-          <Link href="/ar" className="btn-primary" style={{ textAlign: "center", color: "#fff" }}>
+          <Link
+            href={recs[0] ? `/ar?drink=${recs[0].id}` : "/ar"}
+            className="btn-primary"
+            style={{ textAlign: "center", color: "#fff" }}
+          >
             1위 술로 AR 양조 체험하기
           </Link>
           <Link href="/sulbti" className="btn-outline" style={{ textAlign: "center", color: "var(--ink)" }}>
