@@ -8,11 +8,13 @@ import db from "@/data/drinks.json";
  * 등록 지역(붉은색)은 전통주 DB에서 자동 산출. 목록 카드 내용은 플레이스홀더.
  */
 
-/** DB에서 지역별 등록 술 개수 산출 */
-function regionCounts(): Map<string, number> {
-  const counts = new Map<string, number>();
+/** DB에서 지역별 등록 술 개수·대표 술 이름 산출 */
+function regionCounts(): Map<string, { count: number; first: string }> {
+  const counts = new Map<string, { count: number; first: string }>();
   for (const d of db.drinks) {
-    counts.set(d.region, (counts.get(d.region) ?? 0) + 1);
+    const entry = counts.get(d.region);
+    if (entry) entry.count += 1;
+    else counts.set(d.region, { count: 1, first: d.name });
   }
   return counts;
 }
@@ -72,7 +74,7 @@ export default function MapPage() {
           전통주가 등록된 고장
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
-          {[...counts.entries()].map(([region, count]) => (
+          {[...counts.entries()].map(([region, { count, first }]) => (
             <Link
               key={region}
               href={`/map/${encodeURIComponent(region)}`}
@@ -93,8 +95,7 @@ export default function MapPage() {
                   {count}종
                 </span>
               </div>
-              {/* TODO(내용 연결): 대표 술 이름 */}
-              <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 5 }}>대표 술 이름 자리</div>
+              <div style={{ fontSize: 12, color: "var(--ink-faint)", marginTop: 5 }}>{first}</div>
             </Link>
           ))}
         </div>

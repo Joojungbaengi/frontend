@@ -62,9 +62,13 @@ export default function ScanPage() {
           <br />
           맞춰주세요. 인식 후 제품 정보를 불러옵니다.
         </p>
-        {/* TODO(내용 연결): 실제 인식 결과로 이동 */}
-        <Link href="/drink/placeholder" className="btn-primary" style={{ display: "block", textAlign: "center", color: "#fff", padding: 16 }}>
-          제품 인식됨 · 정보 보기 (자리)
+        {/* TODO(내용 연결): 카메라·바코드 인식 연동 — 지금은 이미지 스캔 대상 제품(동림청주)으로 이동 */}
+        <Link
+          href="/drink/cheongju_yongin_dongnim"
+          className="btn-primary"
+          style={{ display: "block", textAlign: "center", color: "#fff", padding: 16 }}
+        >
+          제품 인식됨 · 정보 보기
         </Link>
         <div style={{ marginTop: 12, fontSize: 12, color: "rgba(255,255,255,.55)" }}>
           등록되지 않은 제품인가요? <span style={{ color: "#dbe8d5" }}>직접 검색</span>

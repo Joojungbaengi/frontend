@@ -1,15 +1,22 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
+import type { Drink } from "@/lib/types";
 
 /**
  * 지역 전통주 목록 — 지도 조각을 눌러 들어오는 화면.
- * 술 목록은 DB의 이름만 쓰고 소개·태그는 플레이스홀더.
+ * drinks.json의 지역별 술 데이터를 연결.
  */
+
+const drinks = db.drinks as unknown as Drink[];
+
 export default async function RegionPage({ params }: { params: Promise<{ region: string }> }) {
   const { region: raw } = await params;
   const region = decodeURIComponent(raw);
-  const drinks = db.drinks.filter((d) => d.region === region);
+  const regionDrinks = drinks.filter((d) => d.region === region);
+
+  // 지역 원료 이야기: 해당 지역 술들의 특산물을 모아 구성
+  const specialties = [...new Set(regionDrinks.map((d) => d.local_specialty))];
 
   return (
     <div style={{ position: "relative", zIndex: 5, minHeight: "100vh" }}>
@@ -19,55 +26,75 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
         <h1 className="serif" style={{ margin: "0 0 6px", fontWeight: 800, fontSize: 24 }}>
           {region} 전통주
         </h1>
-        {/* TODO(내용 연결): 지역 소개 문구 */}
         <p style={{ margin: "0 0 20px", fontSize: 13, lineHeight: 1.55, color: "var(--ink-soft)" }}>
-          지역 소개 문구가 들어갈 자리예요. (플레이스홀더)
+          {regionDrinks.length > 0
+            ? `${region}에서 빚는 전통주 ${regionDrinks.length}종이 등록되어 있어요.`
+            : `${region}의 전통주는 자료조사 중이에요.`}
         </p>
 
-        {drinks.length > 0 ? (
+        {regionDrinks.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {drinks.map((d) => (
+            {regionDrinks.map((d) => (
               <Link
                 key={d.id}
                 href={`/drink/${d.id}`}
                 className="card"
                 style={{ display: "flex", gap: 14, alignItems: "stretch", padding: 14, borderRadius: 16, color: "inherit" }}
               >
-                <div className="ph-art" style={{ width: 58, flexShrink: 0, borderRadius: 8 }}>
-                  <span className="ph-label" style={{ writingMode: "vertical-rl" }}>제품 이미지</span>
-                </div>
+                {d.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={d.image}
+                    alt={d.name}
+                    style={{
+                      width: 58,
+                      flexShrink: 0,
+                      borderRadius: 8,
+                      objectFit: "contain",
+                      background: "var(--hanji-bright)",
+                      border: "1px solid rgba(32,48,42,.08)",
+                    }}
+                  />
+                ) : (
+                  <div className="ph-art" style={{ width: 58, flexShrink: 0, borderRadius: 8 }}>
+                    <span className="ph-label" style={{ writingMode: "vertical-rl" }}>제품 이미지</span>
+                  </div>
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="serif" style={{ fontWeight: 700, fontSize: 16 }}>{d.name}</div>
-                  {/* TODO(내용 연결): 주종·도수·소개·맛/향 태그 */}
                   <div style={{ fontSize: 11.5, color: "var(--ink-faint)", margin: "2px 0 7px" }}>
-                    주종 · 도수 자리
+                    {d.brewery} · {d.type} · {d.abv}도
                   </div>
                   <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-soft)", marginBottom: 8 }}>
-                    한 줄 소개가 들어갈 자리예요. (플레이스홀더)
+                    {d.description.length > 60 ? `${d.description.slice(0, 60)}…` : d.description}
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                    <span
-                      style={{
-                        fontSize: 10.5,
-                        background: "var(--moss)",
-                        color: "var(--pine)",
-                        padding: "3px 9px",
-                        borderRadius: 99,
-                      }}
-                    >
-                      맛 · 자리
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 10.5,
-                        background: "#ece2cf",
-                        color: "#8a6a4a",
-                        padding: "3px 9px",
-                        borderRadius: 99,
-                      }}
-                    >
-                      향 · 자리
-                    </span>
+                    {d.taste_notes[0] && (
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          background: "var(--moss)",
+                          color: "var(--pine)",
+                          padding: "3px 9px",
+                          borderRadius: 99,
+                        }}
+                      >
+                        맛 · {d.taste_notes[0]}
+                      </span>
+                    )}
+                    {d.aroma_notes[0] && (
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          background: "#ece2cf",
+                          color: "#8a6a4a",
+                          padding: "3px 9px",
+                          borderRadius: 99,
+                        }}
+                      >
+                        향 · {d.aroma_notes[0]}
+                      </span>
+                    )}
                   </div>
                 </div>
               </Link>
@@ -92,13 +119,14 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
           </div>
         )}
 
-        <div style={{ marginTop: 22, background: "var(--moss)", borderRadius: 16, padding: "15px 16px" }}>
-          <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 6 }}>지역 원료 이야기</div>
-          {/* TODO(내용 연결): 지역 원료 스토리 */}
-          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "#33443b" }}>
-            지역 원료 이야기가 들어갈 자리예요. (플레이스홀더)
-          </p>
-        </div>
+        {specialties.length > 0 && (
+          <div style={{ marginTop: 22, background: "var(--moss)", borderRadius: 16, padding: "15px 16px" }}>
+            <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 6 }}>지역 원료 이야기</div>
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "#33443b" }}>
+              {region}의 술은 {specialties.join(", ")}에서 태어납니다.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
