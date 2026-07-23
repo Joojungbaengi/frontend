@@ -69,7 +69,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                 height: 132,
                 flexShrink: 0,
                 borderRadius: 12,
-                objectFit: "contain",
+                objectFit: "cover",
                 background: "var(--hanji-bright)",
                 border: "1px solid rgba(32,48,42,.1)",
                 boxShadow: "0 10px 24px rgba(63,92,82,.16)",

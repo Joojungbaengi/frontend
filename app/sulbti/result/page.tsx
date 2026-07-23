@@ -284,7 +284,7 @@ export default function ResultPage() {
                           height: 56,
                           flexShrink: 0,
                           borderRadius: 6,
-                          objectFit: "contain",
+                          objectFit: "cover",
                           background: "var(--hanji-bright)",
                           border: "1px solid rgba(32,48,42,.08)",
                         }}

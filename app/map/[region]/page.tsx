@@ -50,7 +50,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
                       width: 58,
                       flexShrink: 0,
                       borderRadius: 8,
-                      objectFit: "contain",
+                      objectFit: "cover",
                       background: "var(--hanji-bright)",
                       border: "1px solid rgba(32,48,42,.08)",
                     }}
