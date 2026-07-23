@@ -1,17 +1,21 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { QUESTIONS } from "@/data/questions";
 import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
 
 /**
  * 술BTI 진단 플로우: 객관식 질문(Q1~Q10) → 자유 답변 → 분석(API 호출) → 결과.
- * 질문 데이터: data/questions.ts (material/술BTI_질문지.md 기반)
+ * - 선택은 질문별로 저장되어 앞뒤로 이동해도 유지된다.
+ * - 좌우 스와이프 / 좌우 화살표 버튼으로 이전·다음 질문 이동.
+ * - 헤더 뒤로가기는 홈으로 이탈 (확인 문구 1회).
  * 결과는 sessionStorage("sulbti")에 저장하고 /sulbti/result 에서 읽는다.
  */
 
 type Phase = "quiz" | "free" | "analyzing";
+/** 질문별 선택 상태: 단일 = 옵션 인덱스, 복수(Q6) = 인덱스 배열 */
+type Pick = number | number[] | null;
 
 /** 로딩 화면에 보여줄 취향 축 요약 */
 function summaryLines(answers: SurveyAnswers): string[] {
@@ -28,54 +32,102 @@ function summaryLines(answers: SurveyAnswers): string[] {
   return lines.slice(0, 4);
 }
 
+/** 질문별 선택(picks)을 SurveyAnswers로 병합 */
+function buildAnswers(picks: Pick[]): SurveyAnswers {
+  let answers: SurveyAnswers = {};
+  QUESTIONS.forEach((question, qi) => {
+    const pick = picks[qi];
+    if (pick === null || pick === undefined) return;
+    if (question.multi && Array.isArray(pick)) {
+      const aromas = pick
+        .map((i) => question.options[i].aroma)
+        .filter((a): a is NonNullable<typeof a> => a !== undefined);
+      answers = { ...answers, aromaTypes: aromas };
+    } else if (typeof pick === "number") {
+      answers = { ...answers, ...question.options[pick].patch };
+    }
+  });
+  return answers;
+}
+
 export default function SulbtiPage() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("quiz");
   const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<SurveyAnswers>({});
-  const [multiPicks, setMultiPicks] = useState<Set<number>>(new Set());
+  const [picks, setPicks] = useState<Pick[]>(() => QUESTIONS.map(() => null));
   const [freeText, setFreeText] = useState("");
+  const [confirmExit, setConfirmExit] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const total = QUESTIONS.length;
   const question = QUESTIONS[Math.min(step, total - 1)];
+  const currentPick = picks[step];
+  const answered = question.multi
+    ? Array.isArray(currentPick) && currentPick.length > 0
+    : currentPick !== null && currentPick !== undefined;
 
-  const next = () => {
-    if (step < total - 1) {
-      setStep(step + 1);
-      setMultiPicks(new Set());
-    } else {
-      setPhase("free");
-    }
+  /* ── 이동 ── */
+  const goPrev = () => {
+    if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
+    if (phase === "free") { setPhase("quiz"); setStep(total - 1); return; }
+    if (step > 0) setStep(step - 1);
   };
 
-  /** 단일 선택: patch 병합 후 다음 질문 */
-  const pickSingle = (patch: Partial<SurveyAnswers>) => {
-    setAnswers((a) => ({ ...a, ...patch }));
-    next();
+  const goNext = () => {
+    if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
+    if (phase !== "quiz") return;
+    if (!answered) return; // 현재 질문에 답해야 다음으로
+    if (step < total - 1) setStep(step + 1);
+    else setPhase("free");
   };
 
-  /** 복수 선택(Q6): 토글 */
+  const canPrev = phase === "free" || step > 0;
+  const canNext = phase === "quiz" && answered;
+
+  /* ── 스와이프 ── */
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (dx <= -52) goNext();
+    else if (dx >= 52) goPrev();
+  };
+
+  /* ── 선택 ── */
+  const pickSingle = (idx: number) => {
+    setPicks((p) => p.map((v, i) => (i === step ? idx : v)));
+    // 잠깐 눌린 상태를 보여준 뒤 자동으로 다음 질문으로
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    advanceTimer.current = setTimeout(() => {
+      advanceTimer.current = null;
+      setStep((s) => (s < total - 1 ? s + 1 : s));
+      if (step >= total - 1) setPhase("free");
+    }, 350);
+  };
+
   const toggleMulti = (idx: number) => {
-    setMultiPicks((prev) => {
-      const s = new Set(prev);
-      if (s.has(idx)) s.delete(idx);
-      else s.add(idx);
-      return s;
-    });
+    setPicks((p) =>
+      p.map((v, i) => {
+        if (i !== step) return v;
+        const arr = Array.isArray(v) ? [...v] : [];
+        const at = arr.indexOf(idx);
+        if (at >= 0) arr.splice(at, 1);
+        else arr.push(idx);
+        return arr;
+      })
+    );
   };
 
-  const confirmMulti = () => {
-    const aromas = [...multiPicks]
-      .map((i) => question.options[i].aroma)
-      .filter((a): a is NonNullable<typeof a> => a !== undefined);
-    setAnswers((a) => ({ ...a, aromaTypes: aromas }));
-    next();
-  };
+  /* ── 홈 이탈 확인 ── */
+  const exitHome = () => setConfirmExit(true);
 
-  /** 자유 답변 제출 → API 호출 → 결과 저장 → 이동 */
+  /* ── 자유 답변 제출 → API 호출 → 결과 저장 → 이동 ── */
   const submit = async () => {
-    const finalAnswers: SurveyAnswers = { ...answers, freeText: freeText.trim() || undefined };
-    setAnswers(finalAnswers);
+    const finalAnswers: SurveyAnswers = { ...buildAnswers(picks), freeText: freeText.trim() || undefined };
     setPhase("analyzing");
 
     try {
@@ -95,14 +147,14 @@ export default function SulbtiPage() {
 
   /* ── 분석 로딩 ── */
   if (phase === "analyzing") {
-    const lines = summaryLines(answers);
+    const lines = summaryLines(buildAnswers(picks));
     return (
       <div
         style={{
           position: "relative",
           zIndex: 5,
           padding: "60px 22px",
-          minHeight: "100vh",
+          minHeight: "100dvh",
           display: "flex",
           flexDirection: "column",
           justifyContent: "center",
@@ -154,36 +206,51 @@ export default function SulbtiPage() {
     );
   }
 
-  /* ── 자유 답변 ── */
-  if (phase === "free") {
-    return (
-      <div
-        style={{
-          position: "relative",
-          zIndex: 5,
-          padding: "60px 22px 40px",
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 34 }}>
-          <button className="btn-back" onClick={() => setPhase("quiz")} aria-label="뒤로가기">
-            <svg width="9" height="16" viewBox="0 0 9 16">
-              <path d="M8 1L1 8l7 7" stroke="#20302a" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          <div style={{ flex: 1, height: 8, borderRadius: 99, background: "rgba(255,255,255,.5)", overflow: "hidden" }}>
-            <div style={{ height: "100%", width: "100%", background: "var(--seal)", borderRadius: 99 }} />
-          </div>
-          <div style={{ fontSize: 12, color: "var(--pine)" }}>마지막</div>
-        </div>
+  const isFree = phase === "free";
 
+  return (
+    <div
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      style={{
+        position: "relative",
+        zIndex: 5,
+        padding: "60px 22px 40px",
+        minHeight: "100dvh",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {/* ── 상단: 홈 이탈 + 진행 바 ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 30 }}>
+        <button className="btn-back" onClick={exitHome} aria-label="홈으로 나가기">
+          <svg width="9" height="16" viewBox="0 0 9 16">
+            <path d="M8 1L1 8l7 7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <div style={{ flex: 1, height: 8, borderRadius: 99, background: "rgba(255,255,255,.5)", overflow: "hidden" }}>
+          <div
+            style={{
+              height: "100%",
+              background: "var(--seal)",
+              borderRadius: 99,
+              transition: "width .3s",
+              width: isFree ? "100%" : `${Math.round(((step + 1) / total) * 100)}%`,
+            }}
+          />
+        </div>
+        <div style={{ fontSize: 12, color: "var(--pine)", minWidth: 44, textAlign: "right" }}>
+          {isFree ? "마지막" : `${step + 1} / ${total}`}
+        </div>
+      </div>
+
+      {/* ── 본문 ── */}
+      {isFree ? (
         <div style={{ margin: "auto 0" }}>
           <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--seal)", marginBottom: 14 }}>
             자유롭게 적어주세요
           </div>
-          <h1 className="serif" style={{ margin: "0 0 22px", fontWeight: 800, fontSize: 25, lineHeight: 1.5 }}>
+          <h1 className="serif" style={{ margin: "0 0 22px", fontWeight: 800, fontSize: 25, lineHeight: 1.5, wordBreak: "keep-all" }}>
             어떤 술을 좋아하는지
             <br />
             편하게 들려주세요
@@ -211,103 +278,123 @@ export default function SulbtiPage() {
             AI가 문장의 의미를 읽어 취향 축으로 정리해요. 건너뛰어도 괜찮아요.
           </p>
         </div>
-
-        <button className="btn-primary" style={{ marginTop: "auto" }} onClick={submit}>
-          내 신선 유형 분석하기
-        </button>
-      </div>
-    );
-  }
-
-  /* ── 객관식 질문 ── */
-  return (
-    <div
-      style={{
-        position: "relative",
-        zIndex: 5,
-        padding: "60px 22px 40px",
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 34 }}>
-        <button
-          className="btn-back"
-          onClick={() => (step > 0 ? setStep(step - 1) : router.push("/age"))}
-          aria-label="뒤로가기"
-        >
-          <svg width="9" height="16" viewBox="0 0 9 16">
-            <path d="M8 1L1 8l7 7" stroke="#20302a" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <div style={{ flex: 1, height: 8, borderRadius: 99, background: "rgba(255,255,255,.5)", overflow: "hidden" }}>
-          <div
+      ) : (
+        <div style={{ margin: "auto 0" }}>
+          <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--seal)", marginBottom: 14 }}>
+            술BTI 취향 진단 · {question.topic}
+          </div>
+          <h1
+            className="serif"
             style={{
-              height: "100%",
-              background: "var(--seal)",
-              borderRadius: 99,
-              transition: "width .3s",
-              width: `${Math.round(((step + 1) / total) * 100)}%`,
+              margin: "0 0 30px",
+              fontWeight: 800,
+              fontSize: 23,
+              lineHeight: 1.5,
+              whiteSpace: "pre-line",
+              wordBreak: "keep-all",
             }}
-          />
-        </div>
-        <div style={{ fontSize: 12, color: "var(--pine)" }}>
-          {step + 1} / {total}
-        </div>
-      </div>
-
-      <div style={{ margin: "auto 0" }}>
-        <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--seal)", marginBottom: 14 }}>
-          술BTI 취향 진단 · {question.topic}
-        </div>
-        <h1
-          className="serif"
-          style={{ margin: "0 0 34px", fontWeight: 800, fontSize: 24, lineHeight: 1.5, whiteSpace: "pre-line" }}
-        >
-          {question.q}
-        </h1>
-        <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
-          {question.options.map((opt, idx) => {
-            const selected = question.multi && multiPicks.has(idx);
-            return (
-              <button
-                key={opt.label}
-                onClick={() => (question.multi ? toggleMulti(idx) : pickSingle(opt.patch))}
-                className="serif"
-                style={{
-                  textAlign: "left",
-                  border: selected ? "2px solid var(--seal)" : "1px solid rgba(32,48,42,.1)",
-                  background: selected ? "var(--hanji-bright)" : "var(--hanji)",
-                  borderRadius: 18,
-                  padding: "17px 20px",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: 16,
-                  color: "var(--ink)",
-                  boxShadow: "0 8px 18px rgba(63,92,82,.1)",
-                }}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-        {question.multi && (
-          <button
-            className="btn-primary"
-            style={{ marginTop: 20, opacity: multiPicks.size === 0 ? 0.5 : 1 }}
-            disabled={multiPicks.size === 0}
-            onClick={confirmMulti}
           >
-            {multiPicks.size > 0 ? `${multiPicks.size}개 선택 완료` : "향을 골라주세요"}
-          </button>
+            {question.q}
+          </h1>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {question.options.map((opt, idx) => {
+              const selected = question.multi
+                ? Array.isArray(currentPick) && currentPick.includes(idx)
+                : currentPick === idx;
+              return (
+                <button
+                  key={opt.label}
+                  onClick={() => (question.multi ? toggleMulti(idx) : pickSingle(idx))}
+                  className={`serif opt-btn${selected ? " selected" : ""}`}
+                >
+                  <span style={{ flex: 1, wordBreak: "keep-all" }}>{opt.label}</span>
+                  {selected && (
+                    <span className="opt-check" aria-hidden>
+                      ✓
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── 하단: 이전/다음 내비게이션 ── */}
+      <div style={{ marginTop: "auto", paddingTop: 22 }}>
+        {isFree ? (
+          <div style={{ display: "flex", gap: 11 }}>
+            <button className="btn-nav" onClick={goPrev} aria-label="이전 질문">
+              <svg width="9" height="16" viewBox="0 0 9 16">
+                <path d="M8 1L1 8l7 7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button className="btn-primary" style={{ flex: 1 }} onClick={submit}>
+              내 신선 유형 분석하기
+            </button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+              <button className="btn-nav" onClick={goPrev} disabled={!canPrev} aria-label="이전 질문">
+                <svg width="9" height="16" viewBox="0 0 9 16">
+                  <path d="M8 1L1 8l7 7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <div style={{ flex: 1, textAlign: "center", fontSize: 12, color: "rgba(32,48,42,.55)", wordBreak: "keep-all" }}>
+                {question.multi
+                  ? Array.isArray(currentPick) && currentPick.length > 0
+                    ? `${currentPick.length}개 선택 — 다음으로 넘어가요`
+                    : "여러 개를 골라도 좋아요"
+                  : "답을 고르면 다음으로 · 좌우로 넘겨 이동"}
+              </div>
+              <button className="btn-nav" onClick={goNext} disabled={!canNext} aria-label="다음 질문">
+                <svg width="9" height="16" viewBox="0 0 9 16" style={{ transform: "scaleX(-1)" }}>
+                  <path d="M8 1L1 8l7 7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+          </>
         )}
       </div>
 
-      <div style={{ textAlign: "center", fontSize: 12, color: "rgba(32,48,42,.5)", marginTop: "auto" }}>
-        {question.multi ? "여러 개를 골라도 좋아요" : "답을 고르면 다음 질문으로 넘어가요"}
-      </div>
+      {/* ── 홈 이탈 확인 모달 ── */}
+      {confirmExit && (
+        <div
+          onClick={() => setConfirmExit(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            background: "rgba(20,28,34,.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 30,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="card"
+            style={{ width: "100%", maxWidth: 320, padding: "26px 22px 20px", textAlign: "center", borderRadius: 22 }}
+          >
+            <h2 className="serif" style={{ margin: "0 0 8px", fontWeight: 800, fontSize: 18, wordBreak: "keep-all" }}>
+              술BTI를 그만두고 나갈까요?
+            </h2>
+            <p style={{ margin: "0 0 18px", fontSize: 13, lineHeight: 1.6, color: "var(--ink-faint)", wordBreak: "keep-all" }}>
+              지금까지 고른 답변은 저장되지 않아요.
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn-outline" style={{ flex: 1, padding: 13 }} onClick={() => setConfirmExit(false)}>
+                계속하기
+              </button>
+              <button className="btn-primary" style={{ flex: 1, padding: 13, fontSize: 14 }} onClick={() => router.push("/")}>
+                나가기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
