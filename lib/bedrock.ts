@@ -3,19 +3,19 @@
  * AWS 자격 증명은 .env.local의 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION 에서 읽는다.
  * (이 파일은 서버에서만 import 할 것 — 브라우저 번들에 들어가면 안 됨)
  */
-import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
+import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
 import { buildUserPrompt, RECOMMEND_SCHEMA, SYSTEM_PROMPT } from "./prompt";
 import type { ScoredDrink, SurveyAnswers } from "./types";
 
-// Bedrock 모델 ID는 `anthropic.` 접두사가 붙는다.
-const MODEL_ID = process.env.BEDROCK_MODEL_ID ?? "anthropic.claude-opus-4-8";
+// 이 계정에서 접근 가능한 최신 모델 (global 크로스 리전 프로파일 — us-east-1에서 호출)
+const MODEL_ID = process.env.BEDROCK_MODEL_ID ?? "global.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
-let client: AnthropicBedrockMantle | null = null;
+let client: AnthropicBedrock | null = null;
 
-function getClient(): AnthropicBedrockMantle {
+function getClient(): AnthropicBedrock {
   if (!client) {
-    client = new AnthropicBedrockMantle({
-      awsRegion: process.env.AWS_REGION ?? "ap-northeast-2",
+    client = new AnthropicBedrock({
+      awsRegion: process.env.AWS_REGION ?? "us-east-1",
     });
   }
   return client;
@@ -23,7 +23,10 @@ function getClient(): AnthropicBedrockMantle {
 
 /** AWS 자격 증명이 설정되어 있는지 (없으면 route에서 규칙 기반 fallback 사용) */
 export function isBedrockConfigured(): boolean {
-  return Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY);
+  return Boolean(
+    process.env.AWS_BEARER_TOKEN_BEDROCK ||
+      (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
+  );
 }
 
 export interface AiPick {
@@ -39,7 +42,6 @@ export async function pickTop3(answers: SurveyAnswers, candidates: ScoredDrink[]
   const response = await getClient().messages.create({
     model: MODEL_ID,
     max_tokens: 2048,
-    thinking: { type: "adaptive" },
     system: SYSTEM_PROMPT,
     output_config: { format: { type: "json_schema", schema: RECOMMEND_SCHEMA } },
     messages: [{ role: "user", content: buildUserPrompt(answers, candidates) }],
