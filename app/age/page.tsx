@@ -20,7 +20,7 @@ export default function AgePage() {
         aria-label="처음으로"
       >
         <svg width="9" height="16" viewBox="0 0 9 16">
-          <path d="M8 1L1 8l7 7" stroke="#20302a" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M8 1L1 8l7 7" stroke="#22303c" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </Link>
 
@@ -31,11 +31,11 @@ export default function AgePage() {
             height: 80,
             margin: "0 auto 22px",
             borderRadius: 20,
-            background: "var(--seal)",
+            background: "linear-gradient(160deg,#40679a,#2e5178)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 14px 30px rgba(181,72,47,.3)",
+            boxShadow: "0 14px 30px rgba(46,81,120,.32)",
           }}
         >
           <span className="serif" style={{ fontWeight: 800, fontSize: 30, color: "#fff" }}>19</span>

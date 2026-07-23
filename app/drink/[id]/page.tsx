@@ -32,7 +32,7 @@ function TasteGauge({ label, value }: { label: string; value: number }) {
         <span className="serif" style={{ fontWeight: 700, fontSize: 14 }}>{label}</span>
         <span style={{ fontSize: 12, color: "var(--pine)" }}>{value} / 5</span>
       </div>
-      <div style={{ height: 8, borderRadius: 99, background: "rgba(63,92,82,.13)" }}>
+      <div style={{ height: 8, borderRadius: 99, background: "rgba(53,89,126,.13)" }}>
         <div style={{ height: "100%", background: "var(--pine)", borderRadius: 99, width: `${(value / 5) * 100}%` }} />
       </div>
     </div>
@@ -71,20 +71,20 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                 borderRadius: 12,
                 objectFit: "cover",
                 background: "var(--hanji-bright)",
-                border: "1px solid rgba(32,48,42,.1)",
-                boxShadow: "0 10px 24px rgba(63,92,82,.16)",
+                border: "1px solid rgba(34,48,62,.1)",
+                boxShadow: "0 10px 24px rgba(53,89,126,.16)",
               }}
             />
           ) : (
             <div
               className="ph-art"
-              style={{ width: 96, height: 132, flexShrink: 0, borderRadius: 12, boxShadow: "0 10px 24px rgba(63,92,82,.16)" }}
+              style={{ width: 96, height: 132, flexShrink: 0, borderRadius: 12, boxShadow: "0 10px 24px rgba(53,89,126,.16)" }}
             >
               <span className="ph-label" style={{ writingMode: "vertical-rl" }}>제품 이미지</span>
             </div>
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: "var(--seal)", marginBottom: 4 }}>
+            <div style={{ fontSize: 12, color: "var(--pine)", marginBottom: 4 }}>
               {drink.region} · {drink.brewery}
             </div>
             <h1 className="serif" style={{ margin: "0 0 8px", fontWeight: 800, fontSize: 23, lineHeight: 1.3 }}>
@@ -139,7 +139,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                 justifyContent: "space-between",
                 gap: 16,
                 padding: "11px 0",
-                borderBottom: i < arr.length - 1 ? "1px solid rgba(32,48,42,.08)" : "none",
+                borderBottom: i < arr.length - 1 ? "1px solid rgba(34,48,62,.08)" : "none",
                 fontSize: 14,
               }}
             >
@@ -163,7 +163,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                 key={n}
                 style={{
                   fontSize: 12,
-                  background: "rgba(63,92,82,.09)",
+                  background: "rgba(53,89,126,.09)",
                   color: "var(--pine)",
                   padding: "5px 11px",
                   borderRadius: 99,
@@ -248,7 +248,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
         {/* ── 역사·비하인드 ── */}
         <div style={{ background: "var(--moss)", borderRadius: 16, padding: "15px 16px", marginBottom: 26 }}>
           <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 6 }}>역사 · 비하인드</div>
-          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.75, color: "#33443b" }}>{drink.story}</p>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.75, color: "#33475a" }}>{drink.story}</p>
         </div>
 
         {/* ── CTA ── */}
@@ -268,7 +268,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
               비슷한 술
             </button>
           </div>
-          <div style={{ textAlign: "center", fontSize: 11, color: "rgba(32,48,42,.5)", marginTop: 2 }}>
+          <div style={{ textAlign: "center", fontSize: 11, color: "rgba(34,48,62,.5)", marginTop: 2 }}>
             정보 출처: {drink.brewery} · 자료조사 기반
           </div>
         </div>

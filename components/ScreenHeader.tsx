@@ -28,7 +28,7 @@ export default function ScreenHeader({
         <svg width="9" height="16" viewBox="0 0 9 16">
           <path
             d="M8 1L1 8l7 7"
-            stroke={dark ? "#fff" : "#20302a"}
+            stroke={dark ? "#fff" : "#22303c"}
             strokeWidth="2"
             fill="none"
             strokeLinecap="round"

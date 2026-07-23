@@ -167,8 +167,8 @@ export default function SulbtiPage() {
             width: 96,
             height: 96,
             borderRadius: "50%",
-            border: "3px solid rgba(181,72,47,.18)",
-            borderTopColor: "var(--seal)",
+            border: "3px solid rgba(53,89,126,.18)",
+            borderTopColor: "var(--pine)",
             animation: "spin 1s linear infinite",
             marginBottom: 30,
           }}
@@ -232,7 +232,7 @@ export default function SulbtiPage() {
           <div
             style={{
               height: "100%",
-              background: "var(--seal)",
+              background: "var(--pine)",
               borderRadius: 99,
               transition: "width .3s",
               width: isFree ? "100%" : `${Math.round(((step + 1) / total) * 100)}%`,
@@ -247,7 +247,7 @@ export default function SulbtiPage() {
       {/* ── 본문 ── */}
       {isFree ? (
         <div style={{ margin: "auto 0" }}>
-          <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--seal)", marginBottom: 14 }}>
+          <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--pine)", marginBottom: 14 }}>
             자유롭게 적어주세요
           </div>
           <h1 className="serif" style={{ margin: "0 0 22px", fontWeight: 800, fontSize: 25, lineHeight: 1.5, wordBreak: "keep-all" }}>
@@ -263,7 +263,7 @@ export default function SulbtiPage() {
               width: "100%",
               height: 150,
               resize: "none",
-              border: "1px solid rgba(32,48,42,.14)",
+              border: "1px solid rgba(34,48,62,.14)",
               background: "var(--hanji)",
               borderRadius: 18,
               padding: 16,
@@ -271,7 +271,7 @@ export default function SulbtiPage() {
               lineHeight: 1.7,
               color: "var(--ink)",
               fontFamily: "var(--font-gowun), sans-serif",
-              boxShadow: "0 8px 18px rgba(63,92,82,.1)",
+              boxShadow: "0 8px 18px rgba(53,89,126,.1)",
             }}
           />
           <p style={{ margin: "12px 2px 0", fontSize: 12, lineHeight: 1.5, color: "var(--pine)" }}>
@@ -280,7 +280,7 @@ export default function SulbtiPage() {
         </div>
       ) : (
         <div style={{ margin: "auto 0" }}>
-          <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--seal)", marginBottom: 14 }}>
+          <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--pine)", marginBottom: 14 }}>
             술BTI 취향 진단 · {question.topic}
           </div>
           <h1
@@ -341,7 +341,7 @@ export default function SulbtiPage() {
                   <path d="M8 1L1 8l7 7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
-              <div style={{ flex: 1, textAlign: "center", fontSize: 12, color: "rgba(32,48,42,.55)", wordBreak: "keep-all" }}>
+              <div style={{ flex: 1, textAlign: "center", fontSize: 12, color: "rgba(34,48,62,.55)", wordBreak: "keep-all" }}>
                 {question.multi
                   ? Array.isArray(currentPick) && currentPick.length > 0
                     ? `${currentPick.length}개 선택 — 다음으로 넘어가요`

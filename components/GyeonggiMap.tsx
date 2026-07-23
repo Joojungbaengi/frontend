@@ -33,7 +33,7 @@ export default function GyeonggiMap({ activeRegions }: { activeRegions: string[]
           <path
             key={r.name}
             d={r.d}
-            fill={has ? "#b5482f" : "#d5e1d8"}
+            fill={has ? "#b5482f" : "#d3dde8"}
             stroke="#f4f0e6"
             strokeWidth={1.6}
             className={`map-piece${has ? "" : " inactive"}`}
@@ -48,7 +48,7 @@ export default function GyeonggiMap({ activeRegions }: { activeRegions: string[]
             key={`t-${r.name}`}
             x={r.cx}
             y={r.cy}
-            fill={has ? "#fff" : "#6b7a70"}
+            fill={has ? "#fff" : "#68788a"}
             fontSize={has ? 26 : 18}
             textAnchor="middle"
             dominantBaseline="middle"

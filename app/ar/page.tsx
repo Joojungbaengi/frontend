@@ -30,7 +30,7 @@ export default function ArPage() {
           alignItems: "center",
           justifyContent: "center",
           gap: 18,
-          background: "repeating-linear-gradient(45deg,#232c26,#232c26 16px,#1f2823 16px,#1f2823 32px)",
+          background: "repeating-linear-gradient(45deg,#222a35,#222a35 16px,#1e2530 16px,#1e2530 32px)",
         }}
       >
         <div

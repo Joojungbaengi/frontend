@@ -1,17 +1,19 @@
 @import "tailwindcss";
 
-/* ===== 경기술도가 디자인 토큰 (material/claude_design_example.html 기반) ===== */
+/* ===== 경기술도가 디자인 토큰 — 청화(靑華) 쪽빛 팔레트 ===== */
+/* 족자봉·인장(붉은 도장)은 그대로 두고, 기본 팔레트만 푸른 계열로 전환 */
 :root {
-  --ink: #20302a; /* 먹색 (본문) */
-  --ink-soft: #41403a;
-  --ink-faint: #6f6a5c;
-  --pine: #3f5c52; /* 소나무 녹색 (포인트) */
-  --seal: #b5482f; /* 인주 붉은색 (주 포인트) */
+  --ink: #22303c; /* 먹색 (푸른 기 도는 본문 먹) */
+  --ink-soft: #3d4551;
+  --ink-faint: #64707e;
+  --pine: #35597e; /* 쪽빛 남색 (주 포인트 — 구 소나무색 자리) */
+  --pine-dark: #294766;
+  --seal: #b5482f; /* 인주 붉은색 (도장·낙관 전용) */
   --seal-dark: #8f3a20;
   --hanji: #f5eede; /* 한지색 (카드 배경) */
   --hanji-bright: #fbf6ea;
-  --moss: #dbe8d5; /* 옅은 녹색 (배지·아이콘 배경) */
-  --dark: #1c241f; /* 카메라·AR 배경 */
+  --moss: #d9e6f0; /* 옅은 쪽빛 (배지·아이콘 배경) */
+  --dark: #1b232e; /* 카메라·AR 배경 */
 }
 
 @theme inline {
@@ -25,17 +27,18 @@ body {
 }
 
 body {
-  background: #9fb6ac;
+  background: #9cafc2;
   color: var(--ink);
   font-family: var(--font-gowun), system-ui, sans-serif;
+  word-break: keep-all; /* 한국어 단어 중간 줄바꿈 방지 */
 }
 
 a {
-  color: var(--seal);
+  color: var(--pine);
   text-decoration: none;
 }
 a:hover {
-  color: var(--seal-dark);
+  color: var(--pine-dark);
 }
 
 button {
@@ -79,9 +82,9 @@ button {
 .phone {
   max-width: 430px;
   margin: 0 auto;
-  min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
-  background: linear-gradient(180deg, #dce6df 0%, #c3d4cb 32%, #aec4bb 66%, #a6bdb3 100%);
+  background: linear-gradient(180deg, #dee7ee 0%, #c5d4e0 32%, #abbecf 66%, #a2b6c8 100%);
   background-attachment: fixed;
   color: var(--ink);
   overflow: hidden;
@@ -118,37 +121,46 @@ button {
 /* 한지 카드 */
 .card {
   background: var(--hanji);
-  border: 1px solid rgba(32, 48, 42, 0.08);
+  border: 1px solid rgba(34, 48, 62, 0.08);
   border-radius: 18px;
-  box-shadow: 0 8px 20px rgba(63, 92, 82, 0.1);
+  box-shadow: 0 8px 20px rgba(53, 89, 126, 0.1);
 }
 
-/* 버튼 */
+/* 버튼 — 쪽빛 남색, 위아래 미묘한 결(한지 붓결 느낌) */
 .btn-primary {
   width: 100%;
   border: none;
-  background: var(--seal);
+  background: linear-gradient(160deg, #40679a 0%, #35597e 55%, #2e5178 100%);
   color: #fff;
   font-family: var(--font-myeongjo), serif;
   font-weight: 700;
   font-size: 16px;
   padding: 17px;
-  border-radius: 15px;
+  border-radius: 16px;
   cursor: pointer;
-  box-shadow: 0 10px 22px rgba(181, 72, 47, 0.28);
+  box-shadow: 0 10px 22px rgba(46, 81, 120, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform 0.12s, box-shadow 0.12s, filter 0.15s;
 }
 .btn-primary:hover {
-  background: #a5402a;
+  filter: brightness(1.06);
+}
+.btn-primary:active {
+  transform: translateY(1px) scale(0.995);
+  box-shadow: 0 6px 14px rgba(46, 81, 120, 0.3);
 }
 .btn-outline {
   width: 100%;
-  border: 1.5px solid rgba(32, 48, 42, 0.28);
-  background: rgba(255, 255, 255, 0.4);
+  border: 1.5px solid rgba(53, 89, 126, 0.35);
+  background: rgba(255, 255, 255, 0.45);
   color: var(--ink);
   font-size: 15px;
   padding: 15px;
-  border-radius: 15px;
+  border-radius: 16px;
   cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-outline:hover {
+  background: rgba(255, 255, 255, 0.65);
 }
 
 /* 술BTI 선택지 버튼 */
@@ -157,7 +169,7 @@ button {
   align-items: center;
   gap: 10px;
   text-align: left;
-  border: 1px solid rgba(32, 48, 42, 0.1);
+  border: 1px solid rgba(34, 48, 62, 0.1);
   background: var(--hanji);
   border-radius: 18px;
   padding: 16px 18px;
@@ -166,23 +178,24 @@ button {
   font-size: 15.5px;
   line-height: 1.45;
   color: var(--ink);
-  box-shadow: 0 8px 18px rgba(63, 92, 82, 0.1);
+  box-shadow: 0 8px 18px rgba(53, 89, 126, 0.1);
   transition: border-color 0.15s, background 0.15s, transform 0.12s;
 }
 .opt-btn:active {
   transform: scale(0.985);
 }
 .opt-btn.selected {
-  border: 2px solid var(--seal);
+  border: 2px solid var(--pine);
   background: var(--hanji-bright);
   padding: 15px 17px; /* 테두리 두께만큼 보정 */
+  box-shadow: 0 8px 18px rgba(53, 89, 126, 0.18);
 }
 .opt-check {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: var(--seal);
+  background: var(--pine);
   color: #fff;
   font-size: 12px;
   display: flex;
@@ -195,7 +208,7 @@ button {
   width: 46px;
   height: 46px;
   flex-shrink: 0;
-  border: 1.5px solid rgba(32, 48, 42, 0.22);
+  border: 1.5px solid rgba(53, 89, 126, 0.3);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.55);
   color: var(--ink);
@@ -236,7 +249,7 @@ button {
   align-items: center;
   justify-content: space-between;
   padding: 16px 18px 12px;
-  background: linear-gradient(rgba(220, 230, 223, 0.92), rgba(220, 230, 223, 0));
+  background: linear-gradient(rgba(222, 231, 238, 0.92), rgba(222, 231, 238, 0));
   backdrop-filter: blur(4px);
 }
 .screen-header-title {
@@ -357,5 +370,13 @@ button {
   fill: var(--seal-dark);
 }
 .map-piece.inactive:hover {
-  fill: #c3d2c6;
+  fill: #c3cfda;
+}
+
+/* 동양풍 구름 장식 (배경이 많이 보이는 화면용) */
+.cloud-deco {
+  position: absolute;
+  color: var(--pine);
+  pointer-events: none;
+  z-index: 1;
 }

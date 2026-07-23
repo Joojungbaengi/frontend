@@ -17,7 +17,7 @@ interface StoredResult {
   result: RecommendResponse;
 }
 
-const RANK_COLORS = ["#b5482f", "#3f5c52", "#8a7656"];
+const RANK_COLORS = ["#b5482f", "#35597e", "#8a7656"];
 
 /** 답변으로 취향 지도 게이지(0~100) 계산 */
 function gauges(answers: SurveyAnswers): { label: string; value: number }[] {
@@ -43,7 +43,7 @@ function Gauge({ label, value }: { label: string; value: number }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 15 }}>
       <div style={{ width: 66, fontSize: 14, color: "var(--ink-faint)" }}>{label}</div>
-      <div style={{ flex: 1, height: 9, borderRadius: 99, background: "rgba(63,92,82,.13)" }}>
+      <div style={{ flex: 1, height: 9, borderRadius: 99, background: "rgba(53,89,126,.13)" }}>
         <div style={{ width: `${value}%`, height: "100%", background: "var(--pine)", borderRadius: 99 }} />
       </div>
       <div className="serif" style={{ width: 26, textAlign: "right", fontWeight: 700, fontSize: 13 }}>
@@ -201,7 +201,7 @@ export default function ResultPage() {
                 borderRadius: 18,
                 padding: "16px 14px",
                 textAlign: "center",
-                boxShadow: "0 8px 20px rgba(63,92,82,.1)",
+                boxShadow: "0 8px 20px rgba(53,89,126,.1)",
               }}
             >
               <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 12 }}>잘 맞는 신선</div>
@@ -209,7 +209,7 @@ export default function ResultPage() {
                 <span className="ph-label">신선</span>
               </div>
               <div className="serif" style={{ fontWeight: 700, fontSize: 15, marginBottom: 5 }}>궁합 유형 자리</div>
-              <div style={{ fontSize: 12, lineHeight: 1.5, color: "#5c6b58" }}>궁합 설명 자리 (플레이스홀더)</div>
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: "#54677a" }}>궁합 설명 자리 (플레이스홀더)</div>
             </div>
             <div
               style={{
@@ -218,7 +218,7 @@ export default function ResultPage() {
                 borderRadius: 18,
                 padding: "16px 14px",
                 textAlign: "center",
-                boxShadow: "0 8px 20px rgba(63,92,82,.1)",
+                boxShadow: "0 8px 20px rgba(53,89,126,.1)",
               }}
             >
               <div style={{ fontSize: 11, color: "var(--seal)", marginBottom: 12 }}>안 맞는 신선</div>
@@ -286,7 +286,7 @@ export default function ResultPage() {
                           borderRadius: 6,
                           objectFit: "cover",
                           background: "var(--hanji-bright)",
-                          border: "1px solid rgba(32,48,42,.08)",
+                          border: "1px solid rgba(34,48,62,.08)",
                         }}
                       />
                     ) : (
@@ -302,12 +302,12 @@ export default function ResultPage() {
                       <div className="serif" style={{ fontWeight: 800, fontSize: 19, color: "var(--pine)" }}>
                         {rec.matchPct}%
                       </div>
-                      <div style={{ fontSize: 10, color: "#8a9089" }}>취향 일치</div>
+                      <div style={{ fontSize: 10, color: "#8792a0" }}>취향 일치</div>
                     </div>
                   </div>
                   <div
                     style={{
-                      background: "rgba(63,92,82,.07)",
+                      background: "rgba(53,89,126,.07)",
                       borderLeft: `3px solid ${color}`,
                       borderRadius: "0 10px 10px 0",
                       padding: "11px 13px",

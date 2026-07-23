@@ -3,11 +3,11 @@ import Link from "next/link";
 /** 메인 메뉴 버튼 스타일 */
 const menuCard: React.CSSProperties = {
   textAlign: "left",
-  border: "1px solid rgba(32,48,42,.08)",
+  border: "1px solid rgba(34,48,62,.08)",
   background: "var(--hanji)",
   borderRadius: 20,
   padding: "20px 20px",
-  boxShadow: "0 10px 24px rgba(63,92,82,.14)",
+  boxShadow: "0 10px 24px rgba(53,89,126,.14)",
   display: "flex",
   alignItems: "center",
   gap: 16,
@@ -24,7 +24,7 @@ const iconBox: React.CSSProperties = {
   justifyContent: "center",
 };
 
-function Chevron({ color = "#b5482f" }: { color?: string }) {
+function Chevron({ color = "#35597e" }: { color?: string }) {
   return (
     <svg width="8" height="14" viewBox="0 0 8 14">
       <path d="M1 1l6 6-6 6" stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
@@ -65,8 +65,8 @@ export default function MainPage() {
         <Link href="/scan" style={{ ...menuCard, color: "inherit" }}>
           <div style={iconBox}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <rect x="3" y="6" width="18" height="12" rx="2" stroke="#3f5c52" strokeWidth="1.8" />
-              <path d="M6 9v6M9 9v6M12 9v6M15 9v6M18 9v6" stroke="#3f5c52" strokeWidth="1.4" />
+              <rect x="3" y="6" width="18" height="12" rx="2" stroke="#35597e" strokeWidth="1.8" />
+              <path d="M6 9v6M9 9v6M12 9v6M15 9v6M18 9v6" stroke="#35597e" strokeWidth="1.4" />
             </svg>
           </div>
           <div style={{ flex: 1 }}>
@@ -83,10 +83,10 @@ export default function MainPage() {
           href="/age"
           style={{
             ...menuCard,
-            border: "1px solid rgba(181,72,47,.16)",
-            background: "var(--seal)",
+            border: "1px solid rgba(53,89,126,.22)",
+            background: "linear-gradient(160deg,#40679a 0%,#35597e 55%,#2e5178 100%)",
             padding: "22px 20px",
-            boxShadow: "0 12px 28px rgba(181,72,47,.28)",
+            boxShadow: "0 12px 28px rgba(46,81,120,.32)",
             color: "#fff",
           }}
         >
@@ -114,8 +114,8 @@ export default function MainPage() {
         <Link href="/map" style={{ ...menuCard, color: "inherit" }}>
           <div style={iconBox}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z" stroke="#3f5c52" strokeWidth="1.8" />
-              <circle cx="12" cy="9" r="2.5" stroke="#3f5c52" strokeWidth="1.8" />
+              <path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z" stroke="#35597e" strokeWidth="1.8" />
+              <circle cx="12" cy="9" r="2.5" stroke="#35597e" strokeWidth="1.8" />
             </svg>
           </div>
           <div style={{ flex: 1 }}>
@@ -140,12 +140,12 @@ export default function MainPage() {
         }}
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-          <rect x="4" y="3" width="16" height="18" rx="2" stroke="#3f5c52" strokeWidth="1.8" />
-          <path d="M8 3v18" stroke="#3f5c52" strokeWidth="1.8" />
+          <rect x="4" y="3" width="16" height="18" rx="2" stroke="#35597e" strokeWidth="1.8" />
+          <path d="M8 3v18" stroke="#35597e" strokeWidth="1.8" />
         </svg>
         내 경기술 도감 <span style={{ color: "var(--seal)", fontWeight: 700 }}>0장</span>
       </Link>
-      <div style={{ textAlign: "center", fontSize: 11, color: "rgba(32,48,42,.5)" }}>
+      <div style={{ textAlign: "center", fontSize: 11, color: "rgba(34,48,62,.5)" }}>
         경기도 전통주 문화·발효과학 체험 콘텐츠
       </div>
     </div>

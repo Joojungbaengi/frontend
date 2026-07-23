@@ -52,7 +52,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
                       borderRadius: 8,
                       objectFit: "cover",
                       background: "var(--hanji-bright)",
-                      border: "1px solid rgba(32,48,42,.08)",
+                      border: "1px solid rgba(34,48,62,.08)",
                     }}
                   />
                 ) : (
@@ -104,7 +104,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
           <div
             style={{
               background: "var(--hanji)",
-              border: "1px dashed rgba(63,92,82,.3)",
+              border: "1px dashed rgba(53,89,126,.3)",
               borderRadius: 16,
               padding: "26px 18px",
               textAlign: "center",
@@ -122,7 +122,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
         {specialties.length > 0 && (
           <div style={{ marginTop: 22, background: "var(--moss)", borderRadius: 16, padding: "15px 16px" }}>
             <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 6 }}>지역 원료 이야기</div>
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "#33443b" }}>
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "#33475a" }}>
               {region}의 술은 {specialties.join(", ")}에서 태어납니다.
             </p>
           </div>

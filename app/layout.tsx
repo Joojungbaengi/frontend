@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Gowun_Dodum, Nanum_Myeongjo } from "next/font/google";
+import CloudDeco from "@/components/CloudDeco";
 import "./globals.css";
 
 // 디자인 예시(claude_design_example.html)와 동일한 폰트 구성
@@ -32,6 +33,7 @@ export default function RootLayout({
         <div className="phone">
           <div className="mist mist-a" />
           <div className="mist mist-b" />
+          <CloudDeco />
           {children}
         </div>
       </body>
