@@ -2,44 +2,100 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { QUESTIONS } from "@/data/questions";
+import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
 
 /**
- * 술BTI 진단 플로우: 객관식 질문 → 자유 답변 → 분석 로딩 → 결과.
- *
- * TODO(내용 연결): 질문·선택지를 material/술BTI_질문지.md 기준으로 교체하고,
- * 답변을 SurveyAnswers로 매핑해 /api/recommend 에 POST 한다.
+ * 술BTI 진단 플로우: 객관식 질문(Q1~Q10) → 자유 답변 → 분석(API 호출) → 결과.
+ * 질문 데이터: data/questions.ts (material/술BTI_질문지.md 기반)
+ * 결과는 sessionStorage("sulbti")에 저장하고 /sulbti/result 에서 읽는다.
  */
-const PLACEHOLDER_QUESTIONS = [
-  { q: "질문 1이 들어갈 자리예요.\n(플레이스홀더)", options: ["선택지 A", "선택지 B"] },
-  { q: "질문 2가 들어갈 자리예요.\n(플레이스홀더)", options: ["선택지 A", "선택지 B", "선택지 C"] },
-  { q: "질문 3이 들어갈 자리예요.\n(플레이스홀더)", options: ["선택지 A", "선택지 B"] },
-];
 
 type Phase = "quiz" | "free" | "analyzing";
+
+/** 로딩 화면에 보여줄 취향 축 요약 */
+function summaryLines(answers: SurveyAnswers): string[] {
+  const lines: string[] = [];
+  if (answers.sweetness !== undefined)
+    lines.push(`· 단맛 선호: ${answers.sweetness >= 4 ? "높음" : answers.sweetness >= 2 ? "보통" : "낮음"}`);
+  if (answers.body !== undefined)
+    lines.push(`· 질감 선호: ${answers.body >= 4 ? "묵직함" : answers.body >= 2.5 ? "중간" : "가벼움"}`);
+  if (answers.carbonation)
+    lines.push(`· 탄산감: ${{ high: "필수", some: "약하게", none: "없이" }[answers.carbonation]}`);
+  if (answers.abvRange && answers.abvRange !== "any")
+    lines.push(`· 도수: ${{ low: "저도수", mid: "중간", high: "고도수" }[answers.abvRange]}`);
+  if (answers.pairing) lines.push("· 음식 궁합 중요도: 높음");
+  return lines.slice(0, 4);
+}
 
 export default function SulbtiPage() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("quiz");
   const [step, setStep] = useState(0);
+  const [answers, setAnswers] = useState<SurveyAnswers>({});
+  const [multiPicks, setMultiPicks] = useState<Set<number>>(new Set());
   const [freeText, setFreeText] = useState("");
 
-  const total = PLACEHOLDER_QUESTIONS.length;
-  const question = PLACEHOLDER_QUESTIONS[Math.min(step, total - 1)];
+  const total = QUESTIONS.length;
+  const question = QUESTIONS[Math.min(step, total - 1)];
 
-  const pick = () => {
-    // TODO(내용 연결): 선택한 답을 상태에 저장
-    if (step < total - 1) setStep(step + 1);
-    else setPhase("free");
+  const next = () => {
+    if (step < total - 1) {
+      setStep(step + 1);
+      setMultiPicks(new Set());
+    } else {
+      setPhase("free");
+    }
   };
 
-  const submit = () => {
+  /** 단일 선택: patch 병합 후 다음 질문 */
+  const pickSingle = (patch: Partial<SurveyAnswers>) => {
+    setAnswers((a) => ({ ...a, ...patch }));
+    next();
+  };
+
+  /** 복수 선택(Q6): 토글 */
+  const toggleMulti = (idx: number) => {
+    setMultiPicks((prev) => {
+      const s = new Set(prev);
+      if (s.has(idx)) s.delete(idx);
+      else s.add(idx);
+      return s;
+    });
+  };
+
+  const confirmMulti = () => {
+    const aromas = [...multiPicks]
+      .map((i) => question.options[i].aroma)
+      .filter((a): a is NonNullable<typeof a> => a !== undefined);
+    setAnswers((a) => ({ ...a, aromaTypes: aromas }));
+    next();
+  };
+
+  /** 자유 답변 제출 → API 호출 → 결과 저장 → 이동 */
+  const submit = async () => {
+    const finalAnswers: SurveyAnswers = { ...answers, freeText: freeText.trim() || undefined };
+    setAnswers(finalAnswers);
     setPhase("analyzing");
-    // TODO(내용 연결): /api/recommend 호출 후 결과 페이지로 이동 (지금은 연출만)
-    setTimeout(() => router.push("/sulbti/result"), 2200);
+
+    try {
+      const res = await fetch("/api/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(finalAnswers),
+      });
+      const data: RecommendResponse = await res.json();
+      sessionStorage.setItem("sulbti", JSON.stringify({ answers: finalAnswers, result: data }));
+    } catch {
+      sessionStorage.removeItem("sulbti");
+    }
+    // 로딩 연출을 최소 2초 보여준 뒤 이동
+    setTimeout(() => router.push("/sulbti/result"), 2000);
   };
 
   /* ── 분석 로딩 ── */
   if (phase === "analyzing") {
+    const lines = summaryLines(answers);
     return (
       <div
         style={{
@@ -73,25 +129,27 @@ export default function SulbtiPage() {
           <br />
           경기도 전통주 DB와 맞춰보고 있어요
         </p>
-        <div
-          style={{
-            width: "100%",
-            maxWidth: 280,
-            background: "rgba(245,238,222,.7)",
-            borderRadius: 16,
-            padding: "16px 18px",
-            textAlign: "left",
-            fontSize: 13,
-            lineHeight: 2,
-            color: "var(--pine)",
-          }}
-        >
-          {/* TODO(내용 연결): 실제 분석된 취향 축 표시 */}
-          <div style={{ animation: "rise .5s .1s both" }}>· 취향 축 플레이스홀더 1</div>
-          <div style={{ animation: "rise .5s .4s both" }}>· 취향 축 플레이스홀더 2</div>
-          <div style={{ animation: "rise .5s .7s both" }}>· 취향 축 플레이스홀더 3</div>
-          <div style={{ animation: "rise .5s 1s both" }}>· 취향 축 플레이스홀더 4</div>
-        </div>
+        {lines.length > 0 && (
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 280,
+              background: "rgba(245,238,222,.7)",
+              borderRadius: 16,
+              padding: "16px 18px",
+              textAlign: "left",
+              fontSize: 13,
+              lineHeight: 2,
+              color: "var(--pine)",
+            }}
+          >
+            {lines.map((line, i) => (
+              <div key={line} style={{ animation: `rise .5s ${0.1 + i * 0.3}s both` }}>
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -201,41 +259,54 @@ export default function SulbtiPage() {
 
       <div style={{ margin: "auto 0" }}>
         <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--seal)", marginBottom: 14 }}>
-          술BTI 취향 진단
+          술BTI 취향 진단 · {question.topic}
         </div>
         <h1
           className="serif"
-          style={{ margin: "0 0 34px", fontWeight: 800, fontSize: 26, lineHeight: 1.5, whiteSpace: "pre-line" }}
+          style={{ margin: "0 0 34px", fontWeight: 800, fontSize: 24, lineHeight: 1.5, whiteSpace: "pre-line" }}
         >
           {question.q}
         </h1>
         <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
-          {question.options.map((opt) => (
-            <button
-              key={opt}
-              onClick={pick}
-              className="serif"
-              style={{
-                textAlign: "left",
-                border: "1px solid rgba(32,48,42,.1)",
-                background: "var(--hanji)",
-                borderRadius: 18,
-                padding: 20,
-                cursor: "pointer",
-                fontWeight: 700,
-                fontSize: 17,
-                color: "var(--ink)",
-                boxShadow: "0 8px 18px rgba(63,92,82,.1)",
-              }}
-            >
-              {opt}
-            </button>
-          ))}
+          {question.options.map((opt, idx) => {
+            const selected = question.multi && multiPicks.has(idx);
+            return (
+              <button
+                key={opt.label}
+                onClick={() => (question.multi ? toggleMulti(idx) : pickSingle(opt.patch))}
+                className="serif"
+                style={{
+                  textAlign: "left",
+                  border: selected ? "2px solid var(--seal)" : "1px solid rgba(32,48,42,.1)",
+                  background: selected ? "var(--hanji-bright)" : "var(--hanji)",
+                  borderRadius: 18,
+                  padding: "17px 20px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  color: "var(--ink)",
+                  boxShadow: "0 8px 18px rgba(63,92,82,.1)",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
+        {question.multi && (
+          <button
+            className="btn-primary"
+            style={{ marginTop: 20, opacity: multiPicks.size === 0 ? 0.5 : 1 }}
+            disabled={multiPicks.size === 0}
+            onClick={confirmMulti}
+          >
+            {multiPicks.size > 0 ? `${multiPicks.size}개 선택 완료` : "향을 골라주세요"}
+          </button>
+        )}
       </div>
 
       <div style={{ textAlign: "center", fontSize: 12, color: "rgba(32,48,42,.5)", marginTop: "auto" }}>
-        앞선 답변에 따라 다음 질문이 달라져요
+        {question.multi ? "여러 개를 골라도 좋아요" : "답을 고르면 다음 질문으로 넘어가요"}
       </div>
     </div>
   );
