@@ -11,10 +11,10 @@ export default function DexPage() {
   const total = db.drinks.length;
 
   return (
-    <div style={{ position: "relative", zIndex: 5, minHeight: "100vh" }}>
+    <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
       <ScreenHeader title="경기술 도감" backHref="/" />
 
-      <div style={{ padding: "6px 18px 44px" }}>
+      <div style={{ padding: "6px 22px 44px" }}>
         <h1 className="serif" style={{ margin: "0 0 6px", fontWeight: 800, fontSize: 24 }}>
           내 경기술 도감
         </h1>

@@ -19,7 +19,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
   const specialties = [...new Set(regionDrinks.map((d) => d.local_specialty))];
 
   return (
-    <div style={{ position: "relative", zIndex: 5, minHeight: "100vh" }}>
+    <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
       <ScreenHeader title={region} backHref="/map" />
 
       <div style={{ padding: "6px 22px 44px" }}>

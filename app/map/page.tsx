@@ -24,7 +24,7 @@ export default function MapPage() {
   const activeRegions = [...counts.keys()];
 
   return (
-    <div style={{ position: "relative", zIndex: 5, minHeight: "100vh" }}>
+    <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
       <ScreenHeader
         title="경기술 지도"
         backHref="/"

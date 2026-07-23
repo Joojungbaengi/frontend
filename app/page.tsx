@@ -38,8 +38,8 @@ export default function MainPage() {
       style={{
         position: "relative",
         zIndex: 5,
-        padding: "64px 22px 44px",
-        minHeight: "100vh",
+        padding: "60px 22px 44px",
+        minHeight: "100dvh",
         display: "flex",
         flexDirection: "column",
       }}
@@ -48,7 +48,7 @@ export default function MainPage() {
         <div style={{ fontSize: 12, letterSpacing: ".4em", color: "var(--pine)", marginBottom: 14 }}>
           京 畿 술 都 家
         </div>
-        <h1 className="serif" style={{ margin: 0, fontWeight: 800, fontSize: 32, lineHeight: 1.34 }}>
+        <h1 className="serif" style={{ margin: 0, fontWeight: 800, fontSize: "clamp(26px, 7.5vw, 32px)", lineHeight: 1.34 }}>
           경기도 전통주,
           <br />
           신선처럼 즐기다

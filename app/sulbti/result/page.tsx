@@ -74,7 +74,7 @@ export default function ResultPage() {
         style={{
           position: "relative",
           zIndex: 5,
-          minHeight: "100vh",
+          minHeight: "100dvh",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -100,7 +100,7 @@ export default function ResultPage() {
   const axes = data ? gauges(data.answers) : [];
 
   return (
-    <div style={{ position: "relative", zIndex: 5 }}>
+    <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
       <ScreenHeader title="술BTI 결과" backHref="/" />
 
       {/* ── 신선 유형 족자 (유형 이름·일러스트는 후순위 TODO) ── */}
@@ -160,7 +160,7 @@ export default function ResultPage() {
         </HangingScroll>
       </div>
 
-      <div style={{ padding: "4px 20px 44px", display: "flex", flexDirection: "column", gap: 30 }}>
+      <div style={{ padding: "4px 22px 44px", display: "flex", flexDirection: "column", gap: 30 }}>
         {/* ── 유형 설명 (플레이스홀더 유지) ── */}
         <section>
           <div className="section-title">

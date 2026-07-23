@@ -53,7 +53,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
   ].filter(Boolean);
 
   return (
-    <div style={{ position: "relative", zIndex: 5 }}>
+    <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
       <ScreenHeader title="전통주 상세" />
 
       <div style={{ padding: "6px 22px 44px" }}>

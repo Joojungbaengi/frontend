@@ -8,7 +8,7 @@ export default function AgePage() {
         position: "relative",
         zIndex: 5,
         padding: "60px 22px 40px",
-        minHeight: "100vh",
+        minHeight: "100dvh",
         display: "flex",
         flexDirection: "column",
       }}

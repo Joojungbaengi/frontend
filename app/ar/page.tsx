@@ -12,7 +12,7 @@ export default function ArPage() {
       style={{
         position: "relative",
         zIndex: 5,
-        minHeight: "100vh",
+        minHeight: "100dvh",
         background: "var(--dark)",
         display: "flex",
         flexDirection: "column",
