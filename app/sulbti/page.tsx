@@ -250,7 +250,7 @@ export default function SulbtiPage() {
           <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--pine)", marginBottom: 14 }}>
             자유롭게 적어주세요
           </div>
-          <h1 className="serif" style={{ margin: "0 0 22px", fontWeight: 800, fontSize: 25, lineHeight: 1.5, wordBreak: "keep-all" }}>
+          <h1 className="serif quiz-q" style={{ marginBottom: 22 }}>
             어떤 술을 좋아하는지
             <br />
             편하게 들려주세요
@@ -283,19 +283,7 @@ export default function SulbtiPage() {
           <div style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--pine)", marginBottom: 14 }}>
             술BTI 취향 진단 · {question.topic}
           </div>
-          <h1
-            className="serif"
-            style={{
-              margin: "0 0 30px",
-              fontWeight: 800,
-              fontSize: 23,
-              lineHeight: 1.5,
-              whiteSpace: "pre-line",
-              wordBreak: "keep-all",
-            }}
-          >
-            {question.q}
-          </h1>
+          <h1 className="serif quiz-q">{question.q}</h1>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {question.options.map((opt, idx) => {
               const selected = question.multi
