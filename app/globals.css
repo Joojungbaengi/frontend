@@ -29,7 +29,7 @@ body {
 }
 
 body {
-  background: #a6b4c5;
+  background: #aab6c5;
   color: var(--ink);
   font-family: var(--font-gowun), system-ui, sans-serif;
   word-break: keep-all; /* 한국어 단어 중간 줄바꿈 방지 */
@@ -80,24 +80,24 @@ button {
 
 /* ===== 공용 클래스 ===== */
 
-/* 모바일 프레임 (430px 세로형) — 이미지처럼 흐릿한 청회색 대각 그라데이션 */
+/* 모바일 프레임 (430px 세로형) — 이미지처럼 위는 짙고 아래로 갈수록 옅어지는 청회색 안개 */
 .phone {
   max-width: 430px;
   margin: 0 auto;
   min-height: 100dvh;
   position: relative;
-  background: linear-gradient(158deg, #cdd7e3 0%, #bdc9d7 36%, #aab8c9 70%, #9dadbf 100%);
+  background: linear-gradient(180deg, #96a4b8 0%, #a7b3c3 42%, #bcc6d3 74%, #cfd7e1 100%);
   background-attachment: fixed;
   color: var(--ink);
   overflow: hidden;
 }
-/* 위쪽에 옅은 빛무리 — 산 위 안개 느낌으로 깊이감 */
+/* 아래쪽에 옅은 빛무리 — 안개가 걷히며 밝아지는 느낌으로 깊이감 */
 .phone::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(120% 70% at 50% -8%, rgba(247, 250, 253, 0.6), rgba(247, 250, 253, 0) 60%);
+  background: radial-gradient(135% 80% at 50% 112%, rgba(247, 250, 253, 0.55), rgba(247, 250, 253, 0) 62%);
   z-index: 0;
 }
 
@@ -137,32 +137,32 @@ button {
   box-shadow: 0 8px 20px rgba(53, 89, 126, 0.1);
 }
 
-/* 버튼 — 이미지 속 카드처럼 짙은 청회 남색 그라데이션 + 금빛 헤어라인 */
+/* 버튼 — 남색 배경과 조화되는 고묵금(古墨金) 그라데이션 + 깊은 먹빛 글자 */
 .btn-primary {
   position: relative;
   width: 100%;
   border: none;
-  background: linear-gradient(152deg, #43546d 0%, #35455c 52%, #2c3b4e 100%);
-  color: #f6f2e8;
+  background: linear-gradient(150deg, #d3ad57 0%, #c0973e 52%, #ac8130 100%);
+  color: #33291a;
   font-family: var(--font-myeongjo), serif;
-  font-weight: 700;
+  font-weight: 800;
   font-size: 16px;
   padding: 17px;
   border-radius: 16px;
   cursor: pointer;
-  box-shadow: 0 12px 26px rgba(31, 43, 58, 0.34), inset 0 1px 0 rgba(205, 180, 136, 0.28);
+  box-shadow: 0 12px 26px rgba(150, 112, 42, 0.34), inset 0 1px 0 rgba(255, 244, 214, 0.55);
   transition: transform 0.12s, box-shadow 0.12s, filter 0.15s;
 }
 .btn-primary:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.05);
 }
 .btn-primary:active {
   transform: translateY(1px) scale(0.995);
-  box-shadow: 0 7px 16px rgba(31, 43, 58, 0.32);
+  box-shadow: 0 7px 16px rgba(150, 112, 42, 0.32);
 }
 .btn-outline {
   width: 100%;
-  border: 1.5px solid rgba(61, 81, 112, 0.4);
+  border: 1.5px solid rgba(172, 129, 48, 0.42);
   background: rgba(255, 255, 255, 0.42);
   color: var(--ink);
   font-size: 15px;
