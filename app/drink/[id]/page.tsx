@@ -376,9 +376,6 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
               비슷한 술
             </Link>
           </div>
-          <div style={{ textAlign: "center", fontSize: 11, color: "rgba(74,58,34,.5)", marginTop: 2 }}>
-            정보 출처: {drink.brewery} · 자료조사 기반
-          </div>
         </div>
       </div>
     </div>

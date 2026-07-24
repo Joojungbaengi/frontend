@@ -29,7 +29,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
         <p style={{ margin: "0 0 20px", fontSize: 13, lineHeight: 1.55, color: "var(--ink-soft)" }}>
           {regionDrinks.length > 0
             ? `${region}에서 빚는 전통주 ${regionDrinks.length}종이 등록되어 있어요.`
-            : `${region}의 전통주는 자료조사 중이에요.`}
+            : `${region}의 전통주 정보는 아직 준비 중이에요.`}
         </p>
 
         {regionDrinks.length > 0 ? (
@@ -115,7 +115,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
               아직 등록된 전통주가 없어요
             </div>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: "var(--ink-faint)" }}>
-              이 고장의 전통주는 자료조사 후 순차적으로 추가됩니다.
+              이 고장의 전통주 정보는 아직 준비 중입니다.
             </p>
           </div>
         )}

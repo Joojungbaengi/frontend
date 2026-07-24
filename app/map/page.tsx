@@ -48,7 +48,16 @@ export default function MapPage() {
       />
 
       <div style={{ padding: "22px 22px 44px" }}>
-        <p style={{ margin: "0 0 16px", fontSize: 14, lineHeight: 1.7, color: "var(--ink-soft)" }}>
+        <p
+          style={{
+            margin: "0 0 16px",
+            borderLeft: "3px solid var(--gold)",
+            paddingLeft: 14,
+            fontSize: 14,
+            lineHeight: 1.7,
+            color: "var(--ink-soft)",
+          }}
+        >
           지도에서 지역을 눌러 그 고장의 전통주·특산주를 만나보세요. 체험을 마친 지역엔 스탬프가 찍혀요.
         </p>
 
@@ -84,7 +93,7 @@ export default function MapPage() {
                 {selected}
               </span>
               <span style={{ fontSize: 12.5, color: "var(--ink-faint)" }}>
-                {selectedDrinks.length > 0 ? `전통주 ${selectedDrinks.length}종` : "자료조사 중"}
+                {selectedDrinks.length > 0 ? `전통주 ${selectedDrinks.length}종` : "정보 준비 중"}
               </span>
             </div>
 
@@ -149,7 +158,7 @@ export default function MapPage() {
                 }}
               >
                 <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: "var(--ink-faint)" }}>
-                  이 고장의 전통주는 자료조사 후 순차적으로 추가됩니다.
+                  이 고장의 전통주 정보는 아직 준비 중입니다.
                 </p>
               </div>
             )}
