@@ -24,7 +24,7 @@ const iconBox: React.CSSProperties = {
   justifyContent: "center",
 };
 
-function Chevron({ color = "#35597e" }: { color?: string }) {
+function Chevron({ color = "#3c4c62" }: { color?: string }) {
   return (
     <svg width="8" height="14" viewBox="0 0 8 14">
       <path d="M1 1l6 6-6 6" stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
@@ -45,7 +45,7 @@ export default function MainPage() {
       }}
     >
       <div style={{ textAlign: "center", marginBottom: 8 }}>
-        <div style={{ fontSize: 12, letterSpacing: ".4em", color: "var(--gold)", marginBottom: 14 }}>
+        <div style={{ fontSize: 12, letterSpacing: ".4em", color: "#5b6b7f", marginBottom: 14 }}>
           京 畿 술 都 家
         </div>
         <h1 className="serif" style={{ margin: 0, fontWeight: 800, fontSize: "clamp(26px, 7.5vw, 32px)", lineHeight: 1.34 }}>
@@ -65,8 +65,8 @@ export default function MainPage() {
         <Link href="/scan" style={{ ...menuCard, color: "inherit" }}>
           <div style={iconBox}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <rect x="3" y="6" width="18" height="12" rx="2" stroke="#35597e" strokeWidth="1.8" />
-              <path d="M6 9v6M9 9v6M12 9v6M15 9v6M18 9v6" stroke="#35597e" strokeWidth="1.4" />
+              <rect x="3" y="6" width="18" height="12" rx="2" stroke="#3c4c62" strokeWidth="1.8" />
+              <path d="M6 9v6M9 9v6M12 9v6M15 9v6M18 9v6" stroke="#3c4c62" strokeWidth="1.4" />
             </svg>
           </div>
           <div style={{ flex: 1 }}>
@@ -83,11 +83,11 @@ export default function MainPage() {
           href="/age"
           style={{
             ...menuCard,
-            border: "1px solid rgba(205,180,136,.28)",
-            background: "linear-gradient(152deg,#43546d 0%,#35455c 52%,#2c3b4e 100%)",
+            border: "1px solid rgba(198,165,104,.3)",
+            background: "#3c4c62",
             padding: "22px 20px",
-            boxShadow: "0 14px 30px rgba(31,43,58,.34), inset 0 1px 0 rgba(205,180,136,.24)",
-            color: "#f6f2e8",
+            boxShadow: "0 18px 40px -18px rgba(30,42,60,.6), inset 0 1px 0 rgba(198,165,104,.28)",
+            color: "#f3ede1",
           }}
         >
           <div style={{ ...iconBox, background: "rgba(255,255,255,.18)" }}>
@@ -103,7 +103,7 @@ export default function MainPage() {
           </div>
           <div style={{ flex: 1 }}>
             <div className="serif" style={{ fontWeight: 700, fontSize: 19 }}>나의 전통술 취향 찾기</div>
-            <div style={{ fontSize: 12.5, color: "rgba(255,255,255,.82)", marginTop: 3 }}>
+            <div style={{ fontSize: 12.5, color: "#c3ccd8", marginTop: 3 }}>
               술BTI · AI가 취향에 맞는 3잔 추천
             </div>
           </div>
@@ -114,8 +114,8 @@ export default function MainPage() {
         <Link href="/map" style={{ ...menuCard, color: "inherit" }}>
           <div style={iconBox}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z" stroke="#35597e" strokeWidth="1.8" />
-              <circle cx="12" cy="9" r="2.5" stroke="#35597e" strokeWidth="1.8" />
+              <path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z" stroke="#3c4c62" strokeWidth="1.8" />
+              <circle cx="12" cy="9" r="2.5" stroke="#3c4c62" strokeWidth="1.8" />
             </svg>
           </div>
           <div style={{ flex: 1 }}>
@@ -140,8 +140,8 @@ export default function MainPage() {
         }}
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-          <rect x="4" y="3" width="16" height="18" rx="2" stroke="#35597e" strokeWidth="1.8" />
-          <path d="M8 3v18" stroke="#35597e" strokeWidth="1.8" />
+          <rect x="4" y="3" width="16" height="18" rx="2" stroke="#3c4c62" strokeWidth="1.8" />
+          <path d="M8 3v18" stroke="#3c4c62" strokeWidth="1.8" />
         </svg>
         내 경기술 도감 <span style={{ color: "var(--seal)", fontWeight: 700 }}>0장</span>
       </Link>

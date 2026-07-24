@@ -17,7 +17,7 @@ interface StoredResult {
   result: RecommendResponse;
 }
 
-const RANK_COLORS = ["#b5482f", "#35597e", "#8a7656"];
+const RANK_COLORS = ["#b5482f", "#3c4c62", "#8a7656"];
 
 /** 답변으로 취향 지도 게이지(0~100) 계산 */
 function gauges(answers: SurveyAnswers): { label: string; value: number }[] {
@@ -105,7 +105,7 @@ export default function ResultPage() {
 
       {/* ── 신선 유형 족자 (유형 이름·일러스트는 후순위 TODO) ── */}
       <div style={{ padding: "2px 22px 20px", textAlign: "center" }}>
-        <div style={{ fontSize: 12, letterSpacing: ".3em", color: "var(--gold)", marginBottom: 14 }}>
+        <div style={{ fontSize: 12, letterSpacing: ".3em", color: "#5b6b7f", marginBottom: 14 }}>
           京畿 神仙 · 나의 술 취향
         </div>
         <HangingScroll
