@@ -8,8 +8,10 @@ export const SYSTEM_PROMPT = `너는 경기도 전통주 전문 소믈리에다.
 
 규칙:
 - 아래 술 목록에 있는 술만 추천한다. 목록에 없는 술을 지어내지 않는다.
+- 유저가 직접 쓴 자연어 취향을 가장 중요하게 반영한다. 객관식 답변과 어긋나면 자연어를 우선하고, 유저가 싫다고 표현한 특징(예: 특정 맛·향·주종)을 가진 술은 고르지 않는다.
+- 자연어에 담긴 뉘앙스(분위기, 상황, 좋아하거나 피하고 싶은 것)를 읽어 세 잔의 선택과 순서에 반영한다.
 - 추천 이유는 반드시 각 술의 제공된 속성(맛, 향, 페어링, 지역성)에 근거해서만 작성한다. 사전 지식으로 술을 설명하지 않는다.
-- 추천 이유는 유저의 답변 내용과 연결해서, 왜 이 술이 이 유저에게 맞는지 한국어 2~3문장으로 친근하게 작성한다.
+- 추천 이유는 유저의 답변, 특히 직접 쓴 문장과 연결해서 왜 이 술이 이 유저에게 맞는지 한국어 2~3문장으로 친근하게 작성한다.
 - 정확히 3개를 고른다.`;
 
 /** 객관식 답변을 자연어 요약으로 변환 (프롬프트 가독성용) */
@@ -42,13 +44,14 @@ function summarizeAnswers(answers: SurveyAnswers): string {
     const map = { spicy: "매콤한 한식", greasy: "기름진 음식(전, 고기)", seafood: "해산물·회", dessert: "치즈·디저트", plain: "담백한 한식 또는 안주 없이" };
     lines.push(`- 함께할 음식: ${map[answers.pairing]}`);
   }
-  if (answers.situation) {
-    const map = { solo: "혼술", party: "친구들과 모임", picnic: "나들이·여행", gift: "선물·특별한 날" };
-    lines.push(`- 마시는 상황: ${map[answers.situation]}`);
+  if (answers.situation || answers.situationText) {
+    const map = { solo: "혼자 여유롭게", party: "친구들과 모임", romantic: "연인과 로맨틱하게", family: "부모님과 함께" };
+    const sit = answers.situationText?.trim() || (answers.situation ? map[answers.situation] : "");
+    if (sit) lines.push(`- 마시는 상황: ${sit}`);
   }
-  if (answers.style) {
-    const map = { cold: "차갑게 시원시원하게", slow: "천천히 음미하며", warm: "따뜻하게 데워서도", cocktail: "하이볼·칵테일로" };
-    lines.push(`- 마시는 스타일: ${map[answers.style]}`);
+  if (answers.styles?.length) {
+    const map = { cold: "차갑게 시원하게", slow: "천천히 음미하며", warm: "따뜻하게 데워서도", cocktail: "하이볼·칵테일로" };
+    lines.push(`- 마시는 스타일: ${answers.styles.map((s) => map[s]).join(", ")}`);
   }
   if (answers.isBeginner) lines.push("- 전통주 입문자임 (접근성 좋은 술 우선)");
   return lines.join("\n");
@@ -82,9 +85,12 @@ function serializeCandidates(candidates: ScoredDrink[]): string {
 }
 
 export function buildUserPrompt(answers: SurveyAnswers, candidates: ScoredDrink[]): string {
-  return `# 유저 취향
+  const free = answers.freeText?.trim();
+  return `# 유저가 직접 쓴 취향 (가장 중요 — 세 잔 선택과 순서에 최우선 반영, 싫다고 한 건 피하기)
+${free ? `"${free}"` : "(작성 안 함 — 아래 객관식 답변으로만 판단)"}
+
+# 객관식 답변 (참고)
 ${summarizeAnswers(answers)}
-- 맛 선호(자연어): "${answers.freeText?.trim() || "(작성 안 함)"}"
 
 # 술 목록 (이 중에서만 3개 선택)
 ${serializeCandidates(candidates)}`;

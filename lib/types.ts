@@ -66,19 +66,23 @@ export interface SurveyAnswers {
   abvRange?: "low" | "mid" | "high" | "any";
   /** Q8 안주 카테고리 */
   pairing?: PairingType;
-  /** Q9 음용 상황 */
+  /** Q9 음용 상황 (선택형) */
   situation?: SituationType;
-  /** Q10 온도·마시는 스타일 */
-  style?: StyleType;
+  /** Q9 음용 상황 직접 입력 (자연어 — AI 해석용) */
+  situationText?: string;
+  /** Q10 온도·마시는 스타일 (복수 선택) */
+  styles?: StyleType[];
   /** Q11 자연어 취향 (Bedrock 의미 매칭용) */
   freeText?: string;
+  /** 포도로 만든 술(와인)을 추천에서 완전히 제외 */
+  excludeWine?: boolean;
   /** 전통주가 처음인지 (온보딩) — beginner_friendly 가중치 */
   isBeginner?: boolean;
 }
 
 export type AromaType = "grain" | "fruit" | "flower" | "nutty";
 export type PairingType = "spicy" | "greasy" | "seafood" | "dessert" | "plain";
-export type SituationType = "solo" | "party" | "picnic" | "gift";
+export type SituationType = "solo" | "party" | "romantic" | "family";
 export type StyleType = "cold" | "slow" | "warm" | "cocktail";
 
 /** 점수 계산 결과 (Top 10 후보) */

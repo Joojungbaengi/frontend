@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { QUESTIONS } from "@/data/questions";
-import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
+import type { AromaType, RecommendResponse, StyleType, SurveyAnswers } from "@/lib/types";
 
 /**
  * 술BTI 진단 플로우: 객관식 질문(Q1~Q10) → 자유 답변 → 분석(API 호출) → 결과.
@@ -33,18 +33,24 @@ function summaryLines(answers: SurveyAnswers): string[] {
 }
 
 /** 질문별 선택(picks)을 SurveyAnswers로 병합 */
-function buildAnswers(picks: Pick[]): SurveyAnswers {
+function buildAnswers(picks: Pick[], customSituation?: string): SurveyAnswers {
   let answers: SurveyAnswers = {};
   QUESTIONS.forEach((question, qi) => {
     const pick = picks[qi];
     if (pick === null || pick === undefined) return;
     if (question.multi && Array.isArray(pick)) {
-      const aromas = pick
-        .map((i) => question.options[i].aroma)
-        .filter((a): a is NonNullable<typeof a> => a !== undefined);
-      answers = { ...answers, aromaTypes: aromas };
+      const values = pick
+        .map((i) => question.options[i].value)
+        .filter((v): v is string => v !== undefined);
+      if (question.multiField === "aromaTypes") answers = { ...answers, aromaTypes: values as AromaType[] };
+      else if (question.multiField === "styles") answers = { ...answers, styles: values as StyleType[] };
     } else if (typeof pick === "number") {
-      answers = { ...answers, ...question.options[pick].patch };
+      const opt = question.options[pick];
+      answers = { ...answers, ...opt.patch };
+      // 직접 입력 선택지 → 자연어 상황으로 저장 (AI 해석용)
+      if (opt.custom && customSituation?.trim()) {
+        answers = { ...answers, situationText: customSituation.trim() };
+      }
     }
   });
   return answers;
@@ -56,6 +62,11 @@ export default function SulbtiPage() {
   const [step, setStep] = useState(0);
   const [picks, setPicks] = useState<Pick[]>(() => QUESTIONS.map(() => null));
   const [freeText, setFreeText] = useState("");
+  const [customText, setCustomText] = useState(""); // Q9 직접 입력 (확정된 값)
+  const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState(""); // 모달 편집 중 값
+  const [customIdx, setCustomIdx] = useState<number | null>(null); // 직접 입력 선택지 인덱스
+  const [askDiscard, setAskDiscard] = useState(false); // 저장 안 하고 나가기 확인
   const [confirmExit, setConfirmExit] = useState(false);
   const [fading, setFading] = useState(false); // 선택 후 부드러운 전환용
   const [verified, setVerified] = useState<boolean | null>(null); // 연령 확인 통과 여부
@@ -73,6 +84,7 @@ export default function SulbtiPage() {
   }, [router]);
 
   const total = QUESTIONS.length;
+  const totalQ = total + 1; // 선택형 + 마지막 자유서술 = 총 문항 수 (표시용)
   const question = QUESTIONS[Math.min(step, total - 1)];
   const currentPick = picks[step];
   const answered = question.multi
@@ -116,9 +128,14 @@ export default function SulbtiPage() {
   /* ── 선택 ── */
   const pickSingle = (idx: number) => {
     setPicks((p) => p.map((v, i) => (i === step ? idx : v)));
-    // 선택 표시(테두리·체크)를 약 1초간 충분히 보여준 뒤, 페이드아웃하며 다음 질문으로
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
     if (fadeTimer.current) clearTimeout(fadeTimer.current);
+    // 직접 입력 선택지는 자동 진행하지 않고 입력창을 띄운다 (다음 버튼으로 이동)
+    if (question.options[idx].custom) {
+      setFading(false);
+      return;
+    }
+    // 선택 표시(테두리·체크)를 약 1초간 충분히 보여준 뒤, 페이드아웃하며 다음 질문으로
     fadeTimer.current = setTimeout(() => setFading(true), 850);
     advanceTimer.current = setTimeout(() => {
       advanceTimer.current = null;
@@ -141,12 +158,37 @@ export default function SulbtiPage() {
     );
   };
 
+  /* ── 직접 입력 모달 ── */
+  const openCustomModal = (idx: number) => {
+    setCustomIdx(idx);
+    setCustomDraft(customText);
+    setAskDiscard(false);
+    setCustomModalOpen(true);
+  };
+  const closeCustomModal = () => {
+    setCustomModalOpen(false);
+    setAskDiscard(false);
+  };
+  // 저장 안 된 입력이 있으면 확인, 없으면 바로 닫기 (X·바깥·취소 공통)
+  const tryCloseCustom = () => {
+    if (customDraft.trim() !== customText.trim()) setAskDiscard(true);
+    else closeCustomModal();
+  };
+  // 완료: 입력값을 확정하고 직접 입력 선택지를 선택 상태로
+  const completeCustom = () => {
+    const v = customDraft.trim();
+    if (!v) return;
+    setCustomText(v);
+    if (customIdx !== null) setPicks((p) => p.map((val, i) => (i === step ? customIdx : val)));
+    closeCustomModal();
+  };
+
   /* ── 홈 이탈 확인 ── */
   const exitHome = () => setConfirmExit(true);
 
   /* ── 자유 답변 제출 → API 호출 → 결과 저장 → 이동 ── */
   const submit = async () => {
-    const finalAnswers: SurveyAnswers = { ...buildAnswers(picks), freeText: freeText.trim() || undefined };
+    const finalAnswers: SurveyAnswers = { ...buildAnswers(picks, customText), freeText: freeText.trim() || undefined };
     setPhase("analyzing");
 
     try {
@@ -256,9 +298,9 @@ export default function SulbtiPage() {
         </div>
         <div className="serif" style={{ minWidth: 44, textAlign: "right", letterSpacing: ".05em" }}>
           <span style={{ fontWeight: 800, fontSize: 17, color: "var(--gold-deep)" }}>
-            {isFree ? "10" : String(step + 1).padStart(2, "0")}
+            {isFree ? String(totalQ) : String(step + 1).padStart(2, "0")}
           </span>
-          <span style={{ fontSize: 13, color: "var(--ink-mute)" }}> / {total}</span>
+          <span style={{ fontSize: 13, color: "var(--ink-mute)" }}> / {totalQ}</span>
         </div>
       </div>
 
@@ -272,7 +314,7 @@ export default function SulbtiPage() {
             height: 2,
             background: "linear-gradient(90deg,#c6a568,#a67c3e)",
             transition: "width .3s",
-            width: isFree ? "100%" : `${Math.round(((step + 1) / total) * 100)}%`,
+            width: isFree ? "100%" : `${Math.round(((step + 1) / totalQ) * 100)}%`,
           }}
         />
       </div>
@@ -281,17 +323,17 @@ export default function SulbtiPage() {
       {isFree ? (
         <div style={{ margin: "auto 0" }}>
           <h1 className="serif quiz-q" style={{ marginBottom: 6 }}>
-            어떤 술을 좋아하는지
+            마지막으로, 덧붙이고
             <br />
-            편하게 들려주세요
+            싶은 말이 있나요?
           </h1>
-          <p style={{ margin: "0 0 22px", fontSize: 13, color: "var(--ink-faint)" }}>
-            건너뛰어도 괜찮아요
+          <p style={{ margin: "0 0 22px", fontSize: 13, lineHeight: 1.6, color: "var(--ink-faint)" }}>
+            앞에서 못 담은 취향이나 마실 상황을 편하게 적어주세요. 건너뛰어도 괜찮아요.
           </p>
           <textarea
             value={freeText}
             onChange={(e) => setFreeText(e.target.value)}
-            placeholder="예: 너무 달고 걸쭉한 건 싫고, 음식과 편하게 마실 수 있는 술이 좋아요."
+            placeholder="예: 예전에 마신 텁텁한 막걸리는 별로였어요. 비 오는 날 창가에서 혼자 천천히 마실 거예요."
             style={{
               width: "100%",
               height: 150,
@@ -308,7 +350,7 @@ export default function SulbtiPage() {
             }}
           />
           <p style={{ margin: "12px 2px 0", fontSize: 12, lineHeight: 1.5, color: "var(--gold-deep)" }}>
-            AI가 문장의 의미를 읽어 취향 축으로 정리해요.
+            AI 소믈리에가 이 이야기를 읽고 세 잔에 반영해요.
           </p>
         </div>
       ) : (
@@ -322,7 +364,7 @@ export default function SulbtiPage() {
         >
           <h1 className="serif quiz-q">{question.q}</h1>
           <p style={{ margin: "0 0 26px", fontSize: 13, color: "var(--ink-faint)" }}>
-            {question.multi ? "끌리는 향을 모두 골라주세요" : "가장 가까운 하나를 골라주세요"}
+            {question.multi ? "여러 개 골라도 좋아요" : "가장 가까운 하나를 골라주세요"}
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
             {question.options.map((opt, idx) => {
@@ -332,10 +374,12 @@ export default function SulbtiPage() {
               return (
                 <button
                   key={opt.label}
-                  onClick={() => (question.multi ? toggleMulti(idx) : pickSingle(idx))}
+                  onClick={() => (opt.custom ? openCustomModal(idx) : question.multi ? toggleMulti(idx) : pickSingle(idx))}
                   className={`opt-btn${selected ? " selected" : ""}`}
                 >
-                  <span style={{ flex: 1, wordBreak: "keep-all" }}>{opt.label}</span>
+                  <span style={{ flex: 1, wordBreak: "keep-all" }}>
+                    {opt.custom && customText ? `✍️ ${customText}` : opt.label}
+                  </span>
                   {selected && (
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
                       <path d="M5 12l5 5 9-11" stroke="#a67c3e" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -385,6 +429,111 @@ export default function SulbtiPage() {
           </>
         )}
       </div>
+
+      {/* ── 직접 입력 모달 ── */}
+      {customModalOpen && (
+        <div
+          onClick={tryCloseCustom}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            background: "rgba(30,22,12,.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 30,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="card"
+            style={{ position: "relative", width: "100%", maxWidth: 340, padding: "24px 22px 20px", borderRadius: 22 }}
+          >
+            {/* X 버튼 */}
+            <button
+              onClick={tryCloseCustom}
+              aria-label="닫기"
+              style={{
+                position: "absolute",
+                top: 12,
+                right: 12,
+                width: 30,
+                height: 30,
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                color: "var(--ink-faint)",
+                fontSize: 17,
+                lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
+
+            {askDiscard ? (
+              <div style={{ textAlign: "center", paddingTop: 6 }}>
+                <h2 className="serif" style={{ margin: "0 0 8px", fontWeight: 800, fontSize: 17, color: "var(--ink)", wordBreak: "keep-all" }}>
+                  입력한 내용이 저장되지 않았어요
+                </h2>
+                <p style={{ margin: "0 0 18px", fontSize: 13, lineHeight: 1.6, color: "var(--ink-faint)", wordBreak: "keep-all" }}>
+                  저장하려면 <b>완료</b>를 눌러주세요. 그냥 나가시겠어요?
+                </p>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button className="btn-outline" style={{ flex: 1, padding: 13 }} onClick={() => setAskDiscard(false)}>
+                    계속 입력
+                  </button>
+                  <button className="btn-primary" style={{ flex: 1, padding: 13, fontSize: 14 }} onClick={closeCustomModal}>
+                    나가기
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h2 className="serif" style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 18, color: "var(--ink)", paddingRight: 24 }}>
+                  상황을 직접 적어주세요
+                </h2>
+                <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-faint)" }}>
+                  누구와, 어디서 마실지 자유롭게요
+                </p>
+                <textarea
+                  value={customDraft}
+                  onChange={(e) => setCustomDraft(e.target.value)}
+                  autoFocus
+                  placeholder="예: 회사 동료들과 회식 자리에서"
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    height: 92,
+                    resize: "none",
+                    border: "1px solid rgba(198,165,104,.55)",
+                    background: "var(--hanji-bright)",
+                    borderRadius: 14,
+                    padding: "12px 14px",
+                    fontSize: 15,
+                    lineHeight: 1.6,
+                    color: "var(--ink-strong)",
+                    fontFamily: "var(--font-gowun), sans-serif",
+                  }}
+                />
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn-outline" style={{ flex: 1, padding: 13 }} onClick={tryCloseCustom}>
+                    취소
+                  </button>
+                  <button
+                    className="btn-primary"
+                    style={{ flex: 1, padding: 13, fontSize: 14, opacity: customDraft.trim() ? 1 : 0.5 }}
+                    disabled={!customDraft.trim()}
+                    onClick={completeCustom}
+                  >
+                    완료
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── 홈 이탈 확인 모달 ── */}
       {confirmExit && (

@@ -25,8 +25,8 @@ const PAIRING_KEYWORDS: Record<PairingType, string[]> = {
 const SITUATION_KEYWORDS: Record<SituationType, string[]> = {
   solo: ["혼술", "홈술", "반주"],
   party: ["모임", "파티", "잔치", "친구"],
-  picnic: ["피크닉", "여행", "야외", "캠핑", "등산"],
-  gift: ["선물", "만찬", "명절", "고급", "프리미엄"],
+  romantic: ["연인", "데이트", "로맨틱", "분위기", "기념일"],
+  family: ["부모", "가족", "명절", "선물", "만찬", "고급", "프리미엄", "어른"],
 };
 
 /** Q10 스타일 → temperature 키워드 매칭 */
@@ -52,6 +52,9 @@ function keywordScore(texts: string[], keywords: string[]): number {
 export function filterDrinks(drinks: Drink[], answers: SurveyAnswers): Drink[] {
   return drinks.filter((d) => {
     if (d.service_caution) return false;
+
+    // Q1 "포도로 만든 술은 안 좋아해요" → 와인 완전 제외
+    if (answers.excludeWine && d.type.includes("와인")) return false;
 
     // Q7 도수 필터 — abv_variants 중 하나라도 범위에 들면 통과
     const abvs = d.abv_variants ?? [d.abv];
@@ -90,10 +93,13 @@ export function scoreDrinks(drinks: Drink[], answers: SurveyAnswers): ScoredDrin
     if (answers.pairing) score += keywordScore(drink.pairing, PAIRING_KEYWORDS[answers.pairing]);
     if (answers.situation) {
       score += keywordScore([...drink.situations, drink.description], SITUATION_KEYWORDS[answers.situation]);
-      // 선물·특별한 날은 수상 이력 가중
-      if (answers.situation === "gift" && drink.awards.length > 0) score += 1;
+      // 부모님·특별한 날은 수상 이력 가중
+      if (answers.situation === "family" && drink.awards.length > 0) score += 1;
     }
-    if (answers.style) score += keywordScore([drink.temperature], STYLE_KEYWORDS[answers.style]);
+    // Q10 스타일 (복수) — 매칭 1개당 +1
+    for (const s of answers.styles ?? []) {
+      score += keywordScore([drink.temperature], STYLE_KEYWORDS[s]);
+    }
 
     // 입문자 가중
     if (answers.isBeginner && drink.beginner_friendly) score += 1;
