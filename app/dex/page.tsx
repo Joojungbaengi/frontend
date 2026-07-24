@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import AppImage from "@/components/AppImage";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
 import { readObtained, SEED_OBTAINED } from "@/lib/dex";
@@ -43,12 +44,7 @@ function SoulCard({ drink, flipping, onActivate }: { drink: Drink; flipping: boo
           }}
         >
           {drink.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={drink.image}
-              alt={drink.name}
-              style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", borderRadius: 5, display: "block" }}
-            />
+            <AppImage src={drink.image} alt={drink.name} boxStyle={{ width: "100%", aspectRatio: "3/4", borderRadius: 5 }} />
           ) : (
             <div
               style={{

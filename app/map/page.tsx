@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import AppImage from "@/components/AppImage";
 import GyeonggiMap from "@/components/GyeonggiMap";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
@@ -141,19 +142,10 @@ export default function MapPage() {
                     style={{ display: "flex", gap: 14, alignItems: "stretch", padding: 14, borderRadius: 16, color: "inherit" }}
                   >
                     {d.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <AppImage
                         src={d.image}
                         alt={d.name}
-                        style={{
-                          width: 64,
-                          height: 88,
-                          flexShrink: 0,
-                          borderRadius: 8,
-                          objectFit: "cover",
-                          background: "var(--hanji-bright)",
-                          border: "1px solid rgba(120,95,50,.14)",
-                        }}
+                        boxStyle={{ width: 64, height: 88, flexShrink: 0, borderRadius: 8, border: "1px solid rgba(120,95,50,.14)" }}
                       />
                     ) : (
                       <div className="ph-art" style={{ width: 64, flexShrink: 0, borderRadius: 8 }}>

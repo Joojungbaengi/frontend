@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AppImage from "@/components/AppImage";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
 import type { Drink } from "@/lib/types";
@@ -130,17 +131,15 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
         {/* ── 히어로 (술이름+뱃지를 사진 높이의 세로 중앙에 정렬) ── */}
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           {drink.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <AppImage
               src={drink.image}
               alt={drink.name}
-              style={{
+              eager
+              boxStyle={{
                 width: 96,
                 height: 132,
                 flexShrink: 0,
                 borderRadius: 11,
-                objectFit: "cover",
-                background: "var(--hanji-bright)",
                 border: "1px solid rgba(198,165,104,.5)",
                 boxShadow: "0 14px 28px -10px rgba(120,95,50,.45)",
               }}

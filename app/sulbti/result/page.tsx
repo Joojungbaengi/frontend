@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import AppImage from "@/components/AppImage";
 import HangingScroll from "@/components/HangingScroll";
 import ScreenHeader from "@/components/ScreenHeader";
 import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
@@ -275,19 +276,10 @@ export default function ResultPage() {
                       {i + 1}
                     </div>
                     {rec.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <AppImage
                         src={rec.image}
                         alt={rec.name}
-                        style={{
-                          width: 40,
-                          height: 56,
-                          flexShrink: 0,
-                          borderRadius: 6,
-                          objectFit: "cover",
-                          background: "var(--hanji-bright)",
-                          border: "1px solid rgba(120,95,50,.08)",
-                        }}
+                        boxStyle={{ width: 40, height: 56, flexShrink: 0, borderRadius: 6, border: "1px solid rgba(120,95,50,.08)" }}
                       />
                     ) : (
                       <div className="ph-art" style={{ width: 40, height: 56, flexShrink: 0, borderRadius: 6 }} />

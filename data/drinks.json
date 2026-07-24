@@ -78,7 +78,7 @@
         "finish_length"
       ],
       "description": "가평 잣 2.4%와 무농약 가평 쌀을 100일 이상 저온 발효한 약주. 잣기름의 고소함이 술 표면에 감돌아 독특한 질감을 내며, 곡물의 단맛과 견과류 향이 묵직하게 어우러진다.",
-      "image": "/drinks/yakju_gapyeong_jatjinju.png"
+      "image": "/drinks/yakju_gapyeong_jatjinju.webp"
     },
     {
       "id": "takju_goyang_nyangi9",
@@ -153,7 +153,7 @@
         "finish_length"
       ],
       "description": "고양 가와지쌀에 오미자·송순·벌꿀을 더해 삼양주로 빚은 프리미엄 막걸리. 요거트 같은 부드러운 새콤달콤함과 과실·솔 향이 특징이며, 매운 음식과 특히 잘 어울린다.",
-      "image": "/drinks/takju_goyang_nyangi9.png"
+      "image": "/drinks/takju_goyang_nyangi9.webp"
     },
     {
       "id": "soju_gwangju_namhansanseong",
@@ -228,7 +228,7 @@
         "finish_length"
       ],
       "description": "재래식 엿(조청)을 고아 넣어 빚는 국내 유일의 순곡 증류식 소주. 조청에서 오는 은은한 단맛과 그윽한 향취, 묵직하면서도 부드러운 목 넘김이 특징인 무형유산 술.",
-      "image": "/drinks/soju_gwangju_namhansanseong.png"
+      "image": "/drinks/soju_gwangju_namhansanseong.webp"
     },
     {
       "id": "soju_gimpo_munbaesul",
@@ -317,7 +317,7 @@
         "finish_length"
       ],
       "description": "조와 찰수수만으로 빚어 문배(돌배) 향이 나는 5대 가업의 국가무형문화재 증류식 소주. 첨가물 없이 맑고 청아한 맛과 묵직한 바디, 정갈한 여운을 지녀 남북정상회담 만찬주로 쓰였다.",
-      "image": "/drinks/soju_gimpo_munbaesul.png"
+      "image": "/drinks/soju_gimpo_munbaesul.webp"
     },
     {
       "id": "gwahaju_namyangju_ibaek",
@@ -386,7 +386,7 @@
         "finish_length"
       ],
       "description": "발효주에 증류식 소주를 더해 여름에도 변치 않게 빚는 '전통 위스키' 스타일 과하주. 곡물의 단향과 상큼한 산미, 묵직한 바디와 긴 여운을 지녀 천천히 음미하기 좋다.",
-      "image": "/drinks/gwahaju_namyangju_ibaek.png"
+      "image": "/drinks/gwahaju_namyangju_ibaek.webp"
     },
     {
       "id": "takju_dongducheon_yeonkkot",
@@ -462,7 +462,7 @@
         "finish_length"
       ],
       "description": "봉오리 연꽃과 약재 탕수, 임금누룩(향온곡)으로 세 번 빚은 와인 같은 꽃막걸리. 탄산 없이 묵직하고 달콤새콤하며, 연꽃 향과 요거트 향이 오묘하게 감돈다.",
-      "image": "/drinks/takju_dongducheon_yeonkkot.png"
+      "image": "/drinks/takju_dongducheon_yeonkkot.webp"
     },
     {
       "id": "takju_siheung_cheonjisu",
@@ -524,7 +524,7 @@
       ],
       "service_caution": "현재 판매중지·품절 상태이며 양조장 주소가 화성으로 이전됨. '과거 시흥 등록 제품'으로 별도 분류하고 생산 여부 직접 확인 필요.",
       "description": "발효 주차에 따라 단맛→산미→드라이로 맛이 변하는 예약제 생막걸리. 시흥에서 시작한 양조장의 지역 이야기를 담고 있으나 현재는 판매가 확인되지 않는다.",
-      "image": "/drinks/takju_siheung_cheonjisu.png"
+      "image": "/drinks/takju_siheung_cheonjisu.webp"
     },
     {
       "id": "wine_ansan_cheongsu",
@@ -601,7 +601,7 @@
         "finish_length"
       ],
       "description": "대부도산 국산 청포도 '청수'를 저온 발효한 화이트와인. 배·사과·시트러스 향과 산뜻한 산미, 미네랄감이 살아 있어 해산물과 잘 어울리는 가벼운 지역 와인.",
-      "image": "/drinks/wine_ansan_cheongsu.png"
+      "image": "/drinks/wine_ansan_cheongsu.webp"
     },
     {
       "id": "soju_anseong_hanju25",
@@ -671,7 +671,7 @@
         "carbonation"
       ],
       "description": "안성 쌀과 물, 전통 밀누룩으로 빚어 조선시대 방식으로 증류한 소주. 풀·곡물·사과 계열의 화사한 향과 깨끗하고 깔끔한 마무리가 특징.",
-      "image": "/drinks/soju_anseong_hanju25.png"
+      "image": "/drinks/soju_anseong_hanju25.webp"
     },
     {
       "id": "takju_yangju_byeolsan",
@@ -736,7 +736,7 @@
       ],
       "estimated_attributes": [],
       "description": "양주골쌀을 삼양주로 빚고 특별한 주모로 요구르트 같은 산미를 살린 무탄산 저도수 막걸리. 단맛과 부드러운 신맛의 균형, 참외 같은 과실 향이 매력.",
-      "image": "/drinks/takju_yangju_byeolsan.png"
+      "image": "/drinks/takju_yangju_byeolsan.webp"
     },
     {
       "id": "takju_yangpyeong_donggugi",
@@ -805,7 +805,7 @@
         "finish_length"
       ],
       "description": "양평쌀과 직접 재배한 겨울국화를 세 가지 누룩으로 삼양주로 빚은 탁주. 국화꽃·허브 향이 분명하면서 텁텁함을 줄여, 꽃향을 천천히 즐기는 사람에게 좋다.",
-      "image": "/drinks/takju_yangpyeong_donggugi.png"
+      "image": "/drinks/takju_yangpyeong_donggugi.webp"
     },
     {
       "id": "yakju_yeoju_sunhyangju",
@@ -876,7 +876,7 @@
         "carbonation"
       ],
       "description": "여주 멥쌀과 토종 앉은뱅이밀 누룩으로 다섯 번 빚는 오양주 약주. 달지 않고 고소한 곡물 풍미에 감칠맛과 산미가 길게 이어져, 음식 맛을 돕는 드라이한 반주를 지향한다.",
-      "image": "/drinks/yakju_yeoju_sunhyangju.png"
+      "image": "/drinks/yakju_yeoju_sunhyangju.webp"
     },
     {
       "id": "takju_yeoncheon_yulmu",
@@ -935,7 +935,7 @@
         "finish_length"
       ],
       "description": "국내 율무 70%를 생산하는 연천의 특산 율무로 빚은 무감미료 동동주. 물을 타지 않은 진땡이 원주로, 고소한 율무 맛과 새콤한 신맛, 걸쭉하고 묵직한 바디가 특징.",
-      "image": "/drinks/takju_yeoncheon_yulmu.png"
+      "image": "/drinks/takju_yeoncheon_yulmu.webp"
     },
     {
       "id": "soju_osan_doksan53",
@@ -1001,7 +1001,7 @@
         "finish_length"
       ],
       "description": "오산 세마쌀로 빚어 상압 증류하고 옹기에서 100일 이상 숙성한 53도 소주. 고도수임에도 목이 타지 않는 부드러움과 곡물·허브·스파이스의 화사한 향이 특징.",
-      "image": "/drinks/soju_osan_doksan53.png"
+      "image": "/drinks/soju_osan_doksan53.webp"
     },
     {
       "id": "cheongju_yongin_dongnim",
@@ -1062,7 +1062,7 @@
         "finish_length"
       ],
       "description": "정미소를 직접 운영하는 양조장이 갓 도정한 용인쌀을 20번 더 깎아 빚은 삼양주 청주. 첨가물 없이 쌀의 풍미만으로 깔끔하고 부드러우며, 차게도 따뜻하게도 즐긴다.",
-      "image": "/drinks/cheongju_yongin_dongnim.png"
+      "image": "/drinks/cheongju_yongin_dongnim.webp"
     },
     {
       "id": "soju_yongin_mir",
@@ -1130,7 +1130,7 @@
         "finish_length"
       ],
       "description": "용인백옥쌀과 자가 누룩으로 『산가요록』 방식 그대로 빚어 상압증류한 뒤 1년 항아리 숙성한 쌀소주. 고소하고 달콤한 감칠맛과 화사한 쌀·누룩 향이 부드럽게 이어진다.",
-      "image": "/drinks/soju_yongin_mir.png"
+      "image": "/drinks/soju_yongin_mir.webp"
     },
     {
       "id": "yakju_pyeongtaek_cheonbihyang",
@@ -1195,7 +1195,7 @@
         "carbonation"
       ],
       "description": "평택 쌀만으로 다섯 번 빚어 1년 이상 숙성한 프리미엄 오양주 약주. 감미료 없이 쌀에서 끌어낸 진한 단맛과 5점 만점의 긴 여운, 적은 누룩내로 청와대 만찬주에 올랐다.",
-      "image": "/drinks/yakju_pyeongtaek_cheonbihyang.png"
+      "image": "/drinks/yakju_pyeongtaek_cheonbihyang.webp"
     },
     {
       "id": "takju_pyeongtaek_cheonbihyang_saengju",
@@ -1257,7 +1257,7 @@
         "aroma_intensity"
       ],
       "description": "평택 쌀로 다섯 번 빚어 9개월 이상 발효·저온숙성한 오양주 생탁주. 단맛·산미·바디가 고르게 균형 잡혀 있어 매운 음식부터 갈비찜까지 폭넓게 어울린다.",
-      "image": "/drinks/takju_pyeongtaek_cheonbihyang_saengju.png"
+      "image": "/drinks/takju_pyeongtaek_cheonbihyang_saengju.webp"
     },
     {
       "id": "takju_pocheon_gujeolcho",
@@ -1319,7 +1319,7 @@
         "finish_length"
       ],
       "description": "포천의 시화 구절초를 넣어 항아리에서 100일 발효한 꽃 막걸리. 당도·산도가 낮고 탄산이 많아 걸쭉함 없이 청량한, 와인처럼 마시는 드라이 스파클링 스타일.",
-      "image": "/drinks/takju_pocheon_gujeolcho.png"
+      "image": "/drinks/takju_pocheon_gujeolcho.webp"
     },
     {
       "id": "takju_pocheon_gohyangchun",
@@ -1390,7 +1390,7 @@
         "finish_length"
       ],
       "description": "쌀가루 누룩 이화곡으로 빚어 청포도 같은 과일향과 단맛이 조화를 이루는 삼양주 탁주. 걸쭉하면서도 우유처럼 부드러운 목 넘김의 인공첨가물 없는 가양주.",
-      "image": "/drinks/takju_pocheon_gohyangchun.png"
+      "image": "/drinks/takju_pocheon_gohyangchun.webp"
     },
     {
       "id": "wine_hwaseong_foriver",
@@ -1453,7 +1453,7 @@
       "similar": [],
       "estimated_attributes": [],
       "description": "송산 캠벨 포도의 당미를 진하게 남긴 스위트 레드와인. 포도 잼처럼 달콤한 향과 부드러운 산미, 약한 탄닌으로 떫은맛 없이 편안하게 마실 수 있다.",
-      "image": "/drinks/wine_hwaseong_foriver.png"
+      "image": "/drinks/wine_hwaseong_foriver.webp"
     },
     {
       "id": "liqueur_hwaseong_simplyapple",
@@ -1521,7 +1521,7 @@
         "finish_length"
       ],
       "description": "옹기 숙성 증류식 소주에 화성 사과즙과 벌꿀을 더한 12도 리큐르. 알코올 자극 없이 상큼한 사과와 꿀의 단맛이 지배적이라 가볍게 즐기기 좋다.",
-      "image": "/drinks/liqueur_hwaseong_simplyapple.png"
+      "image": "/drinks/liqueur_hwaseong_simplyapple.webp"
     }
   ]
 }

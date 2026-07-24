@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AppImage from "@/components/AppImage";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
 import type { Drink } from "@/lib/types";
@@ -42,19 +43,10 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
                 style={{ display: "flex", gap: 14, alignItems: "stretch", padding: 14, borderRadius: 16, color: "inherit" }}
               >
                 {d.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <AppImage
                     src={d.image}
                     alt={d.name}
-                    style={{
-                      width: 64,
-                      height: 88,
-                      flexShrink: 0,
-                      borderRadius: 8,
-                      objectFit: "cover",
-                      background: "var(--hanji-bright)",
-                      border: "1px solid rgba(120,95,50,.08)",
-                    }}
+                    boxStyle={{ width: 64, height: 88, flexShrink: 0, borderRadius: 8, border: "1px solid rgba(120,95,50,.08)" }}
                   />
                 ) : (
                   <div className="ph-art" style={{ width: 58, flexShrink: 0, borderRadius: 8 }}>

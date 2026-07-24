@@ -28,7 +28,7 @@ export default function AgePage() {
         style={{
           position: "absolute",
           inset: 0,
-          backgroundImage: "url(/home-bg.png)",
+          backgroundImage: "url(/home-bg.webp)",
           backgroundSize: "cover",
           backgroundPosition: "center top",
           zIndex: 0,

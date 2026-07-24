@@ -1,10 +1,13 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { SEED_OBTAINED } from "@/lib/dex";
 
 /**
  * 홈 — 확정 디자인.
- * 배경사진(public/home-bg.png) 위에 한지 그라데이션으로 하단을 덮고,
- * 옻칠 주버튼(취향 찾기) + 한지 보조카드(스캔·지도) + 도감 링크를 배치.
+ * 배경사진(public/home-bg.webp)이 다 로드되기 전에는 로딩 스피너를 보여주고,
+ * 준비되면 한지 그라데이션 + 옻칠 CTA + 보조카드 + 도감 링크를 표시.
  */
 
 function Chevron({ color }: { color: string }) {
@@ -16,6 +19,31 @@ function Chevron({ color }: { color: string }) {
 }
 
 export default function HomePage() {
+  const [ready, setReady] = useState(false);
+
+  // 배경 이미지가 다 로드된 뒤에 화면을 보여준다 (지직거리며 그려지는 것 방지)
+  useEffect(() => {
+    const img = new window.Image();
+    img.src = "/home-bg.webp";
+    const done = () => setReady(true);
+    if (img.complete) done();
+    else {
+      img.onload = done;
+      img.onerror = done;
+    }
+  }, []);
+
+  if (!ready) {
+    return (
+      <div className="load-screen">
+        <span className="big-spin" />
+        <div className="serif" style={{ fontSize: 13, letterSpacing: ".34em", color: "var(--gold-deep)" }}>
+          京 畿 술 都 家
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -31,7 +59,7 @@ export default function HomePage() {
         style={{
           position: "absolute",
           inset: 0,
-          backgroundImage: "url(/home-bg.png)",
+          backgroundImage: "url(/home-bg.webp)",
           backgroundSize: "cover",
           backgroundPosition: "center top",
           zIndex: 0,
