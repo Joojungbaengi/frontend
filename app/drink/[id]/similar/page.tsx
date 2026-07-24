@@ -106,7 +106,8 @@ export default function SimilarPage() {
 
   return (
     <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
-      <ScreenHeader title={`${name}${particle(name)} 비슷한 술 추천`} backHref={`/drink/${id}`} />
+      {/* backHref 없이 history back → 상세를 새로 쌓지 않아 루프가 생기지 않음 */}
+      <ScreenHeader title={`${name}${particle(name)} 비슷한 술 추천`} />
 
       <div style={{ padding: "18px 22px 44px" }}>
         {data.items.length === 0 ? (
