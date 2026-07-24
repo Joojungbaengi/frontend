@@ -44,7 +44,7 @@ function Gauge({ label, value }: { label: string; value: number }) {
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 15 }}>
       <div style={{ width: 66, fontSize: 14, color: "var(--ink-faint)" }}>{label}</div>
       <div style={{ flex: 1, height: 9, borderRadius: 99, background: "rgba(120,95,50,.13)" }}>
-        <div style={{ width: `${value}%`, height: "100%", background: "var(--pine)", borderRadius: 99 }} />
+        <div style={{ width: `${value}%`, height: "100%", background: "var(--brown)", borderRadius: 99 }} />
       </div>
       <div className="serif" style={{ width: 26, textAlign: "right", fontWeight: 700, fontSize: 13 }}>
         {value}
@@ -197,14 +197,14 @@ export default function ResultPage() {
             <div
               style={{
                 flex: 1,
-                background: "var(--moss)",
+                background: "var(--sage)",
                 borderRadius: 18,
                 padding: "16px 14px",
                 textAlign: "center",
                 boxShadow: "0 8px 20px rgba(120,95,50,.1)",
               }}
             >
-              <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 12 }}>잘 맞는 신선</div>
+              <div style={{ fontSize: 11, color: "var(--brown)", marginBottom: 12 }}>잘 맞는 신선</div>
               <div className="ph-art" style={{ width: 72, height: 72, margin: "0 auto 12px", borderRadius: "50%" }}>
                 <span className="ph-label">신선</span>
               </div>
@@ -237,7 +237,7 @@ export default function ResultPage() {
             <span className="bar red" />
             <h2>이 신선을 위한 3잔</h2>
           </div>
-          <p style={{ margin: "0 0 16px", paddingLeft: 14, fontSize: 12.5, lineHeight: 1.55, color: "var(--pine)" }}>
+          <p style={{ margin: "0 0 16px", paddingLeft: 14, fontSize: 12.5, lineHeight: 1.55, color: "var(--brown)" }}>
             AI 소믈리에가 <b>취향에 근거해</b> 고른 술 — 탭하면 상세로 이동해요.
             {data?.result.fallback && (
               <span style={{ display: "block", marginTop: 4, color: "var(--ink-faint)" }}>
@@ -299,7 +299,7 @@ export default function ResultPage() {
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div className="serif" style={{ fontWeight: 800, fontSize: 19, color: "var(--pine)" }}>
+                      <div className="serif" style={{ fontWeight: 800, fontSize: 19, color: "var(--brown)" }}>
                         {rec.matchPct}%
                       </div>
                       <div style={{ fontSize: 10, color: "#a99a7f" }}>취향 일치</div>
