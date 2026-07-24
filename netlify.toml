@@ -1,0 +1,14 @@
+# Netlify 배포 설정 (경기술도가 frontend)
+# 환경 변수(AWS_BEARER_TOKEN_BEDROCK 등)는 여기 넣지 말고 Netlify 사이트 설정 > Environment variables 에 등록할 것.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # Next.js 16 은 Node 20 이상 필요
+  NODE_VERSION = "20"
+
+# Next.js 런타임(App Router · Route Handlers → 서버리스 함수) 자동 적용
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
