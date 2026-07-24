@@ -98,8 +98,8 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
       <ScreenHeader title="전통주 상세" />
 
       <div style={{ padding: "22px 22px 34px", display: "flex", flexDirection: "column", gap: 26 }}>
-        {/* ── 히어로 (뱃지 유무와 무관하게 이름 위치 고정) ── */}
-        <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+        {/* ── 히어로 (술이름+뱃지를 사진 높이의 세로 중앙에 정렬) ── */}
+        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           {drink.image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img

@@ -79,7 +79,7 @@ button {
 
 /* ===== 공용 클래스 ===== */
 
-/* 모바일 프레임 — 가로/세로 고정. 스크롤은 프레임 내부에서만 일어나 화면 크기가 페이지마다 변하지 않는다. */
+/* 모바일 프레임 — 가로/세로 고정. 스크롤은 프레임 내부에서만 일어난다. */
 .phone {
   max-width: 430px;
   width: 100%;
@@ -90,7 +90,19 @@ button {
   color: var(--ink-strong);
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-gutter: stable; /* 스크롤바 자리 항상 확보 → 가로폭 고정 */
+  /* 얇은 커스텀 스크롤바 (프레임 안에 포함, 자리 예약 없음) */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 95, 50, 0.4) transparent;
+}
+.phone::-webkit-scrollbar {
+  width: 5px;
+}
+.phone::-webkit-scrollbar-track {
+  background: transparent;
+}
+.phone::-webkit-scrollbar-thumb {
+  background: rgba(120, 95, 50, 0.38);
+  border-radius: 99px;
 }
 
 /* 명조 제목 */
