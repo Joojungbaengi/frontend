@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
@@ -14,10 +14,17 @@ import type { Drink } from "@/lib/types";
 
 const drinks = db.drinks as unknown as Drink[];
 
-/** 소장(획득) 카드 — 금선 이중 프레임 + 병 아트 */
-function SoulCard({ drink }: { drink: Drink }) {
+/** 소장(획득) 카드 — 금선 이중 프레임 + 병 아트 + 홀로 테두리 / 클릭 시 플립 */
+function SoulCard({ drink, flipping, onActivate }: { drink: Drink; flipping: boolean; onActivate: (id: string) => void }) {
   return (
-    <Link href={`/drink/${drink.id}`} style={{ color: "inherit" }}>
+    <div
+      className={`dex-card${flipping ? " flipping" : ""}`}
+      onClick={() => onActivate(drink.id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onActivate(drink.id)}
+      style={{ color: "inherit" }}
+    >
       <div
         style={{
           background: "linear-gradient(180deg,#fdf9ef,#f3e8d3)",
@@ -58,13 +65,15 @@ function SoulCard({ drink }: { drink: Drink }) {
           <div style={{ fontSize: 9, color: "var(--ink-faint)", textAlign: "center", marginTop: 1 }}>{drink.region}</div>
         </div>
       </div>
-    </Link>
+    </div>
   );
 }
 
 export default function DexPage() {
+  const router = useRouter();
   const total = drinks.length;
   const [obtainedIds, setObtainedIds] = useState<string[]>(SEED_OBTAINED);
+  const [leaving, setLeaving] = useState<string | null>(null);
 
   useEffect(() => {
     setObtainedIds(readObtained());
@@ -74,8 +83,23 @@ export default function DexPage() {
   const count = obtained.length;
   const pct = total > 0 ? (count / total) * 100 : 0;
 
+  // 카드 클릭 → 플립 애니메이션 후 상세로 부드럽게 이동
+  const activate = (id: string) => {
+    if (leaving) return;
+    setLeaving(id);
+    setTimeout(() => router.push(`/drink/${id}`), 820);
+  };
+
   return (
-    <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
+    <div
+      style={{
+        position: "relative",
+        zIndex: 5,
+        minHeight: "100dvh",
+        opacity: leaving ? 0 : 1,
+        transition: "opacity .4s ease .42s",
+      }}
+    >
       <ScreenHeader title="경기술 도감" backHref="/" />
 
       <div style={{ padding: "22px 22px 44px" }}>
@@ -106,7 +130,7 @@ export default function DexPage() {
         {count > 0 ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
             {obtained.map((d) => (
-              <SoulCard key={d.id} drink={d} />
+              <SoulCard key={d.id} drink={d} flipping={leaving === d.id} onActivate={activate} />
             ))}
           </div>
         ) : (

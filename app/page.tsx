@@ -38,7 +38,7 @@ export default function HomePage() {
         }}
       />
 
-      {/* 상단 한자 라벨 */}
+      {/* 상단 한자 라벨 — 밝은 금박 그라데이션 */}
       <div
         style={{
           position: "absolute",
@@ -47,19 +47,20 @@ export default function HomePage() {
           right: 0,
           textAlign: "center",
           zIndex: 20,
-          textShadow: "0 2px 6px rgba(60,50,30,.35)",
         }}
       >
         <div
           style={{
             display: "inline-block",
-            font: "700 13px var(--font-gowun), sans-serif",
+            font: "800 14px var(--font-gowun), sans-serif",
             letterSpacing: ".42em",
-            backgroundImage: "linear-gradient(180deg,#fbe7bd 0%,#e8c98a 42%,#c6a568 78%,#a67c3e 100%)",
+            backgroundImage:
+              "linear-gradient(175deg,#fffdf3 0%,#ffeeb8 28%,#f4d585 50%,#fff3c2 64%,#e9c877 82%,#f7e3a4 100%)",
             WebkitBackgroundClip: "text",
             backgroundClip: "text",
             WebkitTextFillColor: "transparent",
-            filter: "drop-shadow(0 1px 2px rgba(38,24,4,.6))",
+            color: "#f3d98c", /* 그라데이션 미지원 시 폴백 */
+            filter: "drop-shadow(0 1px 1px rgba(70,45,10,.55)) drop-shadow(0 0 3px rgba(255,240,190,.35))",
           }}
         >
           京 畿 술 都 家
@@ -137,9 +138,9 @@ export default function HomePage() {
           </div>
           <div style={{ flex: 1 }}>
             <div className="serif" style={{ fontWeight: 700, fontSize: 18, color: "#f6ecd6" }}>
-              나의 전통술 취향 찾기
+              나만의 전통주 취향 찾기
             </div>
-            <div style={{ fontSize: 12, color: "#cdb98f", marginTop: 3 }}>술BTI · AI가 취향에 맞는 3잔 추천</div>
+            <div style={{ fontSize: 12, color: "#cdb98f", marginTop: 3 }}>술BTI · 취향맞춤 전통주 추천</div>
           </div>
           <Chevron color="#e8c98a" />
         </Link>
@@ -175,7 +176,7 @@ export default function HomePage() {
               </svg>
             </div>
             <div className="serif" style={{ fontWeight: 700, fontSize: 15 }}>전통주 스캔</div>
-            <div style={{ fontSize: 11, lineHeight: 1.4, color: "#8a7757", marginTop: 3 }}>바코드로 제품 확인</div>
+            <div style={{ fontSize: 11, lineHeight: 1.4, color: "#8a7757", marginTop: 3 }}>카메라 인식으로 제품 확인</div>
           </Link>
 
           <Link
@@ -207,7 +208,7 @@ export default function HomePage() {
               </svg>
             </div>
             <div className="serif" style={{ fontWeight: 700, fontSize: 15 }}>경기술 지도</div>
-            <div style={{ fontSize: 11, lineHeight: 1.4, color: "#8a7757", marginTop: 3 }}>시군별 양조장 탐색</div>
+            <div style={{ fontSize: 11, lineHeight: 1.4, color: "#8a7757", marginTop: 3 }}>지역별 전통주 탐색</div>
           </Link>
         </div>
 

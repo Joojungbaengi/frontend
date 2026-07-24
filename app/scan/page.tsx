@@ -17,7 +17,7 @@ export default function ScanPage() {
         flexDirection: "column",
       }}
     >
-      <ScreenHeader title="바코드 스캔" backHref="/" dark />
+      <ScreenHeader title="전통주 스캔" backHref="/" dark />
 
       {/* 카메라 미리보기 자리 + 스캔라인 애니메이션 */}
       <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -58,9 +58,9 @@ export default function ScanPage() {
 
       <div style={{ padding: "22px 22px 44px", textAlign: "center" }}>
         <p style={{ margin: "0 0 18px", fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,.8)" }}>
-          전통주 병의 바코드를 사각형 안에
+          가지고 있는 전통주를 카메라로 비춰보세요.
           <br />
-          맞춰주세요. 인식 후 제품 정보를 불러옵니다.
+          AI가 인식 후 제품 정보를 불러옵니다.
         </p>
         {/* TODO(내용 연결): 카메라·바코드 인식 연동 — 지금은 이미지 스캔 대상 제품(동림청주)으로 이동 */}
         <Link
@@ -70,9 +70,6 @@ export default function ScanPage() {
         >
           제품 인식됨 · 정보 보기
         </Link>
-        <div style={{ marginTop: 12, fontSize: 12, color: "rgba(255,255,255,.55)" }}>
-          등록되지 않은 제품인가요? <span style={{ color: "#e8c98a" }}>직접 검색</span>
-        </div>
       </div>
     </div>
   );

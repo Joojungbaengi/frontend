@@ -85,12 +85,13 @@ export default function GyeonggiMap({
       {/* 체험 완료 스탬프 (도장) — 라벨 위에 겹쳐 찍힘 */}
       {regions.map((r) =>
         stampSet.has(r.name) ? (
-          <g key={`s-${r.name}`} transform={`translate(${r.cx + 24}, ${r.cy + 28}) rotate(-12)`} style={{ pointerEvents: "none" }}>
-            <rect x={-24} y={-24} width={48} height={48} rx={9} fill="#b5482f" stroke="#f4e9d8" strokeWidth={2} opacity={0.95} />
+          <g key={`s-${r.name}`} transform={`translate(${r.cx + 26}, ${r.cy + 30}) rotate(-12)`} style={{ pointerEvents: "none" }}>
+            <rect x={-25} y={-25} width={50} height={50} rx={10} fill="#cbaa66" stroke="#8a6a2f" strokeWidth={2.5} />
+            <rect x={-20} y={-20} width={40} height={40} rx={7} fill="none" stroke="#f3e2b8" strokeWidth={1} opacity={0.7} />
             <text
               x={0}
               y={2}
-              fill="#fbeee5"
+              fill="#5c4420"
               fontSize={30}
               fontWeight={800}
               textAnchor="middle"

@@ -76,6 +76,61 @@ button {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }
 }
+/* 도감 카드 홀로 테두리 회전 */
+@property --holo {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes holo-spin {
+  to { --holo: 360deg; }
+}
+/* 도감 카드 선택 시 휘리릭 플립 */
+@keyframes dexflip {
+  0% { transform: perspective(700px) rotateY(0deg) scale(1); }
+  55% { transform: perspective(700px) rotateY(200deg) scale(1.06); }
+  100% { transform: perspective(700px) rotateY(360deg) scale(1); }
+}
+
+/* ===== 도감 카드 (홀로 테두리 + 플립) ===== */
+.dex-card {
+  position: relative;
+  border-radius: 13px;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.dex-card::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 15px;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--holo),
+    #fff6d5,
+    #e8c98a,
+    #cfe6da,
+    #f0d59a,
+    #e9c6d6,
+    #e8c98a,
+    #fff6d5
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+.dex-card:hover::before {
+  opacity: 1;
+  animation: holo-spin 2.4s linear infinite;
+}
+.dex-card.flipping {
+  animation: dexflip 0.7s ease-in-out both;
+  z-index: 5;
+}
 
 /* ===== 공용 클래스 ===== */
 
@@ -90,9 +145,10 @@ button {
   color: var(--ink-strong);
   overflow-x: hidden;
   overflow-y: auto;
-  /* 얇은 커스텀 스크롤바 (프레임 안에 포함, 자리 예약 없음) */
+  /* 얇은 커스텀 스크롤바 + 양쪽 대칭 거터 → 스크롤 유무와 무관하게 콘텐츠 가운데 정렬 고정 */
   scrollbar-width: thin;
   scrollbar-color: rgba(120, 95, 50, 0.4) transparent;
+  scrollbar-gutter: stable both-edges;
 }
 .phone::-webkit-scrollbar {
   width: 5px;
