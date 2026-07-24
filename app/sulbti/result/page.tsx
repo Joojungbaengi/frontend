@@ -105,7 +105,7 @@ export default function ResultPage() {
 
       {/* ── 신선 유형 족자 (유형 이름·일러스트는 후순위 TODO) ── */}
       <div style={{ padding: "2px 22px 20px", textAlign: "center" }}>
-        <div style={{ fontSize: 12, letterSpacing: ".3em", color: "var(--pine)", marginBottom: 14 }}>
+        <div style={{ fontSize: 12, letterSpacing: ".3em", color: "var(--gold)", marginBottom: 14 }}>
           京畿 神仙 · 나의 술 취향
         </div>
         <HangingScroll

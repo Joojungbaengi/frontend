@@ -1,19 +1,21 @@
 @import "tailwindcss";
 
-/* ===== 경기술도가 디자인 토큰 — 청화(靑華) 쪽빛 팔레트 ===== */
-/* 족자봉·인장(붉은 도장)은 그대로 두고, 기본 팔레트만 푸른 계열로 전환 */
+/* ===== 경기술도가 디자인 토큰 — 안개 낀 쪽빛 산수(山水) 팔레트 ===== */
+/* 족자봉·인장(붉은 도장)은 그대로. 기본 배경/버튼은 흐릿한 청회색 그라데이션 + 고묵금(古墨金) 포인트 */
 :root {
-  --ink: #22303c; /* 먹색 (푸른 기 도는 본문 먹) */
-  --ink-soft: #3d4551;
-  --ink-faint: #64707e;
-  --pine: #35597e; /* 쪽빛 남색 (주 포인트 — 구 소나무색 자리) */
-  --pine-dark: #294766;
+  --ink: #2b3849; /* 먹색 (짙은 청회 본문) */
+  --ink-soft: #49555f;
+  --ink-faint: #717d8b;
+  --pine: #3d5170; /* 주 포인트 남색 (슬레이트 인디고) */
+  --pine-dark: #2e3f59;
   --seal: #b5482f; /* 인주 붉은색 (도장·낙관 전용) */
   --seal-dark: #8f3a20;
-  --hanji: #f5eede; /* 한지색 (카드 배경) */
-  --hanji-bright: #fbf6ea;
-  --moss: #d9e6f0; /* 옅은 쪽빛 (배지·아이콘 배경) */
-  --dark: #1b232e; /* 카메라·AR 배경 */
+  --gold: #b59a68; /* 고묵금 — 고급감 포인트 (라벨·헤어라인) */
+  --gold-soft: #cdb488;
+  --hanji: #f4eede; /* 한지색 (카드 배경) */
+  --hanji-bright: #faf5ea;
+  --moss: #dae2ed; /* 옅은 청회 (배지·아이콘 배경) */
+  --dark: #222c39; /* 카메라·AR 배경 */
 }
 
 @theme inline {
@@ -27,7 +29,7 @@ body {
 }
 
 body {
-  background: #9cafc2;
+  background: #a6b4c5;
   color: var(--ink);
   font-family: var(--font-gowun), system-ui, sans-serif;
   word-break: keep-all; /* 한국어 단어 중간 줄바꿈 방지 */
@@ -78,16 +80,25 @@ button {
 
 /* ===== 공용 클래스 ===== */
 
-/* 모바일 프레임 (430px 세로형) */
+/* 모바일 프레임 (430px 세로형) — 이미지처럼 흐릿한 청회색 대각 그라데이션 */
 .phone {
   max-width: 430px;
   margin: 0 auto;
   min-height: 100dvh;
   position: relative;
-  background: linear-gradient(180deg, #dee7ee 0%, #c5d4e0 32%, #abbecf 66%, #a2b6c8 100%);
+  background: linear-gradient(158deg, #cdd7e3 0%, #bdc9d7 36%, #aab8c9 70%, #9dadbf 100%);
   background-attachment: fixed;
   color: var(--ink);
   overflow: hidden;
+}
+/* 위쪽에 옅은 빛무리 — 산 위 안개 느낌으로 깊이감 */
+.phone::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 70% at 50% -8%, rgba(247, 250, 253, 0.6), rgba(247, 250, 253, 0) 60%);
+  z-index: 0;
 }
 
 /* 떠다니는 안개 */
@@ -101,7 +112,7 @@ button {
   top: 200px;
   width: 220px;
   height: 90px;
-  background: radial-gradient(closest-side, rgba(244, 240, 230, 0.55), transparent);
+  background: radial-gradient(closest-side, rgba(243, 247, 252, 0.6), transparent);
   animation: mistdrift 11s ease-in-out infinite;
 }
 .mist-b {
@@ -109,7 +120,7 @@ button {
   top: 520px;
   width: 240px;
   height: 100px;
-  background: radial-gradient(closest-side, rgba(244, 240, 230, 0.45), transparent);
+  background: radial-gradient(closest-side, rgba(243, 247, 252, 0.5), transparent);
   animation: mistdrift 14s ease-in-out infinite reverse;
 }
 
@@ -126,47 +137,33 @@ button {
   box-shadow: 0 8px 20px rgba(53, 89, 126, 0.1);
 }
 
-/* 버튼 — 쪽빛 남색 + 오른쪽에 은은한 구름 문양 */
+/* 버튼 — 이미지 속 카드처럼 짙은 청회 남색 그라데이션 + 금빛 헤어라인 */
 .btn-primary {
   position: relative;
-  overflow: hidden;
   width: 100%;
   border: none;
-  background: linear-gradient(160deg, #40679a 0%, #35597e 55%, #2e5178 100%);
-  color: #fff;
+  background: linear-gradient(152deg, #43546d 0%, #35455c 52%, #2c3b4e 100%);
+  color: #f6f2e8;
   font-family: var(--font-myeongjo), serif;
   font-weight: 700;
   font-size: 16px;
   padding: 17px;
   border-radius: 16px;
   cursor: pointer;
-  box-shadow: 0 10px 22px rgba(46, 81, 120, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 26px rgba(31, 43, 58, 0.34), inset 0 1px 0 rgba(205, 180, 136, 0.28);
   transition: transform 0.12s, box-shadow 0.12s, filter 0.15s;
 }
-.btn-primary::after {
-  content: "";
-  position: absolute;
-  right: -8px;
-  bottom: -12px;
-  width: 96px;
-  height: 52px;
-  pointer-events: none;
-  opacity: 0.16;
-  background-repeat: no-repeat;
-  background-size: contain;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 190 100'%3E%3Cpath d='M22 74 C8 74 2 58 12 49 C6 37 18 25 32 29 C35 15 54 9 67 16 C75 5 97 4 106 14 C120 7 138 14 139 28 C154 26 165 36 161 49 C173 53 175 68 164 74 Z' fill='none' stroke='white' stroke-width='6'/%3E%3Cpath d='M52 52 c-3 -12 11 -20 20 -13 c7 6 4 18 -6 19' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M104 47 c-1 -10 11 -15 18 -9 c6 6 2 15 -6 15' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M166 63 c12 2 22 -1 29 -9' fill='none' stroke='white' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E");
-}
 .btn-primary:hover {
-  filter: brightness(1.06);
+  filter: brightness(1.08);
 }
 .btn-primary:active {
   transform: translateY(1px) scale(0.995);
-  box-shadow: 0 6px 14px rgba(46, 81, 120, 0.3);
+  box-shadow: 0 7px 16px rgba(31, 43, 58, 0.32);
 }
 .btn-outline {
   width: 100%;
-  border: 1.5px solid rgba(53, 89, 126, 0.35);
-  background: rgba(255, 255, 255, 0.45);
+  border: 1.5px solid rgba(61, 81, 112, 0.4);
+  background: rgba(255, 255, 255, 0.42);
   color: var(--ink);
   font-size: 15px;
   padding: 15px;
@@ -175,7 +172,7 @@ button {
   transition: background 0.15s;
 }
 .btn-outline:hover {
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.62);
 }
 
 /* 술BTI 질문 제목 — 화면 폭에 맞춰 크기를 줄여 의도한 줄에서만 줄바꿈 */
@@ -396,12 +393,4 @@ button {
 }
 .map-piece.inactive:hover {
   fill: #c3cfda;
-}
-
-/* 동양풍 구름 장식 (배경이 많이 보이는 화면용) */
-.cloud-deco {
-  position: absolute;
-  color: var(--pine);
-  pointer-events: none;
-  z-index: 1;
 }

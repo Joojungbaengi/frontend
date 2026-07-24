@@ -31,11 +31,11 @@ export default function AgePage() {
             height: 80,
             margin: "0 auto 22px",
             borderRadius: 20,
-            background: "linear-gradient(160deg,#40679a,#2e5178)",
+            background: "linear-gradient(152deg,#43546d,#2c3b4e)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 14px 30px rgba(46,81,120,.32)",
+            boxShadow: "0 14px 30px rgba(31,43,58,.34), inset 0 1px 0 rgba(205,180,136,.28)",
           }}
         >
           <span className="serif" style={{ fontWeight: 800, fontSize: 30, color: "#fff" }}>19</span>

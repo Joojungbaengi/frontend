@@ -47,7 +47,8 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
                     src={d.image}
                     alt={d.name}
                     style={{
-                      width: 58,
+                      width: 64,
+                      height: 88,
                       flexShrink: 0,
                       borderRadius: 8,
                       objectFit: "cover",

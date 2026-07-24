@@ -45,7 +45,7 @@ export default function MainPage() {
       }}
     >
       <div style={{ textAlign: "center", marginBottom: 8 }}>
-        <div style={{ fontSize: 12, letterSpacing: ".4em", color: "var(--pine)", marginBottom: 14 }}>
+        <div style={{ fontSize: 12, letterSpacing: ".4em", color: "var(--gold)", marginBottom: 14 }}>
           京 畿 술 都 家
         </div>
         <h1 className="serif" style={{ margin: 0, fontWeight: 800, fontSize: "clamp(26px, 7.5vw, 32px)", lineHeight: 1.34 }}>
@@ -83,11 +83,11 @@ export default function MainPage() {
           href="/age"
           style={{
             ...menuCard,
-            border: "1px solid rgba(53,89,126,.22)",
-            background: "linear-gradient(160deg,#40679a 0%,#35597e 55%,#2e5178 100%)",
+            border: "1px solid rgba(205,180,136,.28)",
+            background: "linear-gradient(152deg,#43546d 0%,#35455c 52%,#2c3b4e 100%)",
             padding: "22px 20px",
-            boxShadow: "0 12px 28px rgba(46,81,120,.32)",
-            color: "#fff",
+            boxShadow: "0 14px 30px rgba(31,43,58,.34), inset 0 1px 0 rgba(205,180,136,.24)",
+            color: "#f6f2e8",
           }}
         >
           <div style={{ ...iconBox, background: "rgba(255,255,255,.18)" }}>
