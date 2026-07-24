@@ -27,7 +27,7 @@ export default function ScanPage() {
             width: 250,
             height: 250,
             borderRadius: 24,
-            background: "repeating-linear-gradient(45deg,#2a323e,#2a323e 14px,#242b36 14px,#242b36 28px)",
+            background: "repeating-linear-gradient(45deg,#3a2e1c,#3a2e1c 14px,#332818 14px,#332818 28px)",
             overflow: "hidden",
           }}
         >
@@ -37,16 +37,16 @@ export default function ScanPage() {
               left: "6%",
               right: "6%",
               height: 2,
-              background: "var(--seal)",
-              boxShadow: "0 0 12px #b5482f",
+              background: "#e8c98a",
+              boxShadow: "0 0 12px #c6a568",
               animation: "scanline 1.8s ease-in-out infinite alternate",
             }}
           />
           {/* 네 모서리 가이드 */}
-          <div style={{ position: "absolute", left: 14, top: 14, width: 26, height: 26, borderLeft: "3px solid #d9e6f0", borderTop: "3px solid #d9e6f0", borderRadius: "6px 0 0 0" }} />
-          <div style={{ position: "absolute", right: 14, top: 14, width: 26, height: 26, borderRight: "3px solid #d9e6f0", borderTop: "3px solid #d9e6f0", borderRadius: "0 6px 0 0" }} />
-          <div style={{ position: "absolute", left: 14, bottom: 14, width: 26, height: 26, borderLeft: "3px solid #d9e6f0", borderBottom: "3px solid #d9e6f0", borderRadius: "0 0 0 6px" }} />
-          <div style={{ position: "absolute", right: 14, bottom: 14, width: 26, height: 26, borderRight: "3px solid #d9e6f0", borderBottom: "3px solid #d9e6f0", borderRadius: "0 0 6px 0" }} />
+          <div style={{ position: "absolute", left: 14, top: 14, width: 26, height: 26, borderLeft: "3px solid #e8c98a", borderTop: "3px solid #e8c98a", borderRadius: "6px 0 0 0" }} />
+          <div style={{ position: "absolute", right: 14, top: 14, width: 26, height: 26, borderRight: "3px solid #e8c98a", borderTop: "3px solid #e8c98a", borderRadius: "0 6px 0 0" }} />
+          <div style={{ position: "absolute", left: 14, bottom: 14, width: 26, height: 26, borderLeft: "3px solid #e8c98a", borderBottom: "3px solid #e8c98a", borderRadius: "0 0 0 6px" }} />
+          <div style={{ position: "absolute", right: 14, bottom: 14, width: 26, height: 26, borderRight: "3px solid #e8c98a", borderBottom: "3px solid #e8c98a", borderRadius: "0 0 6px 0" }} />
           <span
             className="ph-label"
             style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", color: "rgba(255,255,255,.4)", fontSize: 10 }}
@@ -66,12 +66,12 @@ export default function ScanPage() {
         <Link
           href="/drink/cheongju_yongin_dongnim"
           className="btn-primary"
-          style={{ display: "block", textAlign: "center", color: "#fff", padding: 16 }}
+          style={{ display: "block", textAlign: "center", padding: 16 }}
         >
           제품 인식됨 · 정보 보기
         </Link>
         <div style={{ marginTop: 12, fontSize: 12, color: "rgba(255,255,255,.55)" }}>
-          등록되지 않은 제품인가요? <span style={{ color: "#d9e6f0" }}>직접 검색</span>
+          등록되지 않은 제품인가요? <span style={{ color: "#e8c98a" }}>직접 검색</span>
         </div>
       </div>
     </div>

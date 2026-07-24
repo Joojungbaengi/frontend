@@ -2,7 +2,10 @@
 
 import { useRouter } from "next/navigation";
 
-/** 뒤로가기 + 가운데 타이틀이 있는 상단 고정 헤더 */
+/**
+ * 확정 디자인 헤더 — 뒤로가기(원형) + 가운데 페이지명(명조 19px)을 한 줄에.
+ * 헤더와 본문 사이 간격은 각 페이지 콘텐츠의 상단 여백으로 확보한다.
+ */
 export default function ScreenHeader({
   title,
   backHref,
@@ -18,28 +21,22 @@ export default function ScreenHeader({
 }) {
   const router = useRouter();
   const goBack = () => (backHref ? router.push(backHref) : router.back());
+  const stroke = dark ? "#f6ecd6" : "#3d2f1c";
 
   return (
-    <div
-      className="screen-header"
-      style={dark ? { background: "none", backdropFilter: "none", padding: "56px 20px 12px" } : undefined}
-    >
+    <div className="screen-header">
       <button className={`btn-back${dark ? " on-dark" : ""}`} onClick={goBack} aria-label="뒤로가기">
         <svg width="9" height="16" viewBox="0 0 9 16">
-          <path
-            d="M8 1L1 8l7 7"
-            stroke={dark ? "#fff" : "#22303c"}
-            strokeWidth="2"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          <path d="M8 1L1 8l7 7" stroke={stroke} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      <div className="screen-header-title" style={dark ? { color: "rgba(255,255,255,.8)" } : undefined}>
+      <div
+        className="screen-header-title"
+        style={dark ? { color: "#f6ecd6", textShadow: "0 1px 4px rgba(0,0,0,.4)" } : undefined}
+      >
         {title}
       </div>
-      {right ?? <div style={{ width: 38 }} />}
+      {right ?? <div style={{ width: 40 }} />}
     </div>
   );
 }

@@ -1,61 +1,90 @@
 import Link from "next/link";
 
-/** 연령 간단 확인 — 본인인증 없이 만 19세 이상 확인만 (기획안 5.2) */
+/**
+ * 연령 확인 — 확정 디자인.
+ * 배경사진 + 어두운 오버레이 위에, 하단에 한지 카드(19 인장 + 확인 버튼).
+ * 본인·실명 인증 없이 만 19세 이상 확인만 (기획안 5.2).
+ */
 export default function AgePage() {
   return (
-    <div
-      style={{
-        position: "relative",
-        zIndex: 5,
-        padding: "60px 22px 40px",
-        minHeight: "100dvh",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <Link
-        href="/"
-        className="btn-back"
-        style={{ width: 40, height: 40, marginBottom: "auto" }}
-        aria-label="처음으로"
-      >
-        <svg width="9" height="16" viewBox="0 0 9 16">
-          <path d="M8 1L1 8l7 7" stroke="#22303c" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </Link>
+    <div style={{ position: "relative", minHeight: "100dvh", overflow: "hidden" }}>
+      {/* 배경 사진 + 어두운 오버레이 */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: "url(/home-bg.png)",
+          backgroundSize: "cover",
+          backgroundPosition: "center top",
+          zIndex: 0,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "linear-gradient(180deg,rgba(30,22,12,.35) 0%,rgba(30,22,12,.55) 100%)",
+          zIndex: 1,
+        }}
+      />
 
-      <div style={{ textAlign: "center", margin: "auto 0" }}>
+      {/* 헤더 */}
+      <div style={{ position: "relative", zIndex: 30, display: "flex", alignItems: "center", gap: 13, padding: "52px 18px 0" }}>
+        <Link href="/" className="btn-back on-dark" aria-label="처음으로">
+          <svg width="9" height="16" viewBox="0 0 9 16">
+            <path d="M8 1L1 8l7 7" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </Link>
         <div
-          style={{
-            width: 80,
-            height: 80,
-            margin: "0 auto 22px",
-            borderRadius: 20,
-            background: "#3c4c62",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 18px 40px -18px rgba(30,42,60,.6), inset 0 1px 0 rgba(198,165,104,.28)",
-          }}
+          className="serif"
+          style={{ flex: 1, textAlign: "center", fontWeight: 700, fontSize: 19, color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,.4)" }}
         >
-          <span className="serif" style={{ fontWeight: 800, fontSize: 30, color: "#fff" }}>19</span>
+          연령 확인
         </div>
-        <h1 className="serif" style={{ margin: "0 0 12px", fontWeight: 800, fontSize: 24, lineHeight: 1.4 }}>
-          잠깐, 확인할게요
-        </h1>
-        <p style={{ margin: "0 auto", maxWidth: 300, fontSize: 14, lineHeight: 1.7, color: "var(--ink-soft)" }}>
-          취향 진단·전통주 추천은 <b>만 19세 이상</b> 이용자를 위한 콘텐츠예요. 본인·실명 인증 없이
-          간단히 확인만 합니다.
-        </p>
+        <div style={{ width: 40 }} />
       </div>
 
-      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 11 }}>
-        <Link href="/sulbti" className="btn-primary" style={{ textAlign: "center", color: "#fff" }}>
-          만 19세 이상입니다
-        </Link>
-        <Link href="/map" className="btn-outline" style={{ textAlign: "center", color: "var(--ink)" }}>
-          아직 아니에요 · 지도 둘러보기
-        </Link>
+      {/* 하단 한지 카드 */}
+      <div style={{ position: "absolute", left: 24, right: 24, bottom: 40, zIndex: 20 }}>
+        <div
+          style={{
+            background: "rgba(243,237,225,.94)",
+            backdropFilter: "blur(6px)",
+            border: "1px solid rgba(198,165,104,.6)",
+            borderRadius: 24,
+            padding: "28px 24px",
+            boxShadow: "0 24px 50px -16px rgba(20,14,6,.6)",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: "50%",
+              border: "2px solid #b5482f",
+              background: "rgba(181,72,47,.06)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 18px",
+              color: "#b5482f",
+            }}
+          >
+            <span className="serif" style={{ fontWeight: 800, fontSize: 26 }}>19</span>
+          </div>
+          <h1 className="serif" style={{ margin: "0 0 24px", fontWeight: 800, fontSize: 24, color: "#3d2f1c" }}>
+            만 19세 이상이신가요?
+          </h1>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Link href="/sulbti" className="btn-primary" style={{ textAlign: "center" }}>
+              만 19세 이상입니다
+            </Link>
+            <Link href="/map" className="btn-outline" style={{ textAlign: "center" }}>
+              아직 아니에요 · 지도 둘러보기
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   );

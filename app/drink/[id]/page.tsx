@@ -24,17 +24,26 @@ function SectionTitle({ text, red = false }: { text: string; red?: boolean }) {
   );
 }
 
-/** 맛 게이지 한 줄 (0~5 척도) */
-function TasteGauge({ label, value }: { label: string; value: number }) {
+/** 맛 척도 한 줄 — 0~5를 5개 점으로 표시 (확정 디자인) */
+function TasteDots({ label, value }: { label: string; value: number }) {
+  const filled = Math.round(value);
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
-        <span className="serif" style={{ fontWeight: 700, fontSize: 14 }}>{label}</span>
-        <span style={{ fontSize: 12, color: "var(--pine)" }}>{value} / 5</span>
-      </div>
-      <div style={{ height: 8, borderRadius: 99, background: "rgba(53,89,126,.13)" }}>
-        <div style={{ height: "100%", background: "var(--pine)", borderRadius: 99, width: `${(value / 5) * 100}%` }} />
-      </div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <span className="serif" style={{ fontSize: 14, color: "var(--ink-strong)" }}>{label}</span>
+      <span style={{ display: "flex", gap: 5 }}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <i
+            key={i}
+            style={{
+              width: 9,
+              height: 9,
+              borderRadius: "50%",
+              display: "inline-block",
+              background: i < filled ? "var(--brown)" : "rgba(120,95,50,.16)",
+            }}
+          />
+        ))}
+      </span>
     </div>
   );
 }
@@ -56,7 +65,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
     <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
       <ScreenHeader title="전통주 상세" />
 
-      <div style={{ padding: "6px 22px 44px" }}>
+      <div style={{ padding: "24px 22px 44px" }}>
         {/* ── 제품 헤더 ── */}
         <div style={{ display: "flex", gap: 18, alignItems: "center", marginBottom: 20 }}>
           {drink.image ? (
@@ -71,14 +80,14 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                 borderRadius: 12,
                 objectFit: "cover",
                 background: "var(--hanji-bright)",
-                border: "1px solid rgba(34,48,62,.1)",
-                boxShadow: "0 10px 24px rgba(53,89,126,.16)",
+                border: "1px solid rgba(120,95,50,.1)",
+                boxShadow: "0 10px 24px rgba(120,95,50,.16)",
               }}
             />
           ) : (
             <div
               className="ph-art"
-              style={{ width: 96, height: 132, flexShrink: 0, borderRadius: 12, boxShadow: "0 10px 24px rgba(53,89,126,.16)" }}
+              style={{ width: 96, height: 132, flexShrink: 0, borderRadius: 12, boxShadow: "0 10px 24px rgba(120,95,50,.16)" }}
             >
               <span className="ph-label" style={{ writingMode: "vertical-rl" }}>제품 이미지</span>
             </div>
@@ -108,9 +117,33 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
             </div>
           </div>
         </div>
-        <p style={{ margin: "0 0 24px", fontSize: 14, lineHeight: 1.65, color: "var(--ink-soft)" }}>
-          {drink.description}
-        </p>
+        {/* 금선 인용 — 한 줄 소개 */}
+        <div style={{ borderLeft: "3px solid var(--gold)", padding: "2px 0 2px 14px", margin: "0 0 18px" }}>
+          <p style={{ margin: 0, font: "15px/1.6 var(--font-myeongjo), serif", color: "var(--ink-strong)" }}>
+            {drink.description}
+          </p>
+        </div>
+
+        {/* ── 주종·도수·용량·온도 스탯 스트립 ── */}
+        <div
+          className="card"
+          style={{ display: "flex", overflow: "hidden", marginBottom: 24, padding: 0 }}
+        >
+          {[
+            ["주종", drink.type],
+            ["도수", `${drink.abv}도`],
+            ["용량", `${drink.volume_ml}㎖`],
+            ["음용", drink.temperature],
+          ].map(([k, v], i) => (
+            <div key={k} style={{ display: "flex", flex: 1 }}>
+              {i > 0 && <div style={{ width: 1, background: "rgba(120,95,50,.16)" }} />}
+              <div style={{ flex: 1, textAlign: "center", padding: "14px 4px" }}>
+                <div style={{ fontSize: 10.5, color: "var(--ink-faint)", marginBottom: 4 }}>{k}</div>
+                <div className="serif" style={{ fontWeight: 700, fontSize: 15, color: "var(--ink-strong)" }}>{v}</div>
+              </div>
+            </div>
+          ))}
+        </div>
 
         {/* ── 특징 ── */}
         <SectionTitle text="특징" red />
@@ -139,7 +172,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                 justifyContent: "space-between",
                 gap: 16,
                 padding: "11px 0",
-                borderBottom: i < arr.length - 1 ? "1px solid rgba(34,48,62,.08)" : "none",
+                borderBottom: i < arr.length - 1 ? "1px solid rgba(120,95,50,.08)" : "none",
                 fontSize: 14,
               }}
             >
@@ -149,22 +182,22 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
           ))}
         </div>
 
-        {/* ── 맛 게이지 + 맛 노트 ── */}
-        <SectionTitle text="맛" />
-        <div className="card" style={{ padding: 16, marginBottom: 24, display: "flex", flexDirection: "column", gap: 16 }}>
-          <TasteGauge label="단맛" value={drink.sweetness} />
-          <TasteGauge label="산미" value={drink.acidity} />
-          <TasteGauge label="바디감" value={drink.body} />
-          <TasteGauge label="탄산" value={drink.carbonation} />
-          <TasteGauge label="여운" value={drink.finish_length} />
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
+        {/* ── 맛 프로필 (점 척도 + 맛 노트) ── */}
+        <SectionTitle text="맛 프로필" />
+        <div className="card" style={{ padding: 16, marginBottom: 24, display: "flex", flexDirection: "column", gap: 13 }}>
+          <TasteDots label="단맛" value={drink.sweetness} />
+          <TasteDots label="산미" value={drink.acidity} />
+          <TasteDots label="바디감" value={drink.body} />
+          <TasteDots label="탄산" value={drink.carbonation} />
+          <TasteDots label="여운" value={drink.finish_length} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, paddingTop: 14, borderTop: "1px solid rgba(120,95,50,.14)" }}>
             {drink.taste_notes.map((n) => (
               <span
                 key={n}
                 style={{
                   fontSize: 12,
-                  background: "rgba(53,89,126,.09)",
-                  color: "var(--pine)",
+                  background: "var(--sage)",
+                  color: "#4a3a22",
                   padding: "5px 11px",
                   borderRadius: 99,
                 }}
@@ -248,12 +281,12 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
         {/* ── 역사·비하인드 ── */}
         <div style={{ background: "var(--moss)", borderRadius: 16, padding: "15px 16px", marginBottom: 26 }}>
           <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 6 }}>역사 · 비하인드</div>
-          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.75, color: "#33475a" }}>{drink.story}</p>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.75, color: "#4a3a28" }}>{drink.story}</p>
         </div>
 
         {/* ── CTA ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-          <Link href={`/ar?drink=${drink.id}`} className="btn-primary" style={{ textAlign: "center", color: "#fff" }}>
+          <Link href={`/ar?drink=${drink.id}`} className="btn-primary" style={{ textAlign: "center" }}>
             AR 양조 체험 시작
           </Link>
           <div style={{ display: "flex", gap: 11 }}>
@@ -268,7 +301,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
               비슷한 술
             </button>
           </div>
-          <div style={{ textAlign: "center", fontSize: 11, color: "rgba(34,48,62,.5)", marginTop: 2 }}>
+          <div style={{ textAlign: "center", fontSize: 11, color: "rgba(120,95,50,.5)", marginTop: 2 }}>
             정보 출처: {drink.brewery} · 자료조사 기반
           </div>
         </div>

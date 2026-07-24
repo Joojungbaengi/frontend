@@ -1,21 +1,25 @@
 @import "tailwindcss";
 
-/* ===== 경기술도가 디자인 토큰 — "한국풍 구름 디자인 제안"(material) 팔레트 그대로 ===== */
-/* 족자봉·인장(붉은 도장)은 그대로. 배경은 상서운 청회 그라데이션, 포인트는 금운(金雲) */
+/* ===== 경기술도가 디자인 토큰 — "확정 디자인"(material) 옻칠·한지·인주 팔레트 ===== */
 :root {
-  --ink: #2b3644; /* 먹색 — 제목 (레퍼런스 hero title) */
-  --ink-soft: #4f5e70; /* 부제·설명 */
-  --ink-faint: #667485; /* 흐린 라벨 */
-  --pine: #3c4c62; /* 남색 — 카드·강조·게이지 (레퍼런스 navy) */
-  --pine-dark: #2b3644;
-  --seal: #b5482f; /* 인주 붉은색 (도장·낙관 전용) */
+  --ink: #2b2114; /* 최심 먹갈 — 제목 */
+  --ink-strong: #3d2f1c; /* 본문 짙은 갈먹 */
+  --ink-soft: #4a3a28; /* 본문 */
+  --ink-faint: #8a7757; /* 흐린 라벨 */
+  --ink-mute: #a99a7f; /* 최흐림 */
+  --brown: #4a3826; /* 옻칠 짙은 갈 — 게이지·막대 */
+  --brown-deep: #382a1b;
+  --gold: #c6a568; /* 금선 */
+  --gold-deep: #a67c3e;
+  --gold-bright: #e8c98a; /* 어두운 배경 위 금 */
+  --seal: #b5482f; /* 인주 붉은색 */
   --seal-dark: #8f3a20;
-  --gold: #c6a568; /* 금운(金雲) — 프리미엄 포인트·CTA */
-  --gold-soft: #d3b988;
-  --hanji: #f0e9dc; /* 한지 카드 배경 (레퍼런스 cream) */
-  --hanji-bright: #f6f1e6;
-  --moss: #dfe6ee; /* 옅은 청회 (배지·아이콘 배경) */
-  --dark: #28323f; /* 카메라·AR 배경 */
+  --hanji: #f6efe0; /* 한지 카드 */
+  --hanji-2: #f7f1e5;
+  --hanji-bright: #fdf9ef;
+  --paper: #f3ede1; /* 족자 종이·밝은 면 */
+  --sage: #dbe3d3; /* 옅은 녹 — 배지·아이콘 배경 */
+  --dark: #241b10; /* 스캔·AR 배경 */
 }
 
 @theme inline {
@@ -29,25 +33,25 @@ body {
 }
 
 body {
-  background: #dfe6ee;
+  background: #e7e1d6;
   color: var(--ink);
   font-family: var(--font-gowun), system-ui, sans-serif;
   word-break: keep-all; /* 한국어 단어 중간 줄바꿈 방지 */
 }
 
 a {
-  color: var(--pine);
+  color: var(--gold-deep);
   text-decoration: none;
 }
 a:hover {
-  color: var(--pine-dark);
+  color: #6b5223;
 }
 
 button {
   font-family: var(--font-gowun), system-ui, sans-serif;
 }
 
-/* ===== 애니메이션 (디자인 예시 그대로) ===== */
+/* ===== 애니메이션 ===== */
 @keyframes sealpop {
   0% { transform: rotate(-7deg) scale(0.6); opacity: 0; }
   60% { transform: rotate(-7deg) scale(1.12); }
@@ -75,113 +79,139 @@ button {
 
 /* ===== 공용 클래스 ===== */
 
-/* 모바일 프레임 (430px 세로형) — 레퍼런스 hero 그라데이션 그대로 (위 짙음 → 아래 옅음) */
+/* 모바일 프레임 (430px 세로형) — 한지 크림 그라데이션 (홈은 배경사진으로 덮음) */
 .phone {
   max-width: 430px;
   margin: 0 auto;
   min-height: 100dvh;
   position: relative;
-  background: linear-gradient(180deg, #9fb4ca 0%, #b8c6d6 42%, #cdd7e2 100%);
+  background: linear-gradient(180deg, #f3ece0 0%, #e7dac3 100%);
   background-attachment: fixed;
-  color: var(--ink);
+  color: var(--ink-strong);
   overflow: hidden;
 }
-
 
 /* 명조 제목 */
 .serif {
   font-family: var(--font-myeongjo), serif;
 }
 
-/* 한지 카드 */
+/* 한지 카드 — 금선(金線) 테두리 */
 .card {
   background: var(--hanji);
-  border: 1px solid rgba(34, 48, 62, 0.08);
+  border: 1px solid rgba(198, 165, 104, 0.4);
   border-radius: 18px;
-  box-shadow: 0 8px 20px rgba(53, 89, 126, 0.1);
+  box-shadow: 0 8px 20px rgba(120, 95, 50, 0.12);
 }
 
-/* 버튼 — 금운(金雲) 금박 그라데이션 + 깊은 먹빛 글자 (레퍼런스 #c6a568) */
+/* 주버튼 — 옻칠 짙은 갈색 그라데이션, 테두리 없음 */
 .btn-primary {
   position: relative;
   width: 100%;
   border: none;
-  background: linear-gradient(150deg, #d3b57c 0%, #c6a568 52%, #b18f4f 100%);
-  color: #33291a;
+  background: linear-gradient(150deg, #4a3826 0%, #382a1b 100%);
+  color: #f3e6cc;
   font-family: var(--font-myeongjo), serif;
-  font-weight: 800;
+  font-weight: 700;
   font-size: 16px;
-  padding: 17px;
-  border-radius: 16px;
+  padding: 16px;
+  border-radius: 15px;
   cursor: pointer;
-  box-shadow: 0 12px 26px rgba(140, 108, 54, 0.3), inset 0 1px 0 rgba(255, 246, 224, 0.55);
+  box-shadow: 0 14px 30px -12px rgba(56, 42, 27, 0.7), inset 0 1px 0 rgba(232, 201, 138, 0.32);
   transition: transform 0.12s, box-shadow 0.12s, filter 0.15s;
 }
 .btn-primary:hover {
-  filter: brightness(1.05);
+  filter: brightness(1.08);
 }
 .btn-primary:active {
   transform: translateY(1px) scale(0.995);
-  box-shadow: 0 7px 16px rgba(140, 108, 54, 0.3);
 }
+
+/* 보조버튼 — 한지라인 (얇은 갈색 테두리) */
 .btn-outline {
   width: 100%;
-  border: 1.5px solid rgba(60, 76, 98, 0.35);
-  background: rgba(255, 255, 255, 0.42);
-  color: var(--ink);
-  font-size: 15px;
-  padding: 15px;
-  border-radius: 16px;
+  border: 1px solid rgba(58, 44, 27, 0.3);
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--ink-strong);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 14px;
+  border-radius: 14px;
   cursor: pointer;
   transition: background 0.15s;
 }
 .btn-outline:hover {
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.72);
 }
 
-/* 술BTI 질문 제목 — 화면 폭에 맞춰 크기를 줄여 의도한 줄에서만 줄바꿈 */
+/* 인주 강조버튼 — 붉은색 */
+.btn-seal {
+  width: 100%;
+  border: none;
+  background: var(--seal);
+  color: #fbeee5;
+  font-family: var(--font-myeongjo), serif;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 15px;
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: 0 12px 26px -10px rgba(181, 72, 47, 0.6);
+  transition: filter 0.15s, transform 0.12s;
+}
+.btn-seal:hover {
+  filter: brightness(1.05);
+}
+.btn-seal:active {
+  transform: translateY(1px) scale(0.995);
+}
+
+/* 술BTI 질문 제목 — 화면 폭에 맞춰 크기 조절 */
 .quiz-q {
-  margin: 0 0 30px;
+  margin: 0 0 6px;
   font-weight: 800;
-  font-size: clamp(18px, 5.6vw, 23px);
-  line-height: 1.5;
+  font-size: clamp(21px, 6.6vw, 27px);
+  line-height: 1.45;
   white-space: pre-line;
   word-break: keep-all;
+  color: var(--ink);
 }
 
-/* 술BTI 선택지 버튼 */
+/* 술BTI 선택지 버튼 — 미선택: 한지 / 선택: 금선 왼테두리 + 금 원 */
 .opt-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   text-align: left;
-  border: 1px solid rgba(34, 48, 62, 0.1);
-  background: var(--hanji);
-  border-radius: 18px;
+  border: none;
+  background: var(--hanji-2);
+  border-radius: 15px;
   padding: 16px 18px;
   cursor: pointer;
+  font-family: var(--font-myeongjo), serif;
   font-weight: 700;
-  font-size: clamp(13.5px, 3.9vw, 15.5px);
+  font-size: clamp(14px, 4vw, 15.5px);
   line-height: 1.45;
-  color: var(--ink);
-  box-shadow: 0 8px 18px rgba(53, 89, 126, 0.1);
-  transition: border-color 0.15s, background 0.15s, transform 0.12s;
+  color: var(--ink-strong);
+  box-shadow: 0 6px 14px rgba(120, 95, 50, 0.08);
+  transition: background 0.15s, transform 0.12s, box-shadow 0.15s;
 }
 .opt-btn:active {
   transform: scale(0.985);
 }
 .opt-btn.selected {
-  border: 2px solid var(--pine);
-  background: var(--hanji-bright);
-  padding: 15px 17px; /* 테두리 두께만큼 보정 */
-  box-shadow: 0 8px 18px rgba(53, 89, 126, 0.18);
+  background: #f4ead4;
+  color: var(--ink);
+  border-left: 4px solid var(--gold);
+  border-radius: 4px 15px 15px 4px;
+  box-shadow: 0 8px 20px -6px rgba(166, 124, 62, 0.35);
 }
 .opt-check {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: var(--pine);
+  background: var(--gold);
   color: #fff;
   font-size: 12px;
   display: flex;
@@ -194,10 +224,10 @@ button {
   width: 46px;
   height: 46px;
   flex-shrink: 0;
-  border: 1.5px solid rgba(53, 89, 126, 0.3);
+  border: 1px solid rgba(58, 44, 27, 0.28);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.55);
-  color: var(--ink);
+  color: var(--ink-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -211,12 +241,12 @@ button {
 
 /* 뒤로가기 원형 버튼 */
 .btn-back {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -226,22 +256,22 @@ button {
   background: rgba(255, 255, 255, 0.16);
 }
 
-/* 화면 상단 고정 헤더 */
+/* 화면 상단 헤더 — 뒤로가기 + 가운데 페이지명(명조 19px) 한 줄 */
 .screen-header {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 20;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 18px 12px;
-  background: linear-gradient(rgba(159, 180, 202, 0.92), rgba(159, 180, 202, 0));
-  backdrop-filter: blur(4px);
+  gap: 13px;
+  padding: 52px 18px 0;
 }
 .screen-header-title {
-  font-size: 13px;
-  letter-spacing: 0.14em;
-  color: var(--pine);
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-myeongjo), serif;
+  font-weight: 700;
+  font-size: 19px;
+  color: var(--ink);
 }
 
 /* 섹션 제목 (색 막대 + 명조) */
@@ -254,7 +284,7 @@ button {
 .section-title .bar {
   width: 5px;
   height: 17px;
-  background: var(--pine);
+  background: var(--brown);
   border-radius: 2px;
 }
 .section-title .bar.red {
@@ -264,7 +294,8 @@ button {
   margin: 0;
   font-family: var(--font-myeongjo), serif;
   font-weight: 700;
-  font-size: 19px;
+  font-size: 18px;
+  color: var(--ink-strong);
 }
 
 /* 플레이스홀더 (빗금 패턴) */
@@ -273,7 +304,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(32, 48, 42, 0.1);
+  border: 1px solid rgba(120, 95, 50, 0.12);
 }
 .ph-label {
   font: 9px ui-monospace, monospace;
@@ -282,9 +313,9 @@ button {
 
 /* 족자 (족자봉 + 한지 두루마리) */
 .scroll-rod {
-  height: 22px;
-  margin: 0 4px;
-  border-radius: 7px;
+  height: 18px;
+  margin: 0 2px;
+  border-radius: 6px;
   background: linear-gradient(#8a7656, #5f4e39);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
   position: relative;
@@ -297,22 +328,22 @@ button {
   content: "";
   position: absolute;
   top: -2px;
-  width: 20px;
-  height: 26px;
+  width: 18px;
+  height: 22px;
   border-radius: 50%;
   background: linear-gradient(#9a8666, #5f4e39);
 }
 .scroll-rod::before {
-  left: -10px;
+  left: -9px;
 }
 .scroll-rod::after {
-  right: -10px;
+  right: -9px;
 }
 .scroll-paper {
   animation: unfurl 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) both;
   transform-origin: top;
   margin: 0 12px;
-  background: var(--hanji);
+  background: var(--paper);
   background-image: repeating-linear-gradient(
     90deg,
     rgba(122, 106, 82, 0.05),
@@ -320,17 +351,17 @@ button {
     transparent 1px,
     transparent 7px
   );
-  border-left: 1px solid rgba(32, 48, 42, 0.1);
-  border-right: 1px solid rgba(32, 48, 42, 0.1);
-  box-shadow: inset 0 0 44px rgba(122, 106, 82, 0.1), 0 10px 26px rgba(63, 92, 82, 0.16);
+  border-left: 1px solid rgba(120, 95, 50, 0.14);
+  border-right: 1px solid rgba(120, 95, 50, 0.14);
+  box-shadow: inset 0 0 44px rgba(122, 106, 82, 0.12), 0 10px 26px rgba(120, 95, 50, 0.18);
   position: relative;
 }
 .scroll-seal {
   position: absolute;
-  right: 14px;
+  right: 16px;
   bottom: 14px;
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   border-radius: 8px;
   border: 2.5px solid var(--seal);
   color: var(--seal);
@@ -339,7 +370,7 @@ button {
   justify-content: center;
   font-family: var(--font-myeongjo), serif;
   font-weight: 800;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.1;
   text-align: center;
   background: rgba(181, 72, 47, 0.06);
@@ -356,5 +387,5 @@ button {
   fill: var(--seal-dark);
 }
 .map-piece.inactive:hover {
-  fill: #c3cfda;
+  fill: #d8ccb4;
 }

@@ -31,14 +31,14 @@ export default function MapPage() {
         right={
           <Link href="/dex" className="btn-back" aria-label="도감">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-              <rect x="4" y="3" width="16" height="18" rx="2" stroke="#22303c" strokeWidth="1.8" />
-              <path d="M8 3v18" stroke="#22303c" strokeWidth="1.8" />
+              <rect x="4" y="3" width="16" height="18" rx="2" stroke="#3d2f1c" strokeWidth="1.8" />
+              <path d="M8 3v18" stroke="#3d2f1c" strokeWidth="1.8" />
             </svg>
           </Link>
         }
       />
 
-      <div style={{ padding: "6px 22px 44px" }}>
+      <div style={{ padding: "24px 22px 44px" }}>
         <h1 className="serif" style={{ margin: "0 0 6px", fontWeight: 800, fontSize: 24 }}>
           경기도 술 지도
         </h1>
@@ -53,9 +53,9 @@ export default function MapPage() {
             width: "100%",
             borderRadius: 20,
             overflow: "hidden",
-            background: "linear-gradient(160deg,#eaf0f6,#dbe4ee)",
-            border: "1px solid rgba(53,89,126,.16)",
-            boxShadow: "0 10px 26px rgba(53,89,126,.14)",
+            background: "linear-gradient(160deg,#efe6d3,#e2d5bd)",
+            border: "1px solid rgba(120,95,50,.16)",
+            boxShadow: "0 10px 26px rgba(120,95,50,.14)",
             marginBottom: 16,
             padding: "14px 12px",
           }}
@@ -66,7 +66,7 @@ export default function MapPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 16 }}>
           <span style={{ width: 11, height: 11, borderRadius: 3, background: "var(--seal)" }} />
           <span style={{ fontSize: 11.5, color: "var(--pine)" }}>전통주 등록 지역</span>
-          <span style={{ width: 11, height: 11, borderRadius: 3, background: "#d3dde8", marginLeft: 10 }} />
+          <span style={{ width: 11, height: 11, borderRadius: 3, background: "#d8ccb4", marginLeft: 10 }} />
           <span style={{ fontSize: 11.5, color: "var(--pine)" }}>준비 중 (자료조사)</span>
         </div>
 

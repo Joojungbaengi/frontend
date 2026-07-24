@@ -14,7 +14,7 @@ export default function HangingScroll({
     <div>
       {/* 매다는 끈 */}
       <div style={{ display: "flex", justifyContent: "center" }}>
-        <div style={{ width: 1, height: 20, background: "rgba(34,48,62,.35)" }} />
+        <div style={{ width: 1, height: 20, background: "rgba(120,95,50,.35)" }} />
       </div>
       {/* 윗 족자봉 */}
       <div className="scroll-rod" />

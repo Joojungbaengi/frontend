@@ -22,7 +22,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
     <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
       <ScreenHeader title={region} backHref="/map" />
 
-      <div style={{ padding: "6px 22px 44px" }}>
+      <div style={{ padding: "24px 22px 44px" }}>
         <h1 className="serif" style={{ margin: "0 0 6px", fontWeight: 800, fontSize: 24 }}>
           {region} 전통주
         </h1>
@@ -53,7 +53,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
                       borderRadius: 8,
                       objectFit: "cover",
                       background: "var(--hanji-bright)",
-                      border: "1px solid rgba(34,48,62,.08)",
+                      border: "1px solid rgba(120,95,50,.08)",
                     }}
                   />
                 ) : (
@@ -105,7 +105,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
           <div
             style={{
               background: "var(--hanji)",
-              border: "1px dashed rgba(53,89,126,.3)",
+              border: "1px dashed rgba(120,95,50,.3)",
               borderRadius: 16,
               padding: "26px 18px",
               textAlign: "center",
@@ -123,7 +123,7 @@ export default async function RegionPage({ params }: { params: Promise<{ region:
         {specialties.length > 0 && (
           <div style={{ marginTop: 22, background: "var(--moss)", borderRadius: 16, padding: "15px 16px" }}>
             <div style={{ fontSize: 11, color: "var(--pine)", marginBottom: 6 }}>지역 원료 이야기</div>
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "#33475a" }}>
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "#4a3a28" }}>
               {region}의 술은 {specialties.join(", ")}에서 태어납니다.
             </p>
           </div>
