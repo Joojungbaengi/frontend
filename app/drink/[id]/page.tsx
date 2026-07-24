@@ -385,10 +385,10 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
 
         {/* ── CTA ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 11, marginTop: 4 }}>
-          <Link href={`/ar?drink=${drink.id}`} className="btn-seal" style={{ textAlign: "center", padding: 16, fontSize: 16 }}>
+          <Link href={`/ar?drink=${drink.id}`} className="btn-seal" style={{ textAlign: "center", padding: 15, fontSize: 15, boxShadow: "none" }}>
             AR 양조 체험 시작
           </Link>
-          <Link href={`/drink/${drink.id}/similar`} className="btn-outline" style={{ textAlign: "center", padding: 15 }}>
+          <Link href={`/drink/${drink.id}/similar`} className="btn-outline" style={{ textAlign: "center", padding: 15, fontSize: 15 }}>
             이 술과 비슷한 술 보기
           </Link>
         </div>
