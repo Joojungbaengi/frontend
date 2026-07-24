@@ -29,11 +29,7 @@ export default function RootLayout({
   return (
     <html lang="ko" className={`${gowun.variable} ${myeongjo.variable} h-full antialiased`}>
       <body className="min-h-full">
-        <div className="phone">
-          <div className="mist mist-a" />
-          <div className="mist mist-b" />
-          {children}
-        </div>
+        <div className="phone">{children}</div>
       </body>
     </html>
   );

@@ -29,7 +29,7 @@ body {
 }
 
 body {
-  background: #aab6c5;
+  background: #bcc7d4;
   color: var(--ink);
   font-family: var(--font-gowun), system-ui, sans-serif;
   word-break: keep-all; /* 한국어 단어 중간 줄바꿈 방지 */
@@ -48,11 +48,6 @@ button {
 }
 
 /* ===== 애니메이션 (디자인 예시 그대로) ===== */
-@keyframes mistdrift {
-  0% { transform: translateX(-8px); opacity: 0.4; }
-  50% { transform: translateX(8px); opacity: 0.75; }
-  100% { transform: translateX(-8px); opacity: 0.4; }
-}
 @keyframes sealpop {
   0% { transform: rotate(-7deg) scale(0.6); opacity: 0; }
   60% { transform: rotate(-7deg) scale(1.12); }
@@ -80,49 +75,18 @@ button {
 
 /* ===== 공용 클래스 ===== */
 
-/* 모바일 프레임 (430px 세로형) — 이미지처럼 위는 짙고 아래로 갈수록 옅어지는 청회색 안개 */
+/* 모바일 프레임 (430px 세로형) — 첨부 이미지의 밝고 부드러운 청회색 그라데이션 */
 .phone {
   max-width: 430px;
   margin: 0 auto;
   min-height: 100dvh;
   position: relative;
-  background: linear-gradient(180deg, #96a4b8 0%, #a7b3c3 42%, #bcc6d3 74%, #cfd7e1 100%);
+  background: linear-gradient(180deg, #ccd4df 0%, #c0cad7 40%, #b3c0cf 74%, #aabaca 100%);
   background-attachment: fixed;
   color: var(--ink);
   overflow: hidden;
 }
-/* 아래쪽에 옅은 빛무리 — 안개가 걷히며 밝아지는 느낌으로 깊이감 */
-.phone::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(135% 80% at 50% 112%, rgba(247, 250, 253, 0.55), rgba(247, 250, 253, 0) 62%);
-  z-index: 0;
-}
 
-/* 떠다니는 안개 */
-.mist {
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-}
-.mist-a {
-  left: -40px;
-  top: 200px;
-  width: 220px;
-  height: 90px;
-  background: radial-gradient(closest-side, rgba(243, 247, 252, 0.6), transparent);
-  animation: mistdrift 11s ease-in-out infinite;
-}
-.mist-b {
-  right: -50px;
-  top: 520px;
-  width: 240px;
-  height: 100px;
-  background: radial-gradient(closest-side, rgba(243, 247, 252, 0.5), transparent);
-  animation: mistdrift 14s ease-in-out infinite reverse;
-}
 
 /* 명조 제목 */
 .serif {
