@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QUESTIONS } from "@/data/questions";
 import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
 
@@ -58,9 +58,19 @@ export default function SulbtiPage() {
   const [freeText, setFreeText] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
   const [fading, setFading] = useState(false); // 선택 후 부드러운 전환용
+  const [verified, setVerified] = useState<boolean | null>(null); // 연령 확인 통과 여부
   const touchStartX = useRef<number | null>(null);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 연령 확인(age 페이지 버튼)을 거치지 않고 직접 URL 접근하면 age로 돌려보낸다.
+  useEffect(() => {
+    if (sessionStorage.getItem("age_verified") === "1") {
+      setVerified(true);
+    } else {
+      router.replace("/age");
+    }
+  }, [router]);
 
   const total = QUESTIONS.length;
   const question = QUESTIONS[Math.min(step, total - 1)];
@@ -153,6 +163,9 @@ export default function SulbtiPage() {
     // 로딩 연출을 최소 2초 보여준 뒤 이동
     setTimeout(() => router.push("/sulbti/result"), 2000);
   };
+
+  // 연령 확인 전이면 아무것도 렌더링하지 않는다 (age로 리다이렉트 중)
+  if (verified !== true) return null;
 
   /* ── 분석 로딩 ── */
   if (phase === "analyzing") {

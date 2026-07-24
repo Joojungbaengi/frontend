@@ -1,11 +1,26 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 /**
  * 연령 확인 — 확정 디자인.
  * 배경사진 + 어두운 오버레이 위에, 하단에 한지 카드(19 인장 + 확인 버튼).
  * 본인·실명 인증 없이 만 19세 이상 확인만 (기획안 5.2).
+ * '만 19세 이상입니다'를 눌러야 sulbti 접근 권한(sessionStorage)이 부여된다.
  */
 export default function AgePage() {
+  const router = useRouter();
+
+  const confirmAge = () => {
+    try {
+      sessionStorage.setItem("age_verified", "1");
+    } catch {
+      /* 저장 불가 시에도 이동은 허용 */
+    }
+    router.push("/sulbti");
+  };
+
   return (
     <div style={{ position: "relative", minHeight: "100dvh", overflow: "hidden" }}>
       {/* 배경 사진 + 어두운 오버레이 */}
@@ -77,10 +92,15 @@ export default function AgePage() {
             만 19세 이상이신가요?
           </h1>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <Link href="/sulbti" className="btn-primary" style={{ textAlign: "center" }}>
+            <button
+              type="button"
+              onClick={confirmAge}
+              className="btn-primary"
+              style={{ textAlign: "center", padding: 15, fontSize: 15, boxShadow: "none" }}
+            >
               만 19세 이상입니다
-            </Link>
-            <Link href="/map" className="btn-outline" style={{ textAlign: "center" }}>
+            </button>
+            <Link href="/map" className="btn-outline" style={{ textAlign: "center", padding: 15, fontSize: 15 }}>
               아직 아니에요 · 지도 둘러보기
             </Link>
           </div>

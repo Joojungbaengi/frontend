@@ -93,9 +93,9 @@ export default function HomePage() {
             신선처럼 즐기다
           </h1>
           <p style={{ margin: "9px 0 0", fontSize: 12.5, lineHeight: 1.6, color: "#6b5a3f" }}>
-            취향에 맞는 술을 찾고, 빚어지는 과정을
+            취향에 맞는 전통주를 찾고,
             <br />
-            AR 양조장에서 체험하세요
+            그 술이 빚어지는 과정을 AR 양조장에서 체험하세요.
           </p>
         </div>
 
