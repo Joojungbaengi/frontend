@@ -57,6 +57,7 @@ export default function SulbtiPage() {
   const [picks, setPicks] = useState<Pick[]>(() => QUESTIONS.map(() => null));
   const [freeText, setFreeText] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
+  const [fading, setFading] = useState(false); // 선택 후 부드러운 전환용
   const touchStartX = useRef<number | null>(null);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -70,12 +71,14 @@ export default function SulbtiPage() {
   /* ── 이동 ── */
   const goPrev = () => {
     if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
+    setFading(false);
     if (phase === "free") { setPhase("quiz"); setStep(total - 1); return; }
     if (step > 0) setStep(step - 1);
   };
 
   const goNext = () => {
     if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
+    setFading(false);
     if (phase !== "quiz") return;
     if (!answered) return; // 현재 질문에 답해야 다음으로
     if (step < total - 1) setStep(step + 1);
@@ -100,13 +103,15 @@ export default function SulbtiPage() {
   /* ── 선택 ── */
   const pickSingle = (idx: number) => {
     setPicks((p) => p.map((v, i) => (i === step ? idx : v)));
-    // 잠깐 눌린 상태를 보여준 뒤 자동으로 다음 질문으로
+    // 선택 표시(테두리·체크)를 잠깐 보여준 뒤 부드럽게 페이드아웃하고 다음 질문으로
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    setTimeout(() => setFading(true), 220);
     advanceTimer.current = setTimeout(() => {
       advanceTimer.current = null;
-      setStep((s) => (s < total - 1 ? s + 1 : s));
-      if (step >= total - 1) setPhase("free");
-    }, 350);
+      if (step < total - 1) setStep(step + 1);
+      else setPhase("free");
+      setFading(false);
+    }, 520);
   };
 
   const toggleMulti = (idx: number) => {
@@ -301,7 +306,14 @@ export default function SulbtiPage() {
           </p>
         </div>
       ) : (
-        <div style={{ margin: "auto 0" }}>
+        <div
+          style={{
+            margin: "auto 0",
+            opacity: fading ? 0 : 1,
+            transform: fading ? "translateY(8px)" : "none",
+            transition: "opacity .28s ease, transform .28s ease",
+          }}
+        >
           <div style={{ display: "inline-flex", alignItems: "center", gap: 9, marginBottom: 20 }}>
             <span
               className="serif"
@@ -322,31 +334,12 @@ export default function SulbtiPage() {
               const selected = question.multi
                 ? Array.isArray(currentPick) && currentPick.includes(idx)
                 : currentPick === idx;
-              const letter = ["가", "나", "다", "라", "마", "바"][idx] ?? "";
               return (
                 <button
                   key={opt.label}
                   onClick={() => (question.multi ? toggleMulti(idx) : pickSingle(idx))}
                   className={`opt-btn${selected ? " selected" : ""}`}
                 >
-                  <span
-                    className="serif"
-                    style={{
-                      width: 28,
-                      height: 28,
-                      flexShrink: 0,
-                      borderRadius: "50%",
-                      background: selected ? "var(--gold)" : "rgba(120,95,50,.1)",
-                      color: selected ? "#fff" : "var(--ink-faint)",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    {letter}
-                  </span>
                   <span style={{ flex: 1, wordBreak: "keep-all" }}>{opt.label}</span>
                   {selected && (
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>

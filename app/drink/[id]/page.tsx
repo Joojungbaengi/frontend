@@ -24,6 +24,13 @@ function SectionTitle({ text, red = false }: { text: string; red?: boolean }) {
   );
 }
 
+/** 스탯 스트립용 짧은 음용온도 — 첫 온도 표기(예: 8~12℃)만 뽑는다 */
+function shortTemp(t: string): string {
+  const m = t.match(/\d+\s*[~\-]\s*\d+\s*℃|\d+\s*℃/);
+  if (m) return m[0].replace(/\s+/g, "");
+  return t.split(/[,(（·]/)[0].trim().slice(0, 6);
+}
+
 /** 맛 척도 한 줄 — 0~5를 5개 점으로 표시 (확정 디자인) */
 function TasteDots({ label, value }: { label: string; value: number }) {
   const filled = Math.round(value);
@@ -124,22 +131,37 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
           </p>
         </div>
 
-        {/* ── 주종·도수·용량·온도 스탯 스트립 ── */}
+        {/* ── 주종·도수·용량·온도 스탯 스트립 (4등분 고정) ── */}
         <div
           className="card"
-          style={{ display: "flex", overflow: "hidden", marginBottom: 24, padding: 0 }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            overflow: "hidden",
+            marginBottom: 24,
+            padding: 0,
+          }}
         >
           {[
             ["주종", drink.type],
             ["도수", `${drink.abv}도`],
             ["용량", `${drink.volume_ml}㎖`],
-            ["음용", drink.temperature],
+            ["온도", shortTemp(drink.temperature)],
           ].map(([k, v], i) => (
-            <div key={k} style={{ display: "flex", flex: 1 }}>
-              {i > 0 && <div style={{ width: 1, background: "rgba(120,95,50,.16)" }} />}
-              <div style={{ flex: 1, textAlign: "center", padding: "14px 4px" }}>
-                <div style={{ fontSize: 10.5, color: "var(--ink-faint)", marginBottom: 4 }}>{k}</div>
-                <div className="serif" style={{ fontWeight: 700, fontSize: 15, color: "var(--ink-strong)" }}>{v}</div>
+            <div
+              key={k}
+              style={{
+                textAlign: "center",
+                padding: "13px 6px",
+                borderLeft: i > 0 ? "1px solid rgba(120,95,50,.16)" : "none",
+              }}
+            >
+              <div style={{ fontSize: 10.5, color: "var(--ink-faint)", marginBottom: 5 }}>{k}</div>
+              <div
+                className="serif"
+                style={{ fontWeight: 700, fontSize: 14.5, color: "var(--ink-strong)", lineHeight: 1.3, wordBreak: "keep-all" }}
+              >
+                {v}
               </div>
             </div>
           ))}
@@ -156,14 +178,14 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
           ))}
         </div>
 
-        {/* ── 기본 정보 ── */}
+        {/* ── 기본 정보 (스탯 스트립과 중복되지 않는 항목만) ── */}
         <SectionTitle text="기본 정보" />
         <div className="card" style={{ padding: "6px 16px", marginBottom: 24 }}>
           {[
             ["원료", drink.ingredients.join(", ")],
             ["지역 원료", drink.local_specialty],
-            ["주종·도수", `${drink.type} · ${abvText}`],
-            ["음용 온도", drink.temperature],
+            ["양조장", drink.brewery],
+            ["음용 방법", drink.temperature],
           ].map(([k, v], i, arr) => (
             <div
               key={k}
