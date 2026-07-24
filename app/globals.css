@@ -145,20 +145,14 @@ button {
   color: var(--ink-strong);
   overflow-x: hidden;
   overflow-y: auto;
-  /* 얇은 커스텀 스크롤바 + 양쪽 대칭 거터 → 스크롤 유무와 무관하게 콘텐츠 가운데 정렬 고정 */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(120, 95, 50, 0.4) transparent;
-  scrollbar-gutter: stable both-edges;
+  /* 스크롤바가 자리를 차지하지 않도록 숨김 → 스크롤 유무와 무관하게 콘텐츠 중앙 정렬 고정, 좌우 여백 없음 (모바일과 동일) */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/구 Edge */
 }
 .phone::-webkit-scrollbar {
-  width: 5px;
-}
-.phone::-webkit-scrollbar-track {
-  background: transparent;
-}
-.phone::-webkit-scrollbar-thumb {
-  background: rgba(120, 95, 50, 0.38);
-  border-radius: 99px;
+  width: 0;
+  height: 0;
+  display: none; /* Chrome/Safari */
 }
 
 /* 명조 제목 */
