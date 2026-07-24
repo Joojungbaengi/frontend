@@ -22,14 +22,14 @@ function shortTemp(t: string): string {
   return t.split(/[,(（·]/)[0].trim().slice(0, 6);
 }
 
-/** 수상 이력 텍스트에서 대표 한자 글리프 선정 */
-function awardGlyph(a: string): string {
-  if (a.includes("명인")) return "名";
-  if (a.includes("문화재")) return "財";
-  if (a.includes("표창") || a.includes("대통령")) return "賞";
-  if (a.includes("만찬") || a.includes("정상") || a.includes("건배")) return "宴";
-  if (a.includes("대상") || a.includes("금상") || a.includes("품평")) return "章";
-  return "認";
+/** 수상 이력 텍스트에서 대표 기호 선정 (한자 대신 픽토그램) */
+function awardSymbol(a: string): string {
+  if (a.includes("명인")) return "◈"; // 장인·명인
+  if (a.includes("문화재")) return "❖"; // 무형문화재
+  if (a.includes("표창") || a.includes("대통령")) return "★"; // 표창
+  if (a.includes("만찬") || a.includes("정상") || a.includes("건배")) return "♦"; // 만찬·의전
+  if (a.includes("대상") || a.includes("금상") || a.includes("품평")) return "✦"; // 수상
+  return "●";
 }
 
 function SectionHead({ text, red = false }: { text: string; red?: boolean }) {
@@ -98,8 +98,8 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
       <ScreenHeader title="전통주 상세" />
 
       <div style={{ padding: "22px 22px 34px", display: "flex", flexDirection: "column", gap: 26 }}>
-        {/* ── 히어로 ── */}
-        <div style={{ display: "flex", gap: 16, alignItems: "flex-end" }}>
+        {/* ── 히어로 (뱃지 유무와 무관하게 이름 위치 고정) ── */}
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
           {drink.image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -124,31 +124,34 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
               <span className="ph-label" style={{ writingMode: "vertical-rl" }}>제품 이미지</span>
             </div>
           )}
-          <div style={{ flex: 1, minWidth: 0, paddingBottom: 2 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12, color: "#8a6a2f", marginBottom: 6 }}>
               {drink.region} · {drink.brewery}
             </div>
             <h1 className="serif" style={{ margin: "0 0 10px", fontWeight: 800, fontSize: 26, lineHeight: 1.15, color: "var(--ink)" }}>
               {drink.name}
             </h1>
-            {drink.awards[0] && (
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 7,
-                  fontSize: 12,
-                  color: "#8f3a20",
-                  background: "rgba(181,72,47,.1)",
-                  border: "1px solid rgba(181,72,47,.28)",
-                  padding: "6px 12px",
-                  borderRadius: 99,
-                }}
-              >
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--seal)", flexShrink: 0 }} />
-                {drink.awards[0]}
-              </span>
-            )}
+            {/* 뱃지 자리 — 없어도 높이를 유지해 이름 위치를 고정 */}
+            <div style={{ minHeight: 29 }}>
+              {drink.awards[0] && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 7,
+                    fontSize: 12,
+                    color: "#8f3a20",
+                    background: "rgba(181,72,47,.1)",
+                    border: "1px solid rgba(181,72,47,.28)",
+                    padding: "6px 12px",
+                    borderRadius: 99,
+                  }}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--seal)", flexShrink: 0 }} />
+                  {drink.awards[0]}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -245,7 +248,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                         justifyContent: "center",
                       }}
                     >
-                      {awardGlyph(a)}
+                      {awardSymbol(a)}
                     </div>
                     <div className="serif" style={{ fontSize: 14, color: "var(--ink)", lineHeight: 1.4 }}>{a}</div>
                   </div>
@@ -342,8 +345,15 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
         {drink.story && (
           <div>
             <SectionHead text="역사 · 이야기" red />
-            <div style={{ position: "relative", background: "#efe6d3", borderRadius: 16, padding: "18px 18px 18px 22px", boxShadow: "0 8px 20px rgba(120,95,50,.1)" }}>
-              <div style={{ position: "absolute", left: 0, top: 16, bottom: 16, width: 4, borderRadius: 4, background: "var(--gold)" }} />
+            <div
+              style={{
+                background: "#efe6d3",
+                borderLeft: "5px solid var(--gold)",
+                borderRadius: "3px 16px 16px 3px",
+                padding: "18px 18px",
+                boxShadow: "0 8px 20px rgba(120,95,50,.1)",
+              }}
+            >
               <p style={{ margin: 0, font: "14px/1.8 var(--font-myeongjo), serif", color: "var(--ink-soft)" }}>{drink.story}</p>
             </div>
           </div>

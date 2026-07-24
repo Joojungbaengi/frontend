@@ -18,26 +18,42 @@ const { width, height, regions } = mapData as {
 };
 
 /**
- * 경기도 시군 지도 — 조각을 누르면 해당 지역 목록(/map/지역명)으로 이동.
+ * 경기도 시군 지도 — 조각을 누르면 선택 콜백(onSelect) 실행.
+ * onSelect가 없으면 기존처럼 /map/지역명 으로 이동한다.
  * activeRegions: 전통주가 등록된 시군 전체 이름 목록 (붉게 칠해짐)
+ * selected: 현재 선택된 지역 (더 진하게 표시)
  */
-export default function GyeonggiMap({ activeRegions }: { activeRegions: string[] }) {
+export default function GyeonggiMap({
+  activeRegions,
+  selected,
+  onSelect,
+}: {
+  activeRegions: string[];
+  selected?: string | null;
+  onSelect?: (region: string) => void;
+}) {
   const router = useRouter();
   const active = new Set(activeRegions);
+
+  const handle = (name: string) => {
+    if (onSelect) onSelect(name);
+    else router.push(`/map/${encodeURIComponent(name)}`);
+  };
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display: "block" }}>
       {regions.map((r) => {
         const has = active.has(r.name);
+        const isSel = selected === r.name;
         return (
           <path
             key={r.name}
             d={r.d}
-            fill={has ? "#b5482f" : "#d3dde8"}
+            fill={has ? (isSel ? "#8f3a20" : "#b5482f") : "#d8ccb4"}
             stroke="#f4f0e6"
             strokeWidth={1.6}
             className={`map-piece${has ? "" : " inactive"}`}
-            onClick={() => router.push(`/map/${encodeURIComponent(r.name)}`)}
+            onClick={() => handle(r.name)}
           />
         );
       })}
@@ -48,8 +64,8 @@ export default function GyeonggiMap({ activeRegions }: { activeRegions: string[]
             key={`t-${r.name}`}
             x={r.cx}
             y={r.cy}
-            fill={has ? "#fff" : "#68788a"}
-            fontSize={has ? 26 : 18}
+            fill={has ? "#fff" : "#8a7757"}
+            fontSize={20}
             textAnchor="middle"
             dominantBaseline="middle"
             style={{

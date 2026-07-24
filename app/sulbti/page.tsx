@@ -263,17 +263,6 @@ export default function SulbtiPage() {
       {/* ── 본문 ── */}
       {isFree ? (
         <div style={{ margin: "auto 0" }}>
-          <div
-            style={{ display: "inline-flex", alignItems: "center", gap: 9, marginBottom: 20 }}
-          >
-            <span
-              className="serif"
-              style={{ width: 30, height: 30, borderRadius: 7, background: "var(--seal)", color: "#fbeee5", fontWeight: 800, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}
-            >
-              文
-            </span>
-            <span style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--gold-deep)" }}>자유 서술 · 마지막</span>
-          </div>
           <h1 className="serif quiz-q" style={{ marginBottom: 6 }}>
             어떤 술을 좋아하는지
             <br />
@@ -314,17 +303,6 @@ export default function SulbtiPage() {
             transition: "opacity .28s ease, transform .28s ease",
           }}
         >
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 9, marginBottom: 20 }}>
-            <span
-              className="serif"
-              style={{ width: 30, height: 30, borderRadius: 7, background: "var(--seal)", color: "#fbeee5", fontWeight: 800, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}
-            >
-              {question.topic.slice(0, 1)}
-            </span>
-            <span style={{ fontSize: 13, letterSpacing: ".14em", color: "var(--gold-deep)" }}>
-              {question.topic} · {String(step + 1).padStart(2, "0")}
-            </span>
-          </div>
           <h1 className="serif quiz-q">{question.q}</h1>
           <p style={{ margin: "0 0 26px", fontSize: 13, color: "var(--ink-faint)" }}>
             {question.multi ? "끌리는 향을 모두 골라주세요" : "가장 가까운 하나를 골라주세요"}

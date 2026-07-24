@@ -30,6 +30,7 @@
 html,
 body {
   margin: 0;
+  height: 100%;
 }
 
 body {
@@ -37,14 +38,13 @@ body {
   color: var(--ink);
   font-family: var(--font-gowun), system-ui, sans-serif;
   word-break: keep-all; /* 한국어 단어 중간 줄바꿈 방지 */
+  height: 100dvh;
+  overflow: hidden; /* 스크롤은 .phone 내부에서만 → 화면 프레임 크기 고정 */
 }
 
 a {
   color: var(--gold-deep);
   text-decoration: none;
-}
-a:hover {
-  color: #6b5223;
 }
 
 button {
@@ -79,16 +79,18 @@ button {
 
 /* ===== 공용 클래스 ===== */
 
-/* 모바일 프레임 (430px 세로형) — 한지 크림 그라데이션 (홈은 배경사진으로 덮음) */
+/* 모바일 프레임 — 가로/세로 고정. 스크롤은 프레임 내부에서만 일어나 화면 크기가 페이지마다 변하지 않는다. */
 .phone {
   max-width: 430px;
+  width: 100%;
+  height: 100dvh;
   margin: 0 auto;
-  min-height: 100dvh;
   position: relative;
   background: linear-gradient(180deg, #f3ece0 0%, #e7dac3 100%);
-  background-attachment: fixed;
   color: var(--ink-strong);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable; /* 스크롤바 자리 항상 확보 → 가로폭 고정 */
 }
 
 /* 명조 제목 */
@@ -118,15 +120,6 @@ button {
   border-radius: 15px;
   cursor: pointer;
   box-shadow: 0 14px 30px -12px rgba(56, 42, 27, 0.7), inset 0 1px 0 rgba(232, 201, 138, 0.32);
-  transition: background 0.18s, transform 0.12s, box-shadow 0.15s;
-}
-/* hover: 배경만 살짝 밝아지고 글자색은 그대로 (텍스트 가독성 유지) */
-.btn-primary:hover {
-  background: linear-gradient(150deg, #5a462e 0%, #453320 100%);
-  box-shadow: 0 16px 34px -12px rgba(56, 42, 27, 0.75), inset 0 1px 0 rgba(232, 201, 138, 0.42);
-}
-.btn-primary:active {
-  transform: translateY(1px) scale(0.995);
 }
 
 /* 보조버튼 — 한지라인 (얇은 갈색 테두리) */
@@ -140,10 +133,6 @@ button {
   padding: 14px;
   border-radius: 14px;
   cursor: pointer;
-  transition: background 0.15s;
-}
-.btn-outline:hover {
-  background: rgba(255, 255, 255, 0.72);
 }
 
 /* 인주 강조버튼 — 붉은색 */
@@ -159,13 +148,6 @@ button {
   border-radius: 14px;
   cursor: pointer;
   box-shadow: 0 12px 26px -10px rgba(181, 72, 47, 0.6);
-  transition: background 0.15s, transform 0.12s;
-}
-.btn-seal:hover {
-  background: #c1502f;
-}
-.btn-seal:active {
-  transform: translateY(1px) scale(0.995);
 }
 
 /* 술BTI 질문 제목 — 화면 폭에 맞춰 크기 조절 */
