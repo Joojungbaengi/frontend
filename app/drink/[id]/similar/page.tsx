@@ -30,13 +30,35 @@ export default function SimilarPage() {
 
   useEffect(() => {
     let alive = true;
+    const cacheKey = `similar:${id}`;
+
+    // 이미 찾아둔 결과가 있으면 다시 AI를 호출하지 않고 그대로 보여준다
+    // (상세 → 뒤로가기로 돌아왔을 때 재검색 방지)
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        setData(JSON.parse(cached) as SimilarResponse);
+        return;
+      }
+    } catch {
+      /* 캐시 사용 불가 시 새로 호출 */
+    }
+
     fetch("/api/similar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     })
       .then((r) => r.json())
-      .then((d: SimilarResponse) => alive && setData(d))
+      .then((d: SimilarResponse) => {
+        if (!alive) return;
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(d));
+        } catch {
+          /* 저장 실패 무시 */
+        }
+        setData(d);
+      })
       .catch(() => alive && setData({ base: { id, name }, items: [], fallback: true }));
     return () => {
       alive = false;
