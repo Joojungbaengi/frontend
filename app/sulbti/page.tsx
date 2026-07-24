@@ -60,6 +60,7 @@ export default function SulbtiPage() {
   const [fading, setFading] = useState(false); // 선택 후 부드러운 전환용
   const touchStartX = useRef<number | null>(null);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const total = QUESTIONS.length;
   const question = QUESTIONS[Math.min(step, total - 1)];
@@ -71,6 +72,7 @@ export default function SulbtiPage() {
   /* ── 이동 ── */
   const goPrev = () => {
     if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
+    if (fadeTimer.current) { clearTimeout(fadeTimer.current); fadeTimer.current = null; }
     setFading(false);
     if (phase === "free") { setPhase("quiz"); setStep(total - 1); return; }
     if (step > 0) setStep(step - 1);
@@ -78,6 +80,7 @@ export default function SulbtiPage() {
 
   const goNext = () => {
     if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
+    if (fadeTimer.current) { clearTimeout(fadeTimer.current); fadeTimer.current = null; }
     setFading(false);
     if (phase !== "quiz") return;
     if (!answered) return; // 현재 질문에 답해야 다음으로
@@ -103,15 +106,16 @@ export default function SulbtiPage() {
   /* ── 선택 ── */
   const pickSingle = (idx: number) => {
     setPicks((p) => p.map((v, i) => (i === step ? idx : v)));
-    // 선택 표시(테두리·체크)를 잠깐 보여준 뒤 부드럽게 페이드아웃하고 다음 질문으로
+    // 선택 표시(테두리·체크)를 약 1초간 충분히 보여준 뒤, 페이드아웃하며 다음 질문으로
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    setTimeout(() => setFading(true), 220);
+    if (fadeTimer.current) clearTimeout(fadeTimer.current);
+    fadeTimer.current = setTimeout(() => setFading(true), 850);
     advanceTimer.current = setTimeout(() => {
       advanceTimer.current = null;
       if (step < total - 1) setStep(step + 1);
       else setPhase("free");
       setFading(false);
-    }, 520);
+    }, 1250);
   };
 
   const toggleMulti = (idx: number) => {

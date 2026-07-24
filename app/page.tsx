@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SEED_OBTAINED } from "@/lib/dex";
 
 /**
  * 홈 — 확정 디자인.
@@ -49,7 +50,18 @@ export default function HomePage() {
           textShadow: "0 2px 6px rgba(60,50,30,.35)",
         }}
       >
-        <div style={{ font: "600 12px var(--font-gowun), sans-serif", letterSpacing: ".42em", color: "#5b4a2e" }}>
+        <div
+          style={{
+            display: "inline-block",
+            font: "700 13px var(--font-gowun), sans-serif",
+            letterSpacing: ".42em",
+            backgroundImage: "linear-gradient(180deg,#fbe7bd 0%,#e8c98a 42%,#c6a568 78%,#a67c3e 100%)",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            filter: "drop-shadow(0 1px 2px rgba(38,24,4,.6))",
+          }}
+        >
           京 畿 술 都 家
         </div>
       </div>
@@ -215,7 +227,7 @@ export default function HomePage() {
             <rect x="4" y="3" width="16" height="18" rx="2" stroke="#b5482f" strokeWidth="1.8" />
             <path d="M8 3v18" stroke="#b5482f" strokeWidth="1.8" />
           </svg>
-          내 경기술 도감 <b style={{ color: "#b5482f" }}>0장</b>
+          내 경기술 도감 <b style={{ color: "#b5482f" }}>{SEED_OBTAINED.length}장</b>
         </Link>
       </div>
     </div>

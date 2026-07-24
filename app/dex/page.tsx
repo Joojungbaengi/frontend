@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
+import { readObtained, SEED_OBTAINED } from "@/lib/dex";
 import type { Drink } from "@/lib/types";
 
 /**
@@ -61,50 +62,16 @@ function SoulCard({ drink }: { drink: Drink }) {
   );
 }
 
-/** 미획득(잠김) 카드 — 酒 인장 자리 */
-function LockedCard() {
-  return (
-    <div style={{ background: "#ece2ce", borderRadius: 13, padding: 8, boxShadow: "0 4px 10px rgba(120,95,50,.1)" }}>
-      <div style={{ borderRadius: 8, padding: 8, background: "#e6dcc6", boxShadow: "inset 0 0 0 1px rgba(198,165,104,.28)" }}>
-        <div style={{ width: "100%", aspectRatio: "3/4", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div
-            className="serif"
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: "50%",
-              border: "1.5px solid rgba(181,72,47,.3)",
-              color: "rgba(181,72,47,.45)",
-              fontWeight: 800,
-              fontSize: 15,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            酒
-          </div>
-        </div>
-        <div style={{ fontSize: 10, color: "var(--ink-mute)", textAlign: "center", marginTop: 6 }}>미획득</div>
-      </div>
-    </div>
-  );
-}
-
 export default function DexPage() {
   const total = drinks.length;
-  const [obtained, setObtained] = useState<Set<string>>(new Set());
+  const [obtainedIds, setObtainedIds] = useState<string[]>(SEED_OBTAINED);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("dex_obtained");
-      if (raw) setObtained(new Set(JSON.parse(raw) as string[]));
-    } catch {
-      /* 저장된 획득 목록 없음 */
-    }
+    setObtainedIds(readObtained());
   }, []);
 
-  const count = obtained.size;
+  const obtained = drinks.filter((d) => obtainedIds.includes(d.id));
+  const count = obtained.length;
   const pct = total > 0 ? (count / total) * 100 : 0;
 
   return (
@@ -112,12 +79,21 @@ export default function DexPage() {
       <ScreenHeader title="경기술 도감" backHref="/" />
 
       <div style={{ padding: "22px 22px 44px" }}>
-        <p style={{ margin: "0 0 16px", fontSize: 13, lineHeight: 1.6, color: "#6b5a3f" }}>
+        <p
+          style={{
+            margin: "0 0 16px",
+            borderLeft: "3px solid var(--gold)",
+            paddingLeft: 14,
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: "#6b5a3f",
+          }}
+        >
           AR 양조 체험을 마친 술의 카드가 모여요.
         </p>
 
         {/* 수집 진행도 — 얇은 금선 바 */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 22 }}>
           <div style={{ flex: 1, height: 4, borderRadius: 9, background: "rgba(120,95,50,.16)", overflow: "hidden" }}>
             <div style={{ height: "100%", borderRadius: 9, background: "linear-gradient(90deg,#c6a568,#a67c3e)", width: `${pct}%` }} />
           </div>
@@ -126,14 +102,36 @@ export default function DexPage() {
           </div>
         </div>
 
-        {/* 카드 그리드 */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
-          {drinks.map((d) => (obtained.has(d.id) ? <SoulCard key={d.id} drink={d} /> : <LockedCard key={d.id} />))}
-        </div>
+        {/* 획득한 소장 카드만 표시 */}
+        {count > 0 ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
+            {obtained.map((d) => (
+              <SoulCard key={d.id} drink={d} />
+            ))}
+          </div>
+        ) : (
+          <div
+            style={{
+              background: "var(--hanji)",
+              border: "1px dashed rgba(198,165,104,.5)",
+              borderRadius: 16,
+              padding: "30px 20px",
+              textAlign: "center",
+            }}
+          >
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "var(--ink-faint)" }}>
+              아직 모은 카드가 없어요.
+              <br />
+              전통주 상세에서 <b>AR 양조 체험</b>을 완료하면 첫 소장 카드가 생겨요.
+            </p>
+          </div>
+        )}
 
-        <p style={{ margin: "22px 2px 0", fontSize: 12, lineHeight: 1.6, color: "rgba(120,95,50,.55)" }}>
-          잠긴 카드는 해당 술의 상세에서 <b>AR 양조 체험</b>을 완료하면 열려요.
-        </p>
+        {count > 0 && (
+          <p style={{ margin: "22px 2px 0", fontSize: 12, lineHeight: 1.6, color: "rgba(120,95,50,.55)" }}>
+            새로운 술의 <b>AR 양조 체험</b>을 완료하면 소장 카드가 더해져요.
+          </p>
+        )}
       </div>
     </div>
   );

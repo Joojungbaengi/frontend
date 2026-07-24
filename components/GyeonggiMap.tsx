@@ -27,13 +27,17 @@ export default function GyeonggiMap({
   activeRegions,
   selected,
   onSelect,
+  stamped,
 }: {
   activeRegions: string[];
   selected?: string | null;
   onSelect?: (region: string) => void;
+  /** 체험을 마쳐 스탬프(도장)를 찍을 시군 전체 이름 목록 */
+  stamped?: string[];
 }) {
   const router = useRouter();
   const active = new Set(activeRegions);
+  const stampSet = new Set(stamped ?? []);
 
   const handle = (name: string) => {
     if (onSelect) onSelect(name);
@@ -78,6 +82,26 @@ export default function GyeonggiMap({
           </text>
         );
       })}
+      {/* 체험 완료 스탬프 (도장) — 라벨 위에 겹쳐 찍힘 */}
+      {regions.map((r) =>
+        stampSet.has(r.name) ? (
+          <g key={`s-${r.name}`} transform={`translate(${r.cx + 24}, ${r.cy + 28}) rotate(-12)`} style={{ pointerEvents: "none" }}>
+            <rect x={-24} y={-24} width={48} height={48} rx={9} fill="#b5482f" stroke="#f4e9d8" strokeWidth={2} opacity={0.95} />
+            <text
+              x={0}
+              y={2}
+              fill="#fbeee5"
+              fontSize={30}
+              fontWeight={800}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              style={{ fontFamily: "var(--font-myeongjo), serif" }}
+            >
+              印
+            </text>
+          </g>
+        ) : null
+      )}
     </svg>
   );
 }

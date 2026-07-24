@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import GyeonggiMap from "@/components/GyeonggiMap";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
+import { readObtained, SEED_OBTAINED } from "@/lib/dex";
 import type { Drink } from "@/lib/types";
 
 /**
@@ -28,9 +29,21 @@ function drinksByRegion(): Map<string, Drink[]> {
 const byRegion = drinksByRegion();
 const activeRegions = [...byRegion.keys()];
 
+/** 체험 완료(획득) 술 id 집합 → 지역 목록 */
+function regionsOf(ids: string[]): string[] {
+  const set = new Set(ids);
+  return [...new Set(drinks.filter((d) => set.has(d.id)).map((d) => d.region))];
+}
+
 export default function MapPage() {
   const [selected, setSelected] = useState<string | null>(null);
+  const [stamped, setStamped] = useState<string[]>(() => regionsOf(SEED_OBTAINED));
   const selectedDrinks = selected ? byRegion.get(selected) ?? [] : [];
+
+  // 체험 완료한 술의 지역 → 지도에 스탬프 (localStorage 반영)
+  useEffect(() => {
+    setStamped(regionsOf(readObtained()));
+  }, []);
 
   return (
     <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
@@ -75,14 +88,34 @@ export default function MapPage() {
             padding: "14px 12px",
           }}
         >
-          <GyeonggiMap activeRegions={activeRegions} selected={selected} onSelect={setSelected} />
+          <GyeonggiMap activeRegions={activeRegions} selected={selected} onSelect={setSelected} stamped={stamped} />
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 20, flexWrap: "wrap" }}>
           <span style={{ width: 11, height: 11, borderRadius: 3, background: "var(--seal)" }} />
-          <span style={{ fontSize: 11.5, color: "#8a6a2f" }}>전통주 등록 지역</span>
-          <span style={{ width: 11, height: 11, borderRadius: 3, background: "#d8ccb4", marginLeft: 10 }} />
+          <span style={{ fontSize: 11.5, color: "#8a6a2f" }}>전통주 등록</span>
+          <span style={{ width: 11, height: 11, borderRadius: 3, background: "#d8ccb4", marginLeft: 8 }} />
           <span style={{ fontSize: 11.5, color: "#8a6a2f" }}>준비 중</span>
+          <span
+            className="serif"
+            style={{
+              marginLeft: 8,
+              width: 15,
+              height: 15,
+              borderRadius: 4,
+              background: "var(--seal)",
+              color: "#fbeee5",
+              fontSize: 9,
+              fontWeight: 800,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transform: "rotate(-12deg)",
+            }}
+          >
+            印
+          </span>
+          <span style={{ fontSize: 11.5, color: "#8a6a2f" }}>체험 완료</span>
         </div>
 
         {/* 선택 지역 전통주 목록 */}
