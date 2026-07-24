@@ -22,14 +22,43 @@ function shortTemp(t: string): string {
   return t.split(/[,(（·]/)[0].trim().slice(0, 6);
 }
 
-/** 수상 이력 텍스트에서 대표 기호 선정 (한자 대신 픽토그램) */
-function awardSymbol(a: string): string {
-  if (a.includes("명인")) return "◈"; // 장인·명인
-  if (a.includes("문화재")) return "❖"; // 무형문화재
-  if (a.includes("표창") || a.includes("대통령")) return "★"; // 표창
-  if (a.includes("만찬") || a.includes("정상") || a.includes("건배")) return "♦"; // 만찬·의전
-  if (a.includes("대상") || a.includes("금상") || a.includes("품평")) return "✦"; // 수상
-  return "●";
+/** 수상 이력 텍스트 → 아이콘 종류 선정 */
+function awardKind(a: string): "trophy" | "medal" | "ribbon" {
+  if (a.includes("명인") || a.includes("문화재") || a.includes("인증")) return "medal"; // 인증·훈장
+  if (a.includes("만찬") || a.includes("정상") || a.includes("건배")) return "ribbon"; // 의전·만찬
+  return "trophy"; // 표창·대상·금상·품평 등 수상
+}
+
+/** 수상·인증 아이콘 (트로피 / 훈장 메달 / 리본) */
+function AwardIcon({ kind }: { kind: "trophy" | "medal" | "ribbon" }) {
+  const stroke = "var(--seal)";
+  if (kind === "medal") {
+    // 훈장 — 리본 + 원형 메달
+    return (
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path d="M9 2l3 4 3-4" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="15" r="6" stroke={stroke} strokeWidth="1.6" />
+        <path d="M12 12.2l1 2 2.1.3-1.5 1.5.4 2.1-1.9-1-1.9 1 .4-2.1L9 14.5l2.1-.3 1-2z" fill={stroke} />
+      </svg>
+    );
+  }
+  if (kind === "ribbon") {
+    // 리본 훈장
+    return (
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <circle cx="12" cy="8" r="5.2" stroke={stroke} strokeWidth="1.6" />
+        <path d="M9 12.5L7 21l5-2.6L17 21l-2-8.5" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  // 트로피
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M7 4h10v4a5 5 0 01-10 0V4z" stroke={stroke} strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M12 13v3M9 20h6M10 20l.5-4h3l.5 4" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function SectionHead({ text, red = false }: { text: string; red?: boolean }) {
@@ -232,23 +261,19 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                   {i > 0 && <div style={{ height: 1, background: "rgba(120,95,50,.12)", margin: "0 0 11px" }} />}
                   <div style={{ display: "flex", gap: 11, alignItems: "center" }}>
                     <div
-                      className="serif"
                       style={{
                         width: 34,
                         height: 34,
                         flexShrink: 0,
                         borderRadius: 8,
                         border: "1.5px solid rgba(181,72,47,.5)",
-                        color: "var(--seal)",
                         background: "rgba(181,72,47,.06)",
-                        fontWeight: 800,
-                        fontSize: 13,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                       }}
                     >
-                      {awardSymbol(a)}
+                      <AwardIcon kind={awardKind(a)} />
                     </div>
                     <div className="serif" style={{ fontSize: 14, color: "var(--ink)", lineHeight: 1.4 }}>{a}</div>
                   </div>
