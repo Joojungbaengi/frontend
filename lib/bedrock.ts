@@ -15,7 +15,7 @@ let client: AnthropicBedrock | null = null;
 function getClient(): AnthropicBedrock {
   if (!client) {
     client = new AnthropicBedrock({
-      awsRegion: process.env.AWS_REGION ?? "us-east-1",
+      awsRegion: process.env.CUSTOM_AWS_REGION ?? "us-east-1",
     });
   }
   return client;
