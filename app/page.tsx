@@ -38,7 +38,7 @@ export default function HomePage() {
       <div className="load-screen">
         <span className="big-spin" />
         <div className="serif" style={{ fontSize: 13, letterSpacing: ".34em", color: "var(--gold-deep)" }}>
-          京 畿 술 都 家
+          로딩중...
         </div>
       </div>
     );

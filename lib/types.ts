@@ -112,3 +112,22 @@ export interface RecommendResponse {
   /** true면 Bedrock 없이 규칙 기반으로만 생성된 결과 (개발/데모용) */
   fallback: boolean;
 }
+
+/** 비슷한 술 1건 */
+export interface SimilarItem {
+  id: string;
+  name: string;
+  region: string;
+  type: string;
+  abv: number;
+  image?: string;
+  /** 기준 술과 어떤 점이 닮았는지 (AI 작성) */
+  reason: string;
+}
+
+/** POST /api/similar 응답 */
+export interface SimilarResponse {
+  base: { id: string; name: string };
+  items: SimilarItem[];
+  fallback: boolean;
+}

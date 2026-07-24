@@ -388,18 +388,9 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
           <Link href={`/ar?drink=${drink.id}`} className="btn-seal" style={{ textAlign: "center", padding: 16, fontSize: 16 }}>
             AR 양조 체험 시작
           </Link>
-          <div style={{ display: "flex", gap: 11 }}>
-            <Link
-              href={`/map/${encodeURIComponent(drink.region)}`}
-              className="btn-outline"
-              style={{ flex: 1, textAlign: "center" }}
-            >
-              지도에서 보기
-            </Link>
-            <Link href="/map" className="btn-outline" style={{ flex: 1, textAlign: "center" }}>
-              비슷한 술
-            </Link>
-          </div>
+          <Link href={`/drink/${drink.id}/similar`} className="btn-outline" style={{ textAlign: "center", padding: 15 }}>
+            이 술과 비슷한 술 보기
+          </Link>
         </div>
       </div>
     </div>

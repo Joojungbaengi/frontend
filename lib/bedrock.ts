@@ -4,8 +4,8 @@
  * (이 파일은 서버에서만 import 할 것 — 브라우저 번들에 들어가면 안 됨)
  */
 import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
-import { buildUserPrompt, RECOMMEND_SCHEMA, SYSTEM_PROMPT } from "./prompt";
-import type { ScoredDrink, SurveyAnswers } from "./types";
+import { buildSimilarPrompt, buildUserPrompt, RECOMMEND_SCHEMA, SIMILAR_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./prompt";
+import type { Drink, ScoredDrink, SurveyAnswers } from "./types";
 
 // 이 계정에서 접근 가능한 최신 모델 (global 크로스 리전 프로파일 — us-east-1에서 호출)
 const MODEL_ID = process.env.BEDROCK_MODEL_ID ?? "global.anthropic.claude-sonnet-4-5-20250929-v1:0";
@@ -61,5 +61,26 @@ export async function pickTop3(answers: SurveyAnswers, candidates: ScoredDrink[]
   if (picks.length === 0) {
     throw new Error("Bedrock이 후보 목록에 없는 id만 반환함");
   }
+  return picks;
+}
+
+/** 기준 술과 비슷한 술을 후보 중에서 최대 4개 선정 (+ 닮은 이유) */
+export async function pickSimilar(target: Drink, candidates: ScoredDrink[]): Promise<AiPick[]> {
+  const response = await getClient().messages.create({
+    model: MODEL_ID,
+    max_tokens: 1500,
+    system: SIMILAR_SYSTEM_PROMPT,
+    output_config: { format: { type: "json_schema", schema: RECOMMEND_SCHEMA } },
+    messages: [{ role: "user", content: buildSimilarPrompt(target, candidates) }],
+  });
+
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error(`Bedrock 응답에 text 블록이 없음 (stop_reason: ${response.stop_reason})`);
+  }
+  const parsed = JSON.parse(textBlock.text) as { recommendations: AiPick[] };
+  const validIds = new Set(candidates.map((c) => c.drink.id));
+  const picks = parsed.recommendations.filter((r) => validIds.has(r.id)).slice(0, 4);
+  if (picks.length === 0) throw new Error("Bedrock이 후보 목록에 없는 id만 반환함");
   return picks;
 }

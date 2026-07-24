@@ -2,7 +2,7 @@
  * Bedrock Claude에 보낼 프롬프트 템플릿 (기획/AI.md의 프롬프트 예시 기반).
  * 핵심 원칙: AI의 사전 지식이 아니라 우리가 구축한 술 속성 데이터에만 근거해 추천한다.
  */
-import type { ScoredDrink, SurveyAnswers } from "./types";
+import type { Drink, ScoredDrink, SurveyAnswers } from "./types";
 
 export const SYSTEM_PROMPT = `너는 경기도 전통주 전문 소믈리에다. 유저의 취향과 술 목록을 보고 가장 잘 맞는 술 3개를 골라 추천 이유를 작성한다.
 
@@ -93,6 +93,37 @@ ${free ? `"${free}"` : "(작성 안 함 — 아래 객관식 답변으로만 판
 ${summarizeAnswers(answers)}
 
 # 술 목록 (이 중에서만 3개 선택)
+${serializeCandidates(candidates)}`;
+}
+
+/* ── 비슷한 술 추천 ── */
+
+export const SIMILAR_SYSTEM_PROMPT = `너는 경기도 전통주 소믈리에다. 기준 술과 특징이 비슷한 술을 후보 목록에서 골라 왜 비슷한지 설명한다.
+
+규칙:
+- 후보 목록에 있는 술만 고른다. 목록에 없는 술을 지어내지 않는다.
+- 맛·향·질감·주종 등 제공된 속성에만 근거해 설명한다. 사전 지식으로 설명하지 않는다.
+- 기준 술과 어떤 점이 닮았는지 한국어 1~2문장으로 친근하게 쓴다.
+- 비슷한 정도가 높은 순서로 최대 4개를 고른다.`;
+
+export function buildSimilarPrompt(target: Drink, candidates: ScoredDrink[]): string {
+  const t = {
+    name: target.name,
+    type: target.type,
+    abv: target.abv,
+    sweetness: target.sweetness,
+    acidity: target.acidity,
+    body: target.body,
+    carbonation: target.carbonation,
+    aroma_intensity: target.aroma_intensity,
+    aroma_notes: target.aroma_notes,
+    taste_notes: target.taste_notes,
+    texture: target.texture,
+  };
+  return `# 기준 술 (이 술과 비슷한 걸 찾아줘)
+${JSON.stringify(t, null, 0)}
+
+# 후보 목록 (이 중에서만 비슷한 순으로 최대 4개)
 ${serializeCandidates(candidates)}`;
 }
 
