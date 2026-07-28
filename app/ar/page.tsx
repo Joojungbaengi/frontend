@@ -1,8 +1,15 @@
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import ScreenHeader from "@/components/ScreenHeader";
 
+// AR 콘텐츠는 브라우저 전용(WebGL/WebXR)이라 SSR 비활성화로 불러온다.
+const ArBreweryExperience = dynamic(
+  () => import("@/components/ArBreweryExperience"),
+  { ssr: false }
+);
+
 /**
- * AR 양조 체험 — 팀원이 구현할 자리 (A-Frame WebXR / MindAR).
+ * AR 양조 체험 — WebXR / Three.js.
  * 이 페이지는 진입점만 제공하고, AR 콘텐츠는 아래 표시된 영역에 들어간다.
  * 체험 종료 후 흐름: AI 양조 리포트 → 경기술 카드 획득 → 도감 등록 (추후 연결)
  */
@@ -20,38 +27,16 @@ export default function ArPage() {
     >
       <ScreenHeader title="AR 양조 체험" dark />
 
-      {/* ▼▼▼ AR 구현 영역 (팀원 담당) ▼▼▼ */}
+      {/* ▼▼▼ AR 구현 영역 ▼▼▼ */}
       <div
         style={{
           flex: 1,
           position: "relative",
           display: "flex",
           flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 18,
-          background: "repeating-linear-gradient(45deg,#2a2114,#2a2114 16px,#241b10 16px,#241b10 32px)",
         }}
       >
-        <div
-          style={{
-            width: 200,
-            height: 120,
-            border: "2px dashed rgba(219,232,213,.6)",
-            borderRadius: 14,
-            transform: "perspective(300px) rotateX(52deg)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <span className="ph-label" style={{ color: "rgba(255,255,255,.5)", fontSize: 10 }}>AR 영역</span>
-        </div>
-        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "rgba(255,255,255,.6)", textAlign: "center" }}>
-          여기에 AR 양조장이 들어갈 자리예요.
-          <br />
-          (A-Frame WebXR · MindAR — 팀원 구현 예정)
-        </p>
+        <ArBreweryExperience />
       </div>
       {/* ▲▲▲ AR 구현 영역 끝 ▲▲▲ */}
 
