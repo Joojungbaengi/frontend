@@ -299,31 +299,40 @@ export default function ArBreweryExperience() {
       live.tick = null;
     }
 
+    
     function addPlatform() {
-      // GLTF로 불러온 모델 중 low_wooden_bench에 해당하는 파일을 복제해서 플랫폼으로 사용
-      const gltf = LOADED["low_wooden_bench"]; // 혹은 정의된 ID에 맞게 수정
+      const gltf = LOADED["low_wooden_bench"] || LOADED["m4"];
+      
       if (gltf) {
+        // GLB 모델이 이미 로드되어 있는 경우
         const root = skinnedClone(gltf.scene) as THREE.Object3D;
-        
-        // 크기 및 위치 조정 (필요에 따라 scale 조절)
-        root.scale.setScalar(1.0); 
+        root.scale.setScalar(1.2);
         root.position.set(0, 0, 0);
-
         root.traverse((o: any) => {
           if (o.isMesh) {
             o.castShadow = true;
             o.receiveShadow = true;
           }
         });
-
         stageGroup.add(root);
         return root;
+      } else {
+        // 모델 로드가 아직 안 끝났을 때 빈 화면으로 두지 않고 임시 플랫폼(원기둥)을 먼저 생성
+        const fallbackMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.35, 0.38, 0.04, 32),
+          new THREE.MeshStandardMaterial({ color: 0x8B5A2B, roughness: 0.8 })
+        );
+        fallbackMesh.position.set(0, 0.02, 0);
+        fallbackMesh.castShadow = true;
+        fallbackMesh.receiveShadow = true;
+        stageGroup.add(fallbackMesh);
+        return fallbackMesh;
       }
-      return null;
     }
 
     /* --- 12 · 원료 --- */
     let ingredientNodes: THREE.Group[] = [];
+    
     function buildIngredients() {
       addPlatform();
       placeModelsForStep("ingredient", stageGroup);
@@ -334,11 +343,10 @@ export default function ArBreweryExperience() {
         const a = (i / INGREDIENTS.length) * Math.PI * 2;
         const g = new THREE.Group();
         g.position.set(Math.cos(a) * 0.2, 0.18, Math.sin(a) * 0.2);
-
-        const matParams: any = {
-          roughness: 0.42,
-          metalness: 0.1,
-        };
+        
+        // 텍스처 로드 (중복 제거)
+        const tex = textureLoader.load(ing.texture);
+        tex.colorSpace = THREE.SRGBColorSpace;
 
         // 텍스처 경로가 존재할 경우 매핑, 없으면 기본 색상 사용
         if (ing.texture) {
@@ -348,10 +356,15 @@ export default function ArBreweryExperience() {
         } else {
           matParams.color = ing.color;
         }
-
+        
+        // 3. 입체감 있는 구체(SphereGeometry)에 텍스처를 적용합니다
         const mesh = new THREE.Mesh(
           new THREE.SphereGeometry(0.038, 32, 32),
-          new THREE.MeshStandardMaterial(matParams)
+          new THREE.MeshStandardMaterial({
+            map: tex,               // 텍스처 적용
+            roughness: 0.4,         // 살짝 광택을 주어 입체감 부여
+            metalness: 0.1
+          })
         );
         mesh.castShadow = true;
         g.add(mesh);
@@ -964,7 +977,7 @@ export default function ArBreweryExperience() {
 
       {/* 12 · 원료 확인 */}
       <div className="panel-step" id="p-ingredient">
-        <div style={{ padding: "0 16px" }}>
+        <div style={{ padding: "16px 16px 0 16px" }}>
           <div className="coach">
             <div className="avatar" />
             <div>
