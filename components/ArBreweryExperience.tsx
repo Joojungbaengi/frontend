@@ -214,6 +214,8 @@ export default function ArBreweryExperience() {
         // 💡 원료(ingredient) 단계일 때는 바구니와 공들이 확실히 보이도록 위치를 직접 잡아줍니다.
         if (step === "ingredient") {
           g.position.set(0, baseY, 0); // 플랫폼 정중앙에 배치
+        } else if (def.id === "rice_bowl") {
+          g.position.set(0, baseY + 0.55, -0.06);
         } else {
           const maxH = Math.max(...defs.map((d) => d.height));
           const radius = defs.length === 1 ? 0 : Math.max(0.14, maxH * 0.9);
