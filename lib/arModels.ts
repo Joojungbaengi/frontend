@@ -23,17 +23,22 @@ export interface ModelDef {
 const BASE = "/models/Dongrim_Cheongju";
 
 export const MY_MODELS: ModelDef[] = [
-  // 모든 단계 공통 — 받침대 위에 항상 놓인다
-  { id: "bamboo_basket", file: `${BASE}/bamboo_basket.glb`, step: "common", height: 0.12, y: 0.03 },
-
   // 받침대로 쓰이는 모델 (addPlatform이 직접 로드하지만, 프리로드 되도록 목록에 둠)
   { id: "low_wooden_bench", file: `${BASE}/low_wooden_bench.glb`, step: "common", height: 0.14, y: 0.03 },
 
+  // 모든 단계 공통 — 받침대 위에 항상 놓인다
+  { id: "bamboo_basket", file: `${BASE}/bamboo_basket.glb`, step: "common", height: 0.12, y: 0.03 },
+
+  // 쌀 씻기(godubap) 단계 — 가상의 아이코사헤드론 대신 실제 모델을 그릇째로 놓는다.
+  // "항아리에 담기" 클릭 전까지(쌀 씻기/불리기/찌기/식히기 내내) 계속 보인다.
+  { id: "rice_bowl", file: `${BASE}/rice_bowl.glb`, step: "godubap", height: 0.12, y: 0.03 },
+
+  // 발효(ferment) 단계 — "누룩 섞고 항아리에 담기" 클릭 순간 rice_bowl 은 사라지고 이 모델이 나타난다.
+  { id: "water_jar", file: `${BASE}/water_jar.glb`, step: "ferment", height: 0.12, y: 0.03 },
+
   // ── 아래는 지금 화면에 띄우지 않는 모델들.
   //    특정 단계에 다시 띄우려면 step 을 ingredient/godubap/ferment/done 으로 바꾸면 된다.
-  // { id: "bag_rise",    file: `${BASE}/bag_rise.glb`,    step: "ingredient", height: 0.10, y: 0.03 },
-  // { id: "basket",      file: `${BASE}/basket.glb`,      step: "ingredient", height: 0.10, y: 0.03 },
-  // { id: "rice_bowl",   file: `${BASE}/rice_bowl.glb`,   step: "godubap",    height: 0.12, y: 0.03 },
-  // { id: "rice_grains", file: `${BASE}/rice_grains.glb`, step: "ferment",    height: 0.34, y: 0.03 },
-  // { id: "water_jar",   file: `${BASE}/water_jar.glb`,   step: "ferment",    height: 0.12, y: 0.03 },
+  // { id: "bag_rise",      file: `${BASE}/bag_rise.glb`,      step: "ingredient", height: 0.10, y: 0.03 },
+  // { id: "basket",        file: `${BASE}/basket.glb`,        step: "ingredient", height: 0.10, y: 0.03 },
+  // { id: "rice_grains",   file: `${BASE}/rice_grains.glb`,   step: "ferment",    height: 0.34, y: 0.03 },
 ];
