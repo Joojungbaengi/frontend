@@ -306,7 +306,7 @@ export default function ArBreweryExperience() {
       if (gltf) {
         // GLB 모델이 이미 로드되어 있는 경우
         const root = skinnedClone(gltf.scene) as THREE.Object3D;
-        root.scale.setScalar(1.2);
+        root.scale.setScalar(0.6);
         root.position.set(0, 0, 0);
         root.traverse((o: any) => {
           if (o.isMesh) {
