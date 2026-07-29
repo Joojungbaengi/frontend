@@ -370,27 +370,23 @@ export default function ArBreweryExperience() {
         const g = new THREE.Group();
         g.position.set(Math.cos(a) * 0.2, 0.18, Math.sin(a) * 0.2);
         
-        // 텍스처 로드 (중복 제거)
-        const tex = textureLoader.load(ing.texture);
-        tex.colorSpace = THREE.SRGBColorSpace;
+        // matParams 정의 및 ing.texture 반영
+        const matParams: THREE.MeshStandardMaterialParameters = {
+          roughness: 0.4,
+          metalness: 0.1,
+        };
 
         // 텍스처 경로가 존재할 경우 매핑, 없으면 기본 색상 사용
         if (ing.texture) {
           const texture = textureLoader.load(ing.texture);
           texture.colorSpace = THREE.SRGBColorSpace;
           matParams.map = texture;
-        } else {
-          matParams.color = ing.color;
         }
         
         // 3. 입체감 있는 구체(SphereGeometry)에 텍스처를 적용합니다
         const mesh = new THREE.Mesh(
           new THREE.SphereGeometry(0.038, 32, 32),
-          new THREE.MeshStandardMaterial({
-            map: tex,               // 텍스처 적용
-            roughness: 0.4,         // 살짝 광택을 주어 입체감 부여
-            metalness: 0.1
-          })
+          new THREE.MeshStandardMaterial(matParams)
         );
         mesh.castShadow = true;
         g.add(mesh);
@@ -1098,7 +1094,7 @@ const styles = `
   color:#f2ecdb; --cream:#f2ecdb; --cream-dim:rgba(242,236,219,.62); --panel-2:#252d23;
   --clay:#c2452f; --clay-hi:#d6553e; --sage:#cfe0d3; --sage-deep:#a9c6b1; --line:rgba(242,236,219,.14);
   --r-md:12px; --r-sm:10px; --safe-b:env(safe-area-inset-bottom,0px);
-  padding-top: 48px;}
+  padding-top: 24px;}
 .ar-ui canvas#gl{position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0}
 .ar-ui > *{position:relative; z-index:1}
 
