@@ -20,7 +20,7 @@ function SoulCard({ drink, flipping, onActivate }: { drink: Drink; flipping: boo
   return (
     <div
       className={`dex-card${flipping ? " flipping" : ""}`}
-      onClick={() => onActivate(drink.id)}
+      onClick={() => onActivate(drin k.id)}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onActivate(drink.id)}

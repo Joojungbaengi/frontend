@@ -356,7 +356,7 @@ export default function ArBreweryExperience() {
 
     function buildIngredients() {
       const platformTop = addPlatform();       // 실제 상판 높이를 받음
-      placeModelsForStep("godubap", stageGroup, platformTop);
+      placeModelsForStep("ingredient", stageGroup, platformTop);
 
       const textureLoader = new THREE.TextureLoader();
       const floatY = platformTop + 0.1;       // 상판에서 살짝만 띄움 (기존 0.18 → 대체)
@@ -416,30 +416,9 @@ export default function ArBreweryExperience() {
     /* --- 13 · 고두밥 --- */
     function buildGodubap() {
       const platformTop = addPlatform();
+      // 가상의 찜기+아이코사헤드론 쌀알 대신 rice_bowl.glb 실물 모델을 놓는다.
+      // (rice_bowl 은 arModels.ts 에 step:"godubap" 으로 등록되어 있어 이 호출로 자동 배치됨)
       placeModelsForStep("godubap", stageGroup, platformTop);
-      const steamer = makeOnggi(0.12, 0.19, 0x463626);
-      steamer.position.y = 0.03;
-      stageGroup.add(steamer);
-
-      const geo = new THREE.IcosahedronGeometry(0.13, 4);
-      const p = geo.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < p.count; i++) {
-        const v = new THREE.Vector3().fromBufferAttribute(p, i);
-        const n = 1 + (Math.sin(v.x * 60) + Math.cos(v.y * 55) + Math.sin(v.z * 65)) * 0.012;
-        v.multiplyScalar(n);
-        if (v.y < 0) v.y *= 0.35;
-        p.setXYZ(i, v.x, v.y, v.z);
-      }
-      geo.computeVertexNormals();
-      const rice = new THREE.Mesh(
-        geo,
-        new THREE.MeshStandardMaterial({
-          color: 0xf2ead4, roughness: 0.85, emissive: 0xffe6b0, emissiveIntensity: 0.12,
-        })
-      );
-      rice.position.y = 0.15;
-      rice.castShadow = true;
-      stageGroup.add(rice);
 
       const glow = new THREE.PointLight(0xffd9a0, 0, 0.8);
       glow.position.set(0, 0.2, 0);
@@ -454,13 +433,8 @@ export default function ArBreweryExperience() {
 
       live.tick = () => {
         const stage = S.godubap;
-        rice.rotation.y += 0.004;
-        const target = 1 + (stage >= 2 ? 0.12 : stage >= 1 ? 0.06 : 0);
-        rice.scale.lerp(new THREE.Vector3(target, target, target), 0.06);
         const hot = stage >= 4 ? 0.05 : stage >= 2 ? 1 : 0.15;
         glow.intensity += (hot * 1.6 - glow.intensity) * 0.05;
-        const rm = rice.material as THREE.MeshStandardMaterial;
-        rm.emissiveIntensity += (hot * 0.5 + 0.08 - rm.emissiveIntensity) * 0.05;
         steam.material.opacity += ((stage >= 2 && stage < 4 ? 0.55 : 0.06) - steam.material.opacity) * 0.05;
         (steam.userData as any).opt.speed = stage >= 2 ? 0.35 : 0.15;
       };
@@ -469,19 +443,12 @@ export default function ArBreweryExperience() {
     /* --- 14 · 발효 --- */
     function buildFerment() {
       const platformTop = addPlatform();
-      placeModelsForStep("godubap", stageGroup, platformTop);
-      const jar = makeOnggi(0.34, 0.17, 0x4d3c2b);
-      jar.position.y = 0.03;
-      stageGroup.add(jar);
-
-      const liquid = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.115, 0.075, 1, 40, 1, false),
-        new THREE.MeshPhysicalMaterial({
-          color: 0xf4efe0, roughness: 0.28, transmission: 0.25, thickness: 0.2,
-          clearcoat: 0.6, emissive: 0xd8cba6, emissiveIntensity: 0.12,
-        })
-      );
-      stageGroup.add(liquid);
+      // "누룩 섞고 항아리에 담기" 클릭 시 clearStage()로 rice_bowl.glb 는 사라지고,
+      // 여기서 water_jar.glb (arModels.ts: step "ferment")가 대신 배치된다.
+      // ※ 예전에 실물 항아리 모델이 없을 때 쓰던 간이 액체 원기둥(liquid 메쉬)은
+      //    water_jar.glb가 그 역할을 대신하므로 제거했다. 발효 진행도는 물방울
+      //    파티클(bubbles)만으로 표현한다.
+      placeModelsForStep("ferment", stageGroup, platformTop);
 
       const bubbles = makeParticles(180, {
         color: 0xfff6dd, size: 0.009, opacity: 0.7, speed: 0.5,
@@ -496,8 +463,6 @@ export default function ArBreweryExperience() {
 
       live.tick = () => {
         const fill = 0.06 + (S.ferment / 100) * 0.16;
-        liquid.scale.y = fill;
-        liquid.position.y = 0.05 + fill / 2;
         const hot = THREE.MathUtils.clamp((S.temp - 24) / 10, 0, 1);
         const bo = (bubbles.userData as any).opt;
         bo.speed = 0.25 + hot * 0.9;
@@ -505,8 +470,6 @@ export default function ArBreweryExperience() {
         bo.height = fill + 0.05;
         bubbles.material.opacity = 0.35 + hot * 0.45;
         heat.intensity += (hot * 1.4 - heat.intensity) * 0.06;
-        (liquid.material as THREE.MeshPhysicalMaterial).emissiveIntensity = 0.1 + hot * 0.25;
-        jar.rotation.y += 0.0012;
       };
     }
 
