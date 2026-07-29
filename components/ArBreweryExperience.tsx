@@ -36,7 +36,14 @@ export default function ArBreweryExperience() {
     /* =====================================================================
      * 0. 상태
      * ===================================================================*/
-    
+    const INGREDIENTS = [
+      { id: "rice",   name: "가와지쌀", color: 0xf0e8d2, essential: true },
+      { id: "nuruk",  name: "누룩",     color: 0xd8c08a, essential: true },
+      { id: "water",  name: "물",       color: 0xbcd8d6, essential: true },
+      { id: "omija",  name: "오미자",   color: 0xa8352f, essential: false },
+      { id: "flower", name: "국화",     color: 0xdcc247, essential: false },
+      { id: "honey",  name: "벌꿀",     color: 0xc98b2e, essential: false },
+    ];
     const GODUBAP_STEPS = [
       { id: "wash",  name: "쌀 씻기", caption: "쌀을 씻어 이물질을 걷어내요" },
       { id: "soak",  name: "불리기",  caption: "쌀알이 물을 머금고 부풀어요" },
@@ -365,27 +372,40 @@ export default function ArBreweryExperience() {
 
         const radius = 0.038;
 
-        // 텍스처 로드 및 색상 공간 설정
-        const texture = textureLoader.load(ing.texture);
+        // texture는 항상 있음 (ingredientsData.ts 기준). 로드 실패 대비 회색 fallback.
+        const texture = textureLoader.load(
+          ing.texture,
+          undefined,
+          undefined,
+          (err) => console.warn("원료 텍스처 로드 실패:", ing.id, ing.texture, err)
+        );
         texture.colorSpace = THREE.SRGBColorSpace;
 
-        // 찌그러짐 방지를 위해 CircleGeometry 대신 PlaneGeometry 사용 및 텍스처 강제 적용
         const mesh = new THREE.Mesh(
-          new THREE.PlaneGeometry(radius * 2, radius * 2),
+          new THREE.CircleGeometry(radius, 48),
           new THREE.MeshBasicMaterial({
             map: texture,
+            color: 0xffffff, // 텍스처 로드 전/실패 시 흰색 원판으로라도 보이게
             side: THREE.DoubleSide,
             transparent: true,
           })
         );
         mesh.castShadow = true;
 
-        // 항상 카메라 정면을 바라보게 빌보드(Billboard) 처리
+        // 항상 카메라 정면을 보게 하는 빌보드
         mesh.onBeforeRender = (renderer, scene, camera) => {
           mesh.quaternion.copy(camera.quaternion);
         };
 
         g.add(mesh);
+
+        // 입체감을 더하는 얇은 테두리 링
+        const rimRing = new THREE.Mesh(
+          new THREE.RingGeometry(radius, radius + 0.005, 48),
+          new THREE.MeshBasicMaterial({ color: 0xfff2d8, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+        );
+        rimRing.position.z = -0.001;
+        g.add(rimRing);
 
         (g.userData as any) = { id: ing.id, mesh, phase: i };
         stageGroup.add(g);
