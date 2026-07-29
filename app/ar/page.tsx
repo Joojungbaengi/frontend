@@ -1,12 +1,6 @@
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import ScreenHeader from "@/components/ScreenHeader";
-
-// AR 콘텐츠는 브라우저 전용(WebGL/WebXR)이라 SSR 비활성화로 불러온다.
-const ArBreweryExperience = dynamic(
-  () => import("@/components/ArBreweryExperience"),
-  { ssr: false }
-);
+import ArBreweryClient from "@/components/ArBreweryClient";
 
 /**
  * AR 양조 체험 — WebXR / Three.js.
@@ -36,7 +30,7 @@ export default function ArPage() {
           flexDirection: "column",
         }}
       >
-        <ArBreweryExperience />
+        <ArBreweryClient />
       </div>
       {/* ▲▲▲ AR 구현 영역 끝 ▲▲▲ */}
 
