@@ -187,7 +187,27 @@ export default function ArBreweryExperience() {
       return root;
     }
 
+    // 모든 단계에 공통으로 띄울 모델 배치 (step:"common", 단 받침대 모델은 제외)
+    function placeCommonModels(parent: THREE.Object3D) {
+      const defs = MY_MODELS.filter(
+        (m) => m.step === "common" && m.id !== "low_wooden_bench"
+      );
+      defs.forEach((def) => {
+        const node = spawnModel(def);
+        if (!node) return;
+        const g = new THREE.Group();
+        g.position.set(0, def.y, 0);   // 받침대 정중앙
+        g.add(node);
+        (g.userData as any).def = def;
+        parent.add(g);
+        live.models.push(g);
+      });
+    }
+
     function placeModelsForStep(step: ArStep, parent: THREE.Object3D) {
+      // 0. 단계와 무관하게 공통 모델(대바구니)을 먼저 배치
+      placeCommonModels(parent);
+
       // 1. 해당 단계의 모델들을 가져옵니다.
       const defs = MY_MODELS.filter((m) => m.step === step);
       if (!defs.length) return;
@@ -983,7 +1003,7 @@ export default function ArBreweryExperience() {
 
       {/* 12 · 원료 확인 */}
       <div className="panel-step" id="p-ingredient">
-        <div style={{ padding: "16px 16px 0 16px" }}>
+        <div style={{ padding: "0 16px" }}>
           <div className="coach">
             <div className="avatar" />
             <div>
