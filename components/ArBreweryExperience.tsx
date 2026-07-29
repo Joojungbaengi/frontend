@@ -332,7 +332,7 @@ export default function ArBreweryExperience() {
       if (gltf) {
         // GLB 모델이 이미 로드되어 있는 경우
         const root = skinnedClone(gltf.scene) as THREE.Object3D;
-        root.scale.setScalar(0.6);
+        root.scale.setScalar(0.5);
         root.position.set(0, -0.3, 0);
         root.traverse((o: any) => {
           if (o.isMesh) {
@@ -370,10 +370,12 @@ export default function ArBreweryExperience() {
         const g = new THREE.Group();
         g.position.set(Math.cos(a) * 0.2, 0.18, Math.sin(a) * 0.2);
         
-        // matParams 정의 및 ing.texture 반영
+        // PlaneGeometry(면)를 사용하여 이미지를 입히고, 3D처럼 보이도록 셰이더/재질 효과 적용
         const matParams: THREE.MeshStandardMaterialParameters = {
-          roughness: 0.4,
+          roughness: 0.3,
           metalness: 0.1,
+          side: THREE.DoubleSide,
+          transparent: true,
         };
 
         // 텍스처 경로가 존재할 경우 매핑, 없으면 기본 색상 사용
@@ -389,7 +391,21 @@ export default function ArBreweryExperience() {
           new THREE.MeshStandardMaterial(matParams)
         );
         mesh.castShadow = true;
+
+        // 3D 공간에서 항상 카메라를 정면으로 바라보게 하여 2D 이미지가 3D처럼 입체적으로 인지되도록 설정
+        mesh.onBeforeRender = (renderer, scene, camera) => {
+          mesh.quaternion.copy(camera.quaternion);
+        };
+
         g.add(mesh);
+
+        // 3D 입체감을 더하기 위한 은은한 외곽 그림자/하이라이트 효과용 링 추가
+        const rimRing = new THREE.Mesh(
+          new THREE.RingGeometry(0.04, 0.045, 32),
+          new THREE.MeshBasicMaterial({ color: 0xfff2d8, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+        );
+        rimRing.position.z = -0.001;
+        g.add(rimRing);
 
         (g.userData as any) = { id: ing.id, mesh, phase: i };
         stageGroup.add(g);
