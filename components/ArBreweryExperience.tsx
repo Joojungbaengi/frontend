@@ -365,40 +365,27 @@ export default function ArBreweryExperience() {
 
         const radius = 0.038;
 
-        // texture는 항상 있음 (ingredientsData.ts 기준). 로드 실패 대비 회색 fallback.
-        const texture = textureLoader.load(
-          ing.texture,
-          undefined,
-          undefined,
-          (err) => console.warn("원료 텍스처 로드 실패:", ing.id, ing.texture, err)
-        );
+        // 텍스처 로드 및 색상 공간 설정
+        const texture = textureLoader.load(ing.texture);
         texture.colorSpace = THREE.SRGBColorSpace;
 
+        // 찌그러짐 방지를 위해 CircleGeometry 대신 PlaneGeometry 사용 및 텍스처 강제 적용
         const mesh = new THREE.Mesh(
-          new THREE.CircleGeometry(radius, 48),
+          new THREE.PlaneGeometry(radius * 2, radius * 2),
           new THREE.MeshBasicMaterial({
             map: texture,
-            color: 0xffffff, // 텍스처 로드 전/실패 시 흰색 원판으로라도 보이게
             side: THREE.DoubleSide,
             transparent: true,
           })
         );
         mesh.castShadow = true;
 
-        // 항상 카메라 정면을 보게 하는 빌보드
+        // 항상 카메라 정면을 바라보게 빌보드(Billboard) 처리
         mesh.onBeforeRender = (renderer, scene, camera) => {
           mesh.quaternion.copy(camera.quaternion);
         };
 
         g.add(mesh);
-
-        // 입체감을 더하는 얇은 테두리 링
-        const rimRing = new THREE.Mesh(
-          new THREE.RingGeometry(radius, radius + 0.005, 48),
-          new THREE.MeshBasicMaterial({ color: 0xfff2d8, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
-        );
-        rimRing.position.z = -0.001;
-        g.add(rimRing);
 
         (g.userData as any) = { id: ing.id, mesh, phase: i };
         stageGroup.add(g);
