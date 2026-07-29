@@ -36,14 +36,7 @@ export default function ArBreweryExperience() {
     /* =====================================================================
      * 0. 상태
      * ===================================================================*/
-    const INGREDIENTS = [
-      { id: "rice",   name: "가와지쌀", color: 0xf0e8d2, essential: true },
-      { id: "nuruk",  name: "누룩",     color: 0xd8c08a, essential: true },
-      { id: "water",  name: "물",       color: 0xbcd8d6, essential: true },
-      { id: "omija",  name: "오미자",   color: 0xa8352f, essential: false },
-      { id: "flower", name: "국화",     color: 0xdcc247, essential: false },
-      { id: "honey",  name: "벌꿀",     color: 0xc98b2e, essential: false },
-    ];
+    
     const GODUBAP_STEPS = [
       { id: "wash",  name: "쌀 씻기", caption: "쌀을 씻어 이물질을 걷어내요" },
       { id: "soak",  name: "불리기",  caption: "쌀알이 물을 머금고 부풀어요" },
@@ -762,9 +755,7 @@ export default function ArBreweryExperience() {
         const b = document.createElement("button");
         b.className = "card";
         b.setAttribute("aria-pressed", "false");
-        b.innerHTML = `<span class="chip" style="background:#${ing.color
-          .toString(16)
-          .padStart(6, "0")}"></span>${ing.name}`;
+        b.innerHTML = `<span class="chip" style="background-image:url('${ing.texture}'); background-size:cover; background-position:center;"></span>${ing.name}`;
         b.onclick = () => {
           if (S.selected.has(ing.id)) S.selected.delete(ing.id);
           else if (S.selected.size < 3) S.selected.add(ing.id);
