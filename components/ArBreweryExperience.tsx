@@ -163,7 +163,8 @@ export default function ArBreweryExperience() {
       root.scale.setScalar(def.height / srcH);
 
       const box2 = new THREE.Box3().setFromObject(root);
-      root.position.y = -box2.min.y;
+      const center = box2.getCenter(new THREE.Vector3());
+      root.position.set(-center.x, -box2.min.y, -center.z);
 
       root.traverse((o: any) => {
         if (o.isMesh) {
