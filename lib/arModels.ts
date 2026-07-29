@@ -29,7 +29,7 @@ export const MY_MODELS: ModelDef[] = [
 
   // 쌀 씻기(godubap) 단계 — 가상의 아이코사헤드론 대신 실제 모델을 그릇째로 놓는다.
   // "항아리에 담기" 클릭 전까지(쌀 씻기/불리기/찌기/식히기 내내) 계속 보인다.
-  { id: "rice_bowl", file: `${BASE}/rice_bowl.glb`, step: "godubap", height: 0.12, y: 0.03 },
+  { id: "rice_bowl", file: `${BASE}/rice_bowl.glb`, step: "godubap", height: 0.18, y: 0.12 },
 
   // 발효(ferment) 단계 — "누룩 섞고 항아리에 담기" 클릭 순간 rice_bowl 은 사라지고 이 모델이 나타난다.
   { id: "water_jar", file: `${BASE}/water_jar.glb`, step: "ferment", height: 0.12, y: 0.03 },
