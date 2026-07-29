@@ -190,21 +190,27 @@ export default function ArBreweryExperience() {
     function placeModelsForStep(step: ArStep, parent: THREE.Object3D) {
       // 1. 해당 단계의 모델들을 가져옵니다.
       const defs = MY_MODELS.filter((m) => m.step === step);
-      
-      defs.forEach((def) => {
-        // 2. 만약 현재 단계가 'ingredient' 라면, bamboo_basket 이나 플랫폼 관련 모델만 허용합니다.
-        if (step === "ingredient") {
-          // 모델 ID나 이름에 "basket"이나 필요한 것만 포함되도록 필터링
-          if (!def.id.includes("basket") && !def.id.includes("bench")) {
-            return; // 바구니나 벤치(플랫폼)가 아니면 생성하지 않고 건너뜁니다.
-          }
-        }
+      if (!defs.length) return;
 
+      defs.forEach((def, i) => {
         const node = spawnModel(def);
         if (!node) return;
+
         const g = new THREE.Group();
-        g.position.set(0, def.y || 0, 0);
+        
+        // 💡 원료(ingredient) 단계일 때는 바구니와 공들이 확실히 보이도록 위치를 직접 잡아줍니다.
+        if (step === "ingredient") {
+          g.position.set(0, 0, 0); // 플랫폼 정중앙에 배치
+        } else {
+          const maxH = Math.max(...defs.map((d) => d.height));
+          const radius = defs.length === 1 ? 0 : Math.max(0.14, maxH * 0.9);
+          const ang = (i / defs.length) * Math.PI * 2 - Math.PI / 2;
+          g.position.set(Math.cos(ang) * radius, def.y, Math.sin(ang) * radius);
+          g.rotation.y = Math.atan2(g.position.x, g.position.z) + Math.PI;
+        }
+
         g.add(node);
+        (g.userData as any).def = def;
         parent.add(g);
         live.models.push(g);
       });
@@ -1071,7 +1077,8 @@ const styles = `
   font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
   color:#f2ecdb; --cream:#f2ecdb; --cream-dim:rgba(242,236,219,.62); --panel-2:#252d23;
   --clay:#c2452f; --clay-hi:#d6553e; --sage:#cfe0d3; --sage-deep:#a9c6b1; --line:rgba(242,236,219,.14);
-  --r-md:12px; --r-sm:10px; --safe-b:env(safe-area-inset-bottom,0px);}
+  --r-md:12px; --r-sm:10px; --safe-b:env(safe-area-inset-bottom,0px);
+  padding-top: 48px;}
 .ar-ui canvas#gl{position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0}
 .ar-ui > *{position:relative; z-index:1}
 
