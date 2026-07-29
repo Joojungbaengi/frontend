@@ -18,6 +18,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import { MY_MODELS, type ModelDef, type ArStep } from "@/lib/arModels";
+import { INGREDIENTS } from "@/lib/ingredientsData";
 
 export default function ArBreweryExperience() {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -61,6 +62,7 @@ export default function ArBreweryExperience() {
       ferment: 0,
       tempLog: [] as number[],
       xr: false,
+      isInitializing: true,
     };
 
     function setStep(next: typeof S.step) {
@@ -298,17 +300,26 @@ export default function ArBreweryExperience() {
     }
 
     function addPlatform() {
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.32, 0.03, 48), woodMat);
-      base.position.y = 0.015;
-      base.receiveShadow = true;
-      stageGroup.add(base);
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(0.3, 0.004, 8, 60).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial({ color: 0xc2452f, transparent: true, opacity: 0.55 })
-      );
-      ring.position.y = 0.032;
-      stageGroup.add(ring);
-      return base;
+      // GLTF로 불러온 모델 중 low_wooden_bench에 해당하는 파일을 복제해서 플랫폼으로 사용
+      const gltf = LOADED["low_wooden_bench"]; // 혹은 정의된 ID에 맞게 수정
+      if (gltf) {
+        const root = skinnedClone(gltf.scene) as THREE.Object3D;
+        
+        // 크기 및 위치 조정 (필요에 따라 scale 조절)
+        root.scale.setScalar(1.0); 
+        root.position.set(0, 0, 0);
+
+        root.traverse((o: any) => {
+          if (o.isMesh) {
+            o.castShadow = true;
+            o.receiveShadow = true;
+          }
+        });
+
+        stageGroup.add(root);
+        return root;
+      }
+      return null;
     }
 
     /* --- 12 · 원료 --- */
@@ -316,23 +327,40 @@ export default function ArBreweryExperience() {
     function buildIngredients() {
       addPlatform();
       placeModelsForStep("ingredient", stageGroup);
+      
+      const textureLoader = new THREE.TextureLoader();
+
       ingredientNodes = INGREDIENTS.map((ing, i) => {
         const a = (i / INGREDIENTS.length) * Math.PI * 2;
         const g = new THREE.Group();
         g.position.set(Math.cos(a) * 0.2, 0.18, Math.sin(a) * 0.2);
+
+        const matParams: any = {
+          roughness: 0.42,
+          metalness: 0.1,
+        };
+
+        // 텍스처 경로가 존재할 경우 매핑, 없으면 기본 색상 사용
+        if (ing.texture) {
+          const texture = textureLoader.load(ing.texture);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          matParams.map = texture;
+        } else {
+          matParams.color = ing.color;
+        }
+
         const mesh = new THREE.Mesh(
-          new THREE.IcosahedronGeometry(0.038, 1),
-          new THREE.MeshStandardMaterial({
-            color: ing.color, roughness: 0.42, metalness: 0.1,
-            emissive: new THREE.Color(ing.color), emissiveIntensity: 0,
-          })
+          new THREE.SphereGeometry(0.038, 32, 32),
+          new THREE.MeshStandardMaterial(matParams)
         );
         mesh.castShadow = true;
         g.add(mesh);
+
         (g.userData as any) = { id: ing.id, mesh, phase: i };
         stageGroup.add(g);
         return g;
       });
+
       live.tick = (t) => {
         ingredientNodes.forEach((n) => {
           const ud = n.userData as any;
@@ -340,7 +368,9 @@ export default function ArBreweryExperience() {
           n.position.y = 0.18 + Math.sin(t * 1.4 + ud.phase) * 0.018 + (on ? 0.03 : 0);
           n.rotation.y += 0.006;
           const m = ud.mesh.material as THREE.MeshStandardMaterial;
-          m.emissiveIntensity += ((on ? 0.75 : 0) - m.emissiveIntensity) * 0.1;
+          if (m.emissiveIntensity !== undefined) {
+            m.emissiveIntensity += ((on ? 0.75 : 0) - m.emissiveIntensity) * 0.1;
+          }
           const s = on ? 1.35 : 1;
           n.scale.lerp(new THREE.Vector3(s, s, s), 0.1);
         });
@@ -628,6 +658,15 @@ export default function ArBreweryExperience() {
       const b = $("#btn-place") as HTMLButtonElement | null;
       const scan = $("#scan");
       if (!b || !scan) return;
+
+      // 초기 로딩 중일 때는 무조건 준비 중 상태로 표시
+      if (S.isInitializing) {
+        b.disabled = true;
+        b.textContent = "AR 환경 준비 중…";
+        scan.textContent = "잠시만 기다려 주세요";
+        return;
+      }
+
       if (arSupported && !S.xr) {
         b.disabled = false;
         b.textContent = "카메라 켜고 AR 시작";
@@ -872,10 +911,15 @@ export default function ArBreweryExperience() {
     syncGodubap();
     syncTemp();
     onFermentTick();
+    syncPlaceButton();
 
-    preloadModels()
-      .then(checkAR)
+    Promise.all([preloadModels(), checkAR()])
       .then(() => {
+        S.isInitializing = false; // 👈 로딩 완료
+        syncPlaceButton();         // 👈 준비가 끝나면 실제 버튼으로 갱신
+      })
+      .catch(() => {
+        S.isInitializing = false;
         syncPlaceButton();
       });
 
