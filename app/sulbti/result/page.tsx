@@ -5,12 +5,13 @@ import { useEffect, useState } from "react";
 import AppImage from "@/components/AppImage";
 import HangingScroll from "@/components/HangingScroll";
 import ScreenHeader from "@/components/ScreenHeader";
+import { pickSinseon } from "@/lib/sinseon";
 import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
 
 /**
  * 술BTI 결과 — 족자 + 취향 지도 + AI 추천 3잔.
  * 추천 데이터는 /sulbti 에서 sessionStorage("sulbti")에 저장한 것을 읽는다.
- * TODO(내용 연결): 신선 유형 이름·일러스트·궁합 (유형 일러스트는 후순위 작업)
+ * 신선 유형은 객관식 답변으로 lib/sinseon.ts 에서 판정한다.
  */
 
 interface StoredResult {
@@ -99,81 +100,91 @@ export default function ResultPage() {
 
   const recs = data?.result.recommendations ?? [];
   const axes = data ? gauges(data.answers) : [];
+  const sinseon = data ? pickSinseon(data.answers) : null;
 
   return (
     <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
       <ScreenHeader title="술BTI 결과" backHref="/" />
 
-      {/* ── 신선 유형 족자 (유형 이름·일러스트는 후순위 TODO) ── */}
-      <div style={{ padding: "2px 22px 20px", textAlign: "center" }}>
-        <div style={{ fontSize: 12, letterSpacing: ".3em", color: "#a67c3e", marginBottom: 14 }}>
-          京畿 神仙 · 나의 술 취향
-        </div>
-        <HangingScroll
-          seal={
-            <>
-              신선
-              <br />
-              유형
-            </>
-          }
-        >
-          <div style={{ display: "flex", gap: 14, textAlign: "left" }}>
-            <div
-              className="serif"
-              style={{
-                writingMode: "vertical-rl",
-                fontWeight: 800,
-                fontSize: 27,
-                lineHeight: 1.55,
-                letterSpacing: ".06em",
-              }}
-            >
-              신선 유형 이름
-              <br />
-              들어갈 자리
-            </div>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="ph-art" style={{ width: "100%", aspectRatio: "1/1.18", borderRadius: 10 }}>
-                <span className="ph-label" style={{ textAlign: "center" }}>
-                  수묵 신선
-                  <br />
-                  일러스트
-                </span>
-              </div>
-              <span
+      {/* ── 신선 유형 족자 ── */}
+      {sinseon && (
+        <div style={{ padding: "2px 22px 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 12, letterSpacing: ".3em", color: "#a67c3e", marginBottom: 14 }}>
+            京畿 神仙 · 나의 술 취향
+          </div>
+          <HangingScroll
+            seal={
+              <>
+                신선
+                <br />
+                유형
+              </>
+            }
+          >
+            <div style={{ display: "flex", gap: 14, textAlign: "left" }}>
+              {/* 이름이 길면 세로쓰기가 자동으로 여러 줄로 흐른다 */}
+              <div
+                className="serif"
                 style={{
-                  alignSelf: "flex-start",
-                  fontSize: 12,
-                  color: "#fff",
-                  background: "var(--seal)",
-                  padding: "5px 12px",
-                  borderRadius: 99,
+                  writingMode: "vertical-rl",
+                  maxHeight: 290,
+                  flexShrink: 0,
+                  fontWeight: 800,
+                  fontSize: 22,
+                  lineHeight: 1.5,
+                  letterSpacing: ".04em",
                 }}
               >
-                유형 00 · 플레이스홀더
-              </span>
-              <p style={{ margin: 0, paddingRight: 52, fontSize: 13, lineHeight: 1.6, color: "#4a4940" }}>
-                유형 한 줄 소개가 들어갈 자리예요. (플레이스홀더)
-              </p>
+                {sinseon.name}
+              </div>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+                <AppImage
+                  src={sinseon.image}
+                  alt={sinseon.name}
+                  eager
+                  boxStyle={{
+                    width: "100%",
+                    aspectRatio: "3/4",
+                    borderRadius: 10,
+                    border: "1px solid rgba(120,95,50,.12)",
+                  }}
+                />
+                <span
+                  style={{
+                    alignSelf: "flex-start",
+                    fontSize: 12,
+                    color: "#fff",
+                    background: "var(--seal)",
+                    padding: "5px 12px",
+                    borderRadius: 99,
+                  }}
+                >
+                  유형 {String(sinseon.no).padStart(2, "0")} · {sinseon.axis}
+                </span>
+                <p style={{ margin: 0, paddingRight: 52, fontSize: 13, lineHeight: 1.6, color: "#4a4940" }}>
+                  {sinseon.tagline}
+                </p>
+              </div>
             </div>
-          </div>
-        </HangingScroll>
-      </div>
+          </HangingScroll>
+        </div>
+      )}
 
       <div style={{ padding: "4px 22px 44px", display: "flex", flexDirection: "column", gap: 30 }}>
-        {/* ── 유형 설명 (플레이스홀더 유지) ── */}
-        <section>
-          <div className="section-title">
-            <span className="bar" />
-            <h2>이런 신선입니다</h2>
-          </div>
-          <div className="card" style={{ padding: 18 }}>
-            <p style={{ margin: 0, fontSize: 15, lineHeight: 1.75, color: "var(--ink-soft)" }}>
-              유형 상세 설명이 들어갈 자리예요. 취향의 특징을 재미있게 풀어줍니다. (플레이스홀더)
-            </p>
-          </div>
-        </section>
+        {/* ── 유형 설명 ── */}
+        {sinseon && (
+          <section>
+            <div className="section-title">
+              <span className="bar" />
+              <h2>이런 신선입니다</h2>
+            </div>
+            <div className="card" style={{ padding: 18 }}>
+              <p style={{ margin: 0, fontSize: 15, lineHeight: 1.75, color: "var(--ink-soft)" }}>
+                {sinseon.description}
+              </p>
+            </div>
+          </section>
+        )}
 
         {/* ── 취향 지도 (답변 기반 계산) ── */}
         <section>
