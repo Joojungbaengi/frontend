@@ -36,14 +36,7 @@ export default function ArBreweryExperience() {
     /* =====================================================================
      * 0. 상태
      * ===================================================================*/
-    const INGREDIENTS = [
-      { id: "rice",   name: "가와지쌀", color: 0xf0e8d2, essential: true },
-      { id: "nuruk",  name: "누룩",     color: 0xd8c08a, essential: true },
-      { id: "water",  name: "물",       color: 0xbcd8d6, essential: true },
-      { id: "omija",  name: "오미자",   color: 0xa8352f, essential: false },
-      { id: "flower", name: "국화",     color: 0xdcc247, essential: false },
-      { id: "honey",  name: "벌꿀",     color: 0xc98b2e, essential: false },
-    ];
+    
     const GODUBAP_STEPS = [
       { id: "wash",  name: "쌀 씻기", caption: "쌀을 씻어 이물질을 걷어내요" },
       { id: "soak",  name: "불리기",  caption: "쌀알이 물을 머금고 부풀어요" },
@@ -358,50 +351,50 @@ export default function ArBreweryExperience() {
 
     /* --- 12 · 원료 --- */
     let ingredientNodes: THREE.Group[] = [];
-    
+
     function buildIngredients() {
       addPlatform();
       placeModelsForStep("ingredient", stageGroup);
-      
+
       const textureLoader = new THREE.TextureLoader();
 
       ingredientNodes = INGREDIENTS.map((ing, i) => {
         const a = (i / INGREDIENTS.length) * Math.PI * 2;
         const g = new THREE.Group();
         g.position.set(Math.cos(a) * 0.2, 0.18, Math.sin(a) * 0.2);
-        
-        // PlaneGeometry(면)를 사용하여 이미지를 입히고, 3D처럼 보이도록 셰이더/재질 효과 적용
-        const matParams: THREE.MeshStandardMaterialParameters = {
-          roughness: 0.3,
-          metalness: 0.1,
-          side: THREE.DoubleSide,
-          transparent: true,
-        };
 
-        // 텍스처 경로가 존재할 경우 매핑, 없으면 기본 색상 사용
-        if (ing.texture) {
-          const texture = textureLoader.load(ing.texture);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          matParams.map = texture;
-        }
-        
-        // 3. 입체감 있는 구체(SphereGeometry)에 텍스처를 적용합니다
+        const radius = 0.038;
+
+        // texture는 항상 있음 (ingredientsData.ts 기준). 로드 실패 대비 회색 fallback.
+        const texture = textureLoader.load(
+          ing.texture,
+          undefined,
+          undefined,
+          (err) => console.warn("원료 텍스처 로드 실패:", ing.id, ing.texture, err)
+        );
+        texture.colorSpace = THREE.SRGBColorSpace;
+
         const mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.038, 32, 32),
-          new THREE.MeshStandardMaterial(matParams)
+          new THREE.CircleGeometry(radius, 48),
+          new THREE.MeshBasicMaterial({
+            map: texture,
+            color: 0xffffff, // 텍스처 로드 전/실패 시 흰색 원판으로라도 보이게
+            side: THREE.DoubleSide,
+            transparent: true,
+          })
         );
         mesh.castShadow = true;
 
-        // 3D 공간에서 항상 카메라를 정면으로 바라보게 하여 2D 이미지가 3D처럼 입체적으로 인지되도록 설정
+        // 항상 카메라 정면을 보게 하는 빌보드
         mesh.onBeforeRender = (renderer, scene, camera) => {
           mesh.quaternion.copy(camera.quaternion);
         };
 
         g.add(mesh);
 
-        // 3D 입체감을 더하기 위한 은은한 외곽 그림자/하이라이트 효과용 링 추가
+        // 입체감을 더하는 얇은 테두리 링
         const rimRing = new THREE.Mesh(
-          new THREE.RingGeometry(0.04, 0.045, 32),
+          new THREE.RingGeometry(radius, radius + 0.005, 48),
           new THREE.MeshBasicMaterial({ color: 0xfff2d8, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
         );
         rimRing.position.z = -0.001;
@@ -417,11 +410,6 @@ export default function ArBreweryExperience() {
           const ud = n.userData as any;
           const on = S.selected.has(ud.id);
           n.position.y = 0.18 + Math.sin(t * 1.4 + ud.phase) * 0.018 + (on ? 0.03 : 0);
-          n.rotation.y += 0.006;
-          const m = ud.mesh.material as THREE.MeshStandardMaterial;
-          if (m.emissiveIntensity !== undefined) {
-            m.emissiveIntensity += ((on ? 0.75 : 0) - m.emissiveIntensity) * 0.1;
-          }
           const s = on ? 1.35 : 1;
           n.scale.lerp(new THREE.Vector3(s, s, s), 0.1);
         });
