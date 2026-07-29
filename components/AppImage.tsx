@@ -11,12 +11,15 @@ export default function AppImage({
   alt,
   boxStyle,
   objectFit = "cover",
+  objectPosition,
   eager = false,
 }: {
   src: string;
   alt: string;
   boxStyle?: React.CSSProperties;
   objectFit?: React.CSSProperties["objectFit"];
+  /** 잘릴 때 어느 부분을 남길지 (예: 인물 얼굴을 살리려면 "top") */
+  objectPosition?: React.CSSProperties["objectPosition"];
   eager?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
@@ -39,6 +42,7 @@ export default function AppImage({
           width: "100%",
           height: "100%",
           objectFit,
+          objectPosition,
           display: "block",
           opacity: loaded ? 1 : 0,
           transition: "opacity .35s ease",

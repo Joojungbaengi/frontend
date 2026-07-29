@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import AppImage from "@/components/AppImage";
 import HangingScroll from "@/components/HangingScroll";
 import ScreenHeader from "@/components/ScreenHeader";
-import { pickSinseon } from "@/lib/sinseon";
+import { pickSinseon, SINSEON, type Sinseon } from "@/lib/sinseon";
 import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
 
 /**
@@ -51,6 +51,55 @@ function Gauge({ label, value }: { label: string; value: number }) {
       <div className="serif" style={{ width: 26, textAlign: "right", fontWeight: 700, fontSize: 13 }}>
         {value}
       </div>
+    </div>
+  );
+}
+
+/** 신선 궁합 카드 (잘 맞는 / 안 맞는) */
+function MatchCard({
+  caption,
+  other,
+  note,
+  background,
+  captionColor,
+  noteColor,
+}: {
+  caption: string;
+  other: Sinseon;
+  note: string;
+  background: string;
+  captionColor: string;
+  noteColor: string;
+}) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        background,
+        borderRadius: 18,
+        padding: "16px 14px",
+        textAlign: "center",
+        boxShadow: "0 8px 20px rgba(120,95,50,.1)",
+      }}
+    >
+      <div style={{ fontSize: 11, color: captionColor, marginBottom: 12 }}>{caption}</div>
+      <AppImage
+        src={other.image}
+        alt={other.name}
+        objectPosition="top"
+        boxStyle={{
+          width: 72,
+          height: 72,
+          margin: "0 auto 12px",
+          borderRadius: "50%",
+          border: "1px solid rgba(120,95,50,.15)",
+        }}
+      />
+      <div className="serif" style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.35, marginBottom: 5 }}>
+        {other.name}
+      </div>
+      <div style={{ fontSize: 12, lineHeight: 1.5, color: noteColor }}>{note}</div>
     </div>
   );
 }
@@ -199,49 +248,33 @@ export default function ResultPage() {
           </div>
         </section>
 
-        {/* ── 신선 궁합 (플레이스홀더 유지) ── */}
-        <section>
-          <div className="section-title">
-            <span className="bar" />
-            <h2>신선 궁합</h2>
-          </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            <div
-              style={{
-                flex: 1,
-                background: "var(--sage)",
-                borderRadius: 18,
-                padding: "16px 14px",
-                textAlign: "center",
-                boxShadow: "0 8px 20px rgba(120,95,50,.1)",
-              }}
-            >
-              <div style={{ fontSize: 11, color: "var(--brown)", marginBottom: 12 }}>잘 맞는 신선</div>
-              <div className="ph-art" style={{ width: 72, height: 72, margin: "0 auto 12px", borderRadius: "50%" }}>
-                <span className="ph-label">신선</span>
-              </div>
-              <div className="serif" style={{ fontWeight: 700, fontSize: 15, marginBottom: 5 }}>궁합 유형 자리</div>
-              <div style={{ fontSize: 12, lineHeight: 1.5, color: "#6b5a3f" }}>궁합 설명 자리 (플레이스홀더)</div>
+        {/* ── 신선 궁합 ── */}
+        {sinseon && (
+          <section>
+            <div className="section-title">
+              <span className="bar" />
+              <h2>신선 궁합</h2>
             </div>
-            <div
-              style={{
-                flex: 1,
-                background: "#efe0d8",
-                borderRadius: 18,
-                padding: "16px 14px",
-                textAlign: "center",
-                boxShadow: "0 8px 20px rgba(120,95,50,.1)",
-              }}
-            >
-              <div style={{ fontSize: 11, color: "var(--seal)", marginBottom: 12 }}>안 맞는 신선</div>
-              <div className="ph-art" style={{ width: 72, height: 72, margin: "0 auto 12px", borderRadius: "50%" }}>
-                <span className="ph-label">신선</span>
-              </div>
-              <div className="serif" style={{ fontWeight: 700, fontSize: 15, marginBottom: 5 }}>궁합 유형 자리</div>
-              <div style={{ fontSize: 12, lineHeight: 1.5, color: "#8a6a4a" }}>궁합 설명 자리 (플레이스홀더)</div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <MatchCard
+                caption="잘 맞는 신선"
+                other={SINSEON[sinseon.match.id]}
+                note={sinseon.match.note}
+                background="var(--sage)"
+                captionColor="var(--brown)"
+                noteColor="#6b5a3f"
+              />
+              <MatchCard
+                caption="안 맞는 신선"
+                other={SINSEON[sinseon.clash.id]}
+                note={sinseon.clash.note}
+                background="#efe0d8"
+                captionColor="var(--seal)"
+                noteColor="#8a6a4a"
+              />
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* ── AI 추천 3잔 ── */}
         <section>
