@@ -188,23 +188,23 @@ export default function ArBreweryExperience() {
     }
 
     function placeModelsForStep(step: ArStep, parent: THREE.Object3D) {
+      // 1. 해당 단계의 모델들을 가져옵니다.
       const defs = MY_MODELS.filter((m) => m.step === step);
-      if (!defs.length) return;
+      
+      defs.forEach((def) => {
+        // 2. 만약 현재 단계가 'ingredient' 라면, bamboo_basket 이나 플랫폼 관련 모델만 허용합니다.
+        if (step === "ingredient") {
+          // 모델 ID나 이름에 "basket"이나 필요한 것만 포함되도록 필터링
+          if (!def.id.includes("basket") && !def.id.includes("bench")) {
+            return; // 바구니나 벤치(플랫폼)가 아니면 생성하지 않고 건너뜁니다.
+          }
+        }
 
-      const maxH = Math.max(...defs.map((d) => d.height));
-      const radius = defs.length === 1 ? 0 : Math.max(0.14, maxH * 0.9);
-
-      defs.forEach((def, i) => {
         const node = spawnModel(def);
         if (!node) return;
-
         const g = new THREE.Group();
-        const ang = (i / defs.length) * Math.PI * 2 - Math.PI / 2;
-        g.position.set(Math.cos(ang) * radius, def.y, Math.sin(ang) * radius);
-        g.rotation.y = Math.atan2(g.position.x, g.position.z) + Math.PI;
-
+        g.position.set(0, def.y || 0, 0);
         g.add(node);
-        (g.userData as any).def = def;
         parent.add(g);
         live.models.push(g);
       });
@@ -307,7 +307,7 @@ export default function ArBreweryExperience() {
         // GLB 모델이 이미 로드되어 있는 경우
         const root = skinnedClone(gltf.scene) as THREE.Object3D;
         root.scale.setScalar(0.6);
-        root.position.set(0, -0.25, 0);
+        root.position.set(0, -0.3, 0);
         root.traverse((o: any) => {
           if (o.isMesh) {
             o.castShadow = true;
