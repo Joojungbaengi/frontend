@@ -319,7 +319,7 @@ export default function ArBreweryExperience() {
     }
 
     
-    function addPlatform() {
+    function addPlatform(): number {
       const gltf = LOADED["low_wooden_bench"] || LOADED["m4"];
       
       if (gltf) {
@@ -334,7 +334,10 @@ export default function ArBreweryExperience() {
           }
         });
         stageGroup.add(root);
-        return root;
+        
+        // 모델의 실제 바운딩 박스를 계산해서 "윗면 y좌표"를 구한다
+        const box = new THREE.Box3().setFromObject(root);
+        return box.max.y;
       } else {
         // 모델 로드가 아직 안 끝났을 때 빈 화면으로 두지 않고 임시 플랫폼(원기둥)을 먼저 생성
         const fallbackMesh = new THREE.Mesh(
@@ -345,7 +348,7 @@ export default function ArBreweryExperience() {
         fallbackMesh.castShadow = true;
         fallbackMesh.receiveShadow = true;
         stageGroup.add(fallbackMesh);
-        return fallbackMesh;
+        return 0.02 + 0.02;
       }
     }
 
@@ -353,15 +356,16 @@ export default function ArBreweryExperience() {
     let ingredientNodes: THREE.Group[] = [];
 
     function buildIngredients() {
-      addPlatform();
+      const platformTop = addPlatform();       // 실제 상판 높이를 받음
       placeModelsForStep("ingredient", stageGroup);
 
       const textureLoader = new THREE.TextureLoader();
+      const floatY = platformTop + 0.06;       // 상판에서 살짝만 띄움 (기존 0.18 → 대체)
 
       ingredientNodes = INGREDIENTS.map((ing, i) => {
         const a = (i / INGREDIENTS.length) * Math.PI * 2;
         const g = new THREE.Group();
-        g.position.set(Math.cos(a) * 0.2, 0.18, Math.sin(a) * 0.2);
+        g.position.set(Math.cos(a) * 0.2, floatY, Math.sin(a) * 0.2);
 
         const radius = 0.038;
 
@@ -393,13 +397,6 @@ export default function ArBreweryExperience() {
         g.add(mesh);
 
         // 입체감을 더하는 얇은 테두리 링
-        const rimRing = new THREE.Mesh(
-          new THREE.RingGeometry(radius, radius + 0.005, 48),
-          new THREE.MeshBasicMaterial({ color: 0xfff2d8, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
-        );
-        rimRing.position.z = -0.001;
-        g.add(rimRing);
-
         (g.userData as any) = { id: ing.id, mesh, phase: i };
         stageGroup.add(g);
         return g;
@@ -409,7 +406,7 @@ export default function ArBreweryExperience() {
         ingredientNodes.forEach((n) => {
           const ud = n.userData as any;
           const on = S.selected.has(ud.id);
-          n.position.y = 0.18 + Math.sin(t * 1.4 + ud.phase) * 0.018 + (on ? 0.03 : 0);
+          n.position.y = floatY + Math.sin(t * 1.4 + ud.phase) * 0.018 + (on ? 0.03 : 0);
           const s = on ? 1.35 : 1;
           n.scale.lerp(new THREE.Vector3(s, s, s), 0.1);
         });
