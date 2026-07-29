@@ -215,7 +215,7 @@ export default function ArBreweryExperience() {
         if (step === "ingredient") {
           g.position.set(0, baseY, 0); // 플랫폼 정중앙에 배치
         } else if (def.id === "rice_bowl") {
-          g.position.set(0, baseY + 0.55, -0.06);
+          g.position.set(0, baseY + 0.1, 0);
         } else {
           const maxH = Math.max(...defs.map((d) => d.height));
           const radius = defs.length === 1 ? 0 : Math.max(0.14, maxH * 0.9);
