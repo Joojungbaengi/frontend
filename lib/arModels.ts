@@ -24,7 +24,7 @@ export interface ModelDef {
 const BASE = "/models/Dongrim_Cheongju";
 
 export const MY_MODELS: ModelDef[] = [
-  // 받침대로 쓰이는 모델 (addPlatform이 직접 로드하지만, 프리로드 되도록 목록에 둠)
+  // 받침대로 쓰이는 모델입니다 (addPlatform이 직접 로드하지만, 프리로드 되도록 목록에 둠)
   { id: "low_wooden_bench", file: `${BASE}/low_wooden_bench.glb`, step: "common", height: 0.14, y: 0.03 },
 
   // 쌀 씻기(godubap) 단계 — 가상의 아이코사헤드론 대신 실제 모델을 그릇째로 놓는다.
