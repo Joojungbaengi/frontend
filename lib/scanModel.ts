@@ -14,8 +14,12 @@ export const YOLO_MODEL_URL = "/yolo/best.onnx";
 const ORT_WASM_PATH = "/ort/";
 export const YOLO_INPUT = 640;
 
-/** 이 점수 미만은 버린다 */
-export const CONF_THRESHOLD = 0.55;
+/**
+ * 이 점수 미만은 버린다.
+ * 제품 사진으로 시험했을 때 동림청주가 0.554로 아슬아슬하게 걸려 여유를 뒀다.
+ * 낮춰도 안전한 이유는 LabelScanner 가 같은 클래스 연속 인식을 한 번 더 요구하기 때문.
+ */
+export const CONF_THRESHOLD = 0.45;
 /** 같은 클래스 박스가 이 정도로 겹치면 하나만 남긴다 */
 const IOU_THRESHOLD = 0.45;
 
