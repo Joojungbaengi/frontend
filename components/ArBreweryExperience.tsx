@@ -38,11 +38,16 @@ export default function ArBreweryExperience() {
      * 0. 상태
      * ===================================================================*/
     
+    // action = 폰을 어떻게 움직여야 그 공정이 진행되는지 (updateGodubapGesture 와 짝)
     const GODUBAP_STEPS = [
-      { id: "wash",  name: "쌀 씻기", caption: "쌀을 씻어 이물질을 걷어내요" },
-      { id: "soak",  name: "불리기",  caption: "쌀알이 물을 머금고 부풀어요" },
-      { id: "steam", name: "찌기",    caption: "고두밥 30분 · 김이 오릅니다" },
-      { id: "cool",  name: "식히기",  caption: "25℃까지 식혀야 누룩이 살아요" },
+      { id: "wash",  name: "쌀 씻기", caption: "쌀을 씻어 이물질을 걷어내요",
+        action: "그릇을 비춘 채 폰으로 천천히 원을 그려 저어주세요" },
+      { id: "soak",  name: "불리기",  caption: "쌀알이 물을 머금고 부풀어요",
+        action: "폰을 그릇 가까이 대고 잠시 기다려 주세요" },
+      { id: "steam", name: "찌기",    caption: "고두밥 30분 · 김이 오릅니다",
+        action: "폰을 들어 위에서 내려다보세요" },
+      { id: "cool",  name: "식히기",  caption: "25℃까지 식혀야 누룩이 살아요",
+        action: "폰을 좌우로 부쳐 김을 식혀주세요" },
     ];
 
     const S = {
@@ -70,6 +75,11 @@ export default function ArBreweryExperience() {
     function setStep(next: typeof S.step) {
       S.step = next;
       uiRoot!.dataset.step = next;
+      // 고두밥 단계에 들어올 때마다 폰 움직임 누적을 0에서 시작한다
+      if (next === "godubap") {
+        resetGesture();
+        syncGodubap();
+      }
       buildStageFor(next);
     }
 
@@ -647,6 +657,8 @@ export default function ArBreweryExperience() {
         reticle.visible = false;
       }
 
+      if (S.step === "godubap") updateGodubapGesture(dt);
+
       if (S.step === "ferment" && S.ferment < 100) {
         const dist = Math.abs(S.temp - 25);
         const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.15, 1) * 11;
@@ -787,6 +799,8 @@ export default function ArBreweryExperience() {
         b.className = "pill";
         b.dataset.idx = String(i);
         b.textContent = st.name;
+        // 원래는 이 탭이 유일한 진행 수단이었다. 지금은 폰 움직임으로 진행하고,
+        // 동작이 안 먹히는 기기·시연 사고에 대비한 비상구로만 남겨둔다.
         b.onclick = () => {
           if (i !== S.godubap) return;
           if (i === 3 && !S.quizDone) {
@@ -794,6 +808,7 @@ export default function ArBreweryExperience() {
             return;
           }
           S.godubap = i + 1;
+          resetGesture();
           syncGodubap();
         };
         pills.appendChild(b);
@@ -804,14 +819,128 @@ export default function ArBreweryExperience() {
         (p as HTMLElement).dataset.state = i < S.godubap ? "done" : i === S.godubap ? "now" : "todo";
         p.textContent = GODUBAP_STEPS[i].name + (i < S.godubap ? " ✓" : "");
       });
+      const done = S.godubap >= 4;
       const cur = GODUBAP_STEPS[Math.min(S.godubap, 3)];
       const cap = $("#cap-godubap");
-      if (cap) cap.textContent = S.godubap >= 4 ? "고두밥 완성 · 25℃까지 식었어요" : cur.caption;
+      if (cap) cap.textContent = done ? "고두밥 완성 · 25℃까지 식었어요" : cur.caption;
+
+      // 지금 어떤 동작을 해야 하는지 (퀴즈가 떠 있는 동안에는 퀴즈가 먼저)
+      const act = $("#act-godubap");
+      if (act) {
+        act.textContent = done ? "" : S.godubap === 3 && !S.quizDone ? "장인의 질문에 먼저 답해주세요" : cur.action;
+      }
+      syncGestureBar();
+
       if (S.godubap === 3 && !S.quizDone) $("#quiz")?.classList.remove("hidden");
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
-        b.disabled = S.godubap < 4;
-        b.textContent = S.godubap < 4 ? "공정을 순서대로 진행하세요" : "누룩 섞고 항아리에 담기";
+        b.disabled = !done;
+        b.textContent = done ? "누룩 섞고 항아리에 담기" : "공정을 순서대로 진행하세요";
+      }
+    }
+
+    /* --- 13-1 · 폰 움직임으로 공정 수행 ---------------------------------
+     * 화면을 문지르는 대신 "폰이 공간에서 실제로 어떻게 움직였는지"를 입력으로 쓴다.
+     * WebXR이 매 프레임 주는 카메라 포즈만 있으면 되므로 새 에셋·라이브러리가 없다.
+     * 네 공정이 각각 다른 몸동작이라, 화면 드래그로는 흉내낼 수 없다.
+     *   0 씻기   : 그릇 둘레를 도는 각도 누적 (2바퀴)
+     *   1 불리기 : 그릇 가까이 머문 시간
+     *   2 찌기   : 위에서 내려다보는 자세를 유지한 시간
+     *   3 식히기 : 좌우 왕복(부채질) 횟수
+     */
+    const GESTURE_GOAL = [4 * Math.PI, 2.6, 2.2, 6];
+    const gest = {
+      progress: 0,
+      angle: null as number | null,
+      prev: null as THREE.Vector2 | null,
+      dir: null as THREE.Vector2 | null,
+      seg: 0,
+    };
+
+    function resetGesture() {
+      gest.progress = 0;
+      gest.angle = null;
+      gest.prev = null;
+      gest.dir = null;
+      gest.seg = 0;
+      syncGestureBar();
+    }
+
+    function syncGestureBar() {
+      const bar = $("#bar-godubap");
+      if (bar) (bar as HTMLElement).style.width = `${Math.round(gest.progress * 100)}%`;
+    }
+
+    /** 공정의 기준점 — 무대에 놓인 쌀 그릇의 월드 좌표 */
+    function godubapTarget(): THREE.Vector3 | null {
+      const g = live.models.find((m) => (m.userData.def as ModelDef | undefined)?.id === "rice_bowl");
+      return g ? g.getWorldPosition(new THREE.Vector3()) : null;
+    }
+
+    const camDir = new THREE.Vector3();
+
+    function updateGodubapGesture(dt: number) {
+      const stage = S.godubap;
+      if (S.step !== "godubap" || stage > 3) return;
+      if (stage === 3 && !S.quizDone) return; // 퀴즈를 먼저 통과해야 부채질이 먹힌다
+
+      const target = godubapTarget();
+      if (!target) return;
+
+      const cam = camera.getWorldPosition(new THREE.Vector3());
+      const to = cam.clone().sub(target);
+      const dist = to.length();
+      let gained = 0;
+
+      if (stage === 0) {
+        // 그릇을 중심으로 폰이 돌아간 각도를 누적한다 (제자리에서 폰만 돌리면 안 쌓임)
+        const flat = Math.hypot(to.x, to.z);
+        if (dist < 1.4 && flat > 0.05) {
+          const a = Math.atan2(to.z, to.x);
+          if (gest.angle !== null) {
+            let d = a - gest.angle;
+            while (d > Math.PI) d -= Math.PI * 2;
+            while (d < -Math.PI) d += Math.PI * 2;
+            gained = Math.abs(d);
+          }
+          gest.angle = a;
+        } else {
+          gest.angle = null;
+        }
+      } else if (stage === 1) {
+        if (dist < 0.42) gained = dt;
+      } else if (stage === 2) {
+        camera.getWorldDirection(camDir);
+        const pitchDown = Math.asin(THREE.MathUtils.clamp(-camDir.y, -1, 1));
+        if (cam.y > target.y + 0.12 && pitchDown > THREE.MathUtils.degToRad(42)) gained = dt;
+      } else {
+        // 수평 이동 방향이 뒤집힐 때마다 왕복 1회로 센다
+        const now = new THREE.Vector2(to.x, to.z);
+        if (gest.prev) {
+          const v = now.clone().sub(gest.prev);
+          const len = v.length();
+          if (len > 0.004) {
+            const unit = v.clone().normalize();
+            if (gest.dir && unit.dot(gest.dir) < 0 && gest.seg > 0.05) {
+              gained = 1;
+              gest.seg = 0;
+            } else {
+              gest.seg += len;
+            }
+            gest.dir = unit;
+          }
+        }
+        gest.prev = now;
+      }
+
+      if (gained <= 0) return;
+      gest.progress = Math.min(1, gest.progress + gained / GESTURE_GOAL[stage]);
+      syncGestureBar();
+
+      if (gest.progress >= 1) {
+        S.godubap = stage + 1;
+        resetGesture();
+        syncGodubap();
       }
     }
     $$("#quiz .choice").forEach((c) => {
@@ -914,6 +1043,7 @@ export default function ArBreweryExperience() {
         if (tempInput) tempInput.value = "27";
         syncTemp();
         syncIngredient();
+        resetGesture();
         syncGodubap();
         onFermentTick();
         setStep("ingredient");
@@ -1007,7 +1137,10 @@ export default function ArBreweryExperience() {
       {/* 13 · 고두밥 */}
       <div className="panel-step" id="p-godubap">
         <div className="steps" id="pills" />
+        {/* 폰 움직임이 얼마나 쌓였는지 보여주는 게이지 */}
+        <div className="bar gesture-bar"><i id="bar-godubap" /></div>
         <div className="fill">
+          <div className="action" id="act-godubap">그릇을 비춘 채 폰으로 천천히 원을 그려 저어주세요</div>
           <div className="caption" id="cap-godubap">쌀을 씻어 이물질을 걷어내요</div>
         </div>
         <div className="dock">
@@ -1137,6 +1270,11 @@ const styles = `
 @keyframes ar-pulse{0%,100%{box-shadow:0 0 0 0 rgba(181,72,47,.5)}50%{box-shadow:0 0 0 7px rgba(181,72,47,0)}}
 
 .ar-ui .caption{position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:12px; color:var(--cream-dim)}
+/* 지금 해야 할 동작 — 설명(caption) 바로 위, 눈에 띄게 */
+.ar-ui .action{position:absolute; left:22px; right:22px; bottom:40px; text-align:center;
+  font-size:13.5px; font-weight:600; line-height:1.5; color:var(--gold-bright);
+  text-shadow:0 1px 8px rgba(0,0,0,.75)}
+.ar-ui .gesture-bar{margin:10px 22px 0}
 
 .ar-ui .meter{background:var(--cream); color:var(--ink-strong); border:1px solid rgba(198,165,104,.4);
   border-radius:var(--r-md); padding:14px 15px}
