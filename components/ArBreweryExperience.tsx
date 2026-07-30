@@ -1034,7 +1034,7 @@ export default function ArBreweryExperience() {
             <div className="avatar" />
             <div>
               <div className="who">AI 술도가 장인</div>
-              <div className="msg" id="msg-ingredient">이 술은 가와지쌀로 빚는 막걸리라네. 들어갈 재료를 골라보게.</div>
+              <div className="msg" id="msg-ingredient">이 술은 고양 가와지쌀로 빚는 냥이탁주라네. 들어갈 재료를 골라보게.</div>
             </div>
           </div>
         </div>
@@ -1093,9 +1093,9 @@ export default function ArBreweryExperience() {
 
       {/* 15 · 완성 */}
       <div id="finish">
-        <img className="finish-drink" src="/drinks/cheongju_yongin_dongnim.webp" alt="동림청주" />
-        <h1>동림청주<br />양조 체험 완료!</h1>
-        <p>직접 빚은 동림청주가 완성됐어요. 원료를 고르고 고두밥을 지어 발효 온도까지 맞춰보며, 술맛이 어디에서 갈리는지 겪어봤답니다.</p>
+        <img className="finish-drink" src="/drinks/takju_goyang_nyangi9.webp" alt="냥이탁주9" />
+        <h1>냥이탁주 9<br />양조 체험 완료!</h1>
+        <p>고양 가와지쌀로 빚은 냥이탁주 9가 완성됐어요. 쌀을 씻어 고두밥을 짓고 누룩을 섞어 발효까지, 행주산성주가가 손으로 빚는 과정을 그대로 따라와 보셨어요.</p>
         <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
         <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
         <button className="cta ghost" id="btn-restart">처음부터 다시 빚기</button>
