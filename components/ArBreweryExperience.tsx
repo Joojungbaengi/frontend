@@ -1172,6 +1172,7 @@ const styles = `
 .ar-ui[data-step="ingredient"] #p-ingredient,
 .ar-ui[data-step="godubap"] #p-godubap,
 .ar-ui[data-step="ferment"] #p-ferment{display:flex}
+.ar-ui[data-step="done"] #finish{display:flex}
 
 @media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
 `;
