@@ -762,7 +762,9 @@ export default function ArBreweryExperience() {
         const b = document.createElement("button");
         b.className = "card";
         b.setAttribute("aria-pressed", "false");
-        b.innerHTML = `<span class="chip" style="background-image:url('${ing.texture}'); background-size:cover; background-position:center;"></span>${ing.name}`;
+        // 배경 크기·정렬은 CSS에서 잡는다. 여기서 cover 를 주면 투명 PNG가 잘리고
+        // .chip 의 배경색이 테두리처럼 비쳐 보인다.
+        b.innerHTML = `<span class="chip" style="background-image:url('${ing.texture}')"></span>${ing.name}`;
         b.onclick = () => {
           if (S.selected.has(ing.id)) S.selected.delete(ing.id);
           else if (S.selected.size < 3) S.selected.add(ing.id);
@@ -1143,13 +1145,21 @@ const styles = `
 .ar-ui .choice.ok{background:var(--sage); border-color:#8ea77f}
 .ar-ui .choice.no{background:#f4e0da; border-color:#c58c80}
 
-.ar-ui .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
-.ar-ui .card{background:var(--panel-2); border:1.5px solid transparent; border-radius:var(--r-sm);
-  padding:15px 8px 11px; cursor:pointer; color:var(--cream-dim); display:flex; flex-direction:column;
-  align-items:center; gap:9px; font:inherit; font-size:12px; box-shadow:none; transition:.2s}
-.ar-ui .card .chip{width:36px;height:36px;border-radius:9px;background:#4a3826; transition:.2s}
-.ar-ui .card[aria-pressed="true"]{background:var(--sage); border-color:var(--clay); color:var(--ink); font-weight:600}
-.ar-ui .card[aria-pressed="true"] .chip{transform:scale(1.06)}
+/* 재료 고르기 — 네모 상자 없이 재료만 놓인 것처럼.
+   투명 PNG라 배경색을 깔면 테두리처럼 비쳐 보이므로 색을 주지 않고,
+   대신 그림자로 카메라 화면 위에서도 또렷하게 보이게 한다. */
+.ar-ui .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:4px}
+.ar-ui .card{background:none; border:none; border-radius:12px; padding:8px 4px 6px; cursor:pointer;
+  color:var(--cream-dim); display:flex; flex-direction:column; align-items:center; gap:7px;
+  font:inherit; font-size:12px; text-shadow:0 1px 6px rgba(0,0,0,.85);
+  -webkit-tap-highlight-color:transparent; transition:.2s}
+.ar-ui .card .chip{width:54px; height:54px; background-color:transparent;
+  background-size:contain; background-repeat:no-repeat; background-position:center;
+  filter:drop-shadow(0 3px 7px rgba(0,0,0,.6)); transition:transform .22s, filter .22s}
+.ar-ui .card[aria-pressed="true"]{color:var(--gold-bright); font-weight:700}
+.ar-ui .card[aria-pressed="true"] .chip{transform:scale(1.18) translateY(-2px);
+  filter:drop-shadow(0 0 11px rgba(232,201,138,.9)) drop-shadow(0 4px 8px rgba(0,0,0,.5))}
+.ar-ui .card:active .chip{transform:scale(.94)}
 
 .ar-ui .steps{display:flex; gap:8px; flex-wrap:wrap; padding:0 22px}
 .ar-ui .pill{border:none; font:inherit; font-size:12px; font-weight:600; padding:8px 14px; border-radius:999px;
