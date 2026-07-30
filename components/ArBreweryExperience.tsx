@@ -480,6 +480,16 @@ export default function ArBreweryExperience() {
     /* --- 13 · 고두밥 --- */
     /** 씻는 동작을 눈에 보이게 해주는 주걱 — 폰을 돌린 만큼 그릇 안에서 함께 돈다 */
     let stirrer: THREE.Object3D | null = null;
+    /** 쌀 씻기 동안 화면 중앙에 붙잡아 둘 그릇 */
+    let washBowl: THREE.Object3D | null = null;
+    const washBowlHome = new THREE.Vector3();
+    /** 물결·쌀알 연출 */
+    let washFx: { group: THREE.Group; water: THREE.Mesh } | null = null;
+    /** 0=제자리, 1=화면 중앙에 고정 */
+    let washFocus = 0;
+    let washFocusDist = 0.32;
+    const tmpA = new THREE.Vector3();
+    const tmpB = new THREE.Vector3();
 
     function buildGodubap() {
       const platformTop = addPlatform();
@@ -487,10 +497,16 @@ export default function ArBreweryExperience() {
       // (rice_bowl 은 arModels.ts 에 step:"godubap" 으로 등록되어 있어 이 호출로 자동 배치됨)
       placeModelsForStep("godubap", stageGroup, platformTop);
 
-      // 그릇은 공간에 고정된 채(AR이므로) 주걱만 돌아야 "내가 젓고 있다"가 읽힌다.
+      // 씻는 동안 그릇은 화면 정중앙에 붙잡아 두고 주걱만 돈다.
       stirrer = null;
+      washBowl = null;
+      washFx = null;
+      washFocus = 0;
       const bowl = live.models.find((m) => (m.userData.def as ModelDef | undefined)?.id === "rice_bowl");
       if (bowl) {
+        washBowl = bowl;
+        washBowlHome.copy(bowl.position);
+
         const pivot = new THREE.Group();
         const stick = new THREE.Mesh(
           new THREE.CylinderGeometry(0.006, 0.009, 0.22, 12),
@@ -502,6 +518,36 @@ export default function ArBreweryExperience() {
         pivot.add(stick);
         bowl.add(pivot);
         stirrer = pivot;
+
+        // 물 표면 + 그 위를 도는 쌀알 — 저을수록 찰랑이고 크게 돈다
+        const fx = new THREE.Group();
+        const water = new THREE.Mesh(
+          new THREE.CircleGeometry(0.048, 40),
+          new THREE.MeshPhysicalMaterial({
+            color: 0xdfeaee, transparent: true, opacity: 0.5,
+            roughness: 0.12, transmission: 0.45, side: THREE.DoubleSide,
+          })
+        );
+        water.rotation.x = -Math.PI / 2;
+        water.position.y = 0.085;
+        fx.add(water);
+
+        const count = 70;
+        const pos = new Float32Array(count * 3);
+        for (let k = 0; k < count; k++) {
+          const ang = Math.random() * Math.PI * 2;
+          const r = 0.01 + Math.random() * 0.034;
+          pos[k * 3] = Math.cos(ang) * r;
+          pos[k * 3 + 1] = 0.086 + Math.random() * 0.007;
+          pos[k * 3 + 2] = Math.sin(ang) * r;
+        }
+        const grains = new THREE.Points(
+          new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(pos, 3)),
+          new THREE.PointsMaterial({ color: 0xfff6e2, size: 0.005, transparent: true, opacity: 0.95 })
+        );
+        fx.add(grains);
+        bowl.add(fx);
+        washFx = { group: fx, water };
       }
 
       const glow = new THREE.PointLight(0xffd9a0, 0, 0.8);
@@ -515,9 +561,42 @@ export default function ArBreweryExperience() {
       stageGroup.add(steam);
       live.particles.push(steam);
 
-      live.tick = () => {
+      live.tick = (t) => {
         const stage = S.godubap;
         if (stirrer) stirrer.visible = stage === 0; // 주걱은 씻는 동안에만
+
+        // 쌀 씻기 동안에는 그릇을 화면 정중앙에 붙잡아 둔다.
+        // 폰을 돌려도 그릇은 그대로고 주걱만 도는 그림이 나온다.
+        if (washBowl) {
+          const want = stage === 0 ? 1 : 0;
+          if (want === 1 && washFocus < 0.002) {
+            // 이미 가까우면 그 거리를 쓰고, 멀어서 작게 보일 때만 당겨온다
+            const cur = camera.getWorldPosition(tmpA).distanceTo(washBowl.getWorldPosition(tmpB));
+            washFocusDist = Math.min(cur, 0.32 * anchor.scale.x);
+          }
+          washFocus = THREE.MathUtils.lerp(washFocus, want, 0.06);
+
+          if (washFocus > 0.002) {
+            const homeWorld = stageGroup.localToWorld(washBowlHome.clone());
+            const focusWorld = camera.localToWorld(new THREE.Vector3(0, -0.03, -washFocusDist));
+            washBowl.position.copy(stageGroup.worldToLocal(homeWorld.lerp(focusWorld, washFocus)));
+          } else {
+            washBowl.position.copy(washBowlHome);
+          }
+        }
+
+        // 물결 — 젓는 속도에 따라 찰랑임이 커지고, 쌀알이 물살을 따라 돈다
+        if (washFx) {
+          washFx.group.visible = stage === 0;
+          if (stage === 0) {
+            const sp = THREE.MathUtils.clamp(gest.speed, 0, 1);
+            const tilt = 0.03 + 0.15 * sp;
+            washFx.group.rotation.y = gest.stir * 0.55;
+            washFx.water.rotation.x = -Math.PI / 2 + Math.sin(t * 6.5) * tilt * 0.6;
+            washFx.water.rotation.z = Math.cos(t * 6.5) * tilt;
+            washFx.water.position.y = 0.085 + Math.sin(t * 7.5) * 0.0025 * sp;
+          }
+        }
         const hot = stage >= 4 ? 0.05 : stage >= 2 ? 1 : 0.15;
         glow.intensity += (hot * 1.6 - glow.intensity) * 0.05;
         steam.material.opacity += ((stage >= 2 && stage < 4 ? 0.55 : 0.06) - steam.material.opacity) * 0.05;
@@ -916,6 +995,8 @@ export default function ArBreweryExperience() {
       angle: null as number | null,
       /** 주걱에 그대로 먹이는 누적 회전각 (부호 유지) */
       stir: 0,
+      /** 최근에 얼마나 세게 젓고 있는지 0~1 — 물결 세기에 쓴다 */
+      speed: 0,
       prev: null as THREE.Vector2 | null,
       dir: null as THREE.Vector2 | null,
       seg: 0,
@@ -925,6 +1006,7 @@ export default function ArBreweryExperience() {
       gest.progress = 0;
       gest.angle = null;
       gest.stir = 0;
+      gest.speed = 0;
       gest.prev = null;
       gest.dir = null;
       gest.seg = 0;
@@ -937,10 +1019,13 @@ export default function ArBreweryExperience() {
       if (bar) (bar as HTMLElement).style.width = `${Math.round(gest.progress * 100)}%`;
     }
 
-    /** 공정의 기준점 — 무대에 놓인 쌀 그릇의 월드 좌표 */
+    /**
+     * 공정의 기준점 — 그릇이 "원래 놓인" 자리의 월드 좌표.
+     * 씻는 동안 그릇은 화면을 따라오므로, 판정은 반드시 고정된 이 자리를 써야 한다.
+     */
     function godubapTarget(): THREE.Vector3 | null {
-      const g = live.models.find((m) => (m.userData.def as ModelDef | undefined)?.id === "rice_bowl");
-      return g ? g.getWorldPosition(new THREE.Vector3()) : null;
+      if (!washBowl) return null;
+      return stageGroup.localToWorld(washBowlHome.clone());
     }
 
     const camDir = new THREE.Vector3();
@@ -958,6 +1043,8 @@ export default function ArBreweryExperience() {
       const dist = to.length();
       let gained = 0;
 
+      gest.speed *= 0.93; // 손을 멈추면 물결도 잦아든다
+
       if (stage === 0) {
         // 그릇을 중심으로 폰이 돌아간 각도를 누적한다 (제자리에서 폰만 돌리면 안 쌓임)
         const flat = Math.hypot(to.x, to.z);
@@ -970,6 +1057,7 @@ export default function ArBreweryExperience() {
             gained = Math.abs(d);
             // 주걱은 폰이 돈 방향 그대로, 조금 앞서 돌게 해서 젓는 느낌을 준다
             gest.stir += d * 1.6;
+            gest.speed = Math.min(1, gest.speed + Math.abs(d) * 5);
             if (stirrer) stirrer.rotation.y = gest.stir;
           }
           gest.angle = a;
