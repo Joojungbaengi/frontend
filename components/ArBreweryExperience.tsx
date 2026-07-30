@@ -345,11 +345,14 @@ export default function ArBreweryExperience() {
         });
         // GLB마다 원점 위치가 제각각이라, 바운딩 박스로 바닥면을 y=0에 정확히 맞춘다.
         // (예전처럼 -0.3 같은 상수를 쓰면 받침대가 실제 탁자 속으로 파묻힌다)
+        // ※ 이 시점의 root 는 아직 부모가 없어 raw 가 곧 로컬 좌표 기준이다.
+        //   씬에 넣은 뒤 Box3 를 다시 재면 anchor 의 위치·배율까지 섞인 월드 좌표가 나오는데,
+        //   호출부는 이 값을 stageGroup 로컬 y 로 쓰므로 물건이 바닥 아래로 파묻힌다.
         const raw = new THREE.Box3().setFromObject(root);
         root.position.y = -raw.min.y;
         stageGroup.add(root);
 
-        return new THREE.Box3().setFromObject(root).max.y;
+        return raw.max.y - raw.min.y; // 받침대 높이 = 상판의 로컬 y
       }
 
       // 받침대 모델을 못 불러왔을 때의 대체 받침대. 두께 4cm, 바닥면을 y=0에 맞춘다.
