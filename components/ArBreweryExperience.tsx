@@ -47,7 +47,6 @@ export default function ArBreweryExperience() {
 
     const S = {
       step: "place" as "place" | ArStep,
-      surface: "floor",
       placed: false,
       selected: new Set<string>(),
       godubap: 0,
@@ -567,9 +566,9 @@ export default function ArBreweryExperience() {
         });
       } catch (e: any) {
         arSupported = false;
-        const scan = $("#scan");
-        if (scan) scan.textContent = "AR 시작 실패 · " + (e?.name || e?.message);
         syncPlaceButton();
+        const note = $("#place-note");
+        if (note) note.textContent = "AR을 시작하지 못했어요 · " + (e?.name || e?.message);
         return false;
       }
 
@@ -633,7 +632,8 @@ export default function ArBreweryExperience() {
             found = true;
           }
         }
-        reticle.visible = found;
+        // 조준 링은 실제 AR에서만 의미가 있다 (3D 미리보기에서는 허공에 뜬 원처럼 보임)
+        reticle.visible = found && S.xr;
         onSurfaceFound(found);
       } else {
         reticle.visible = false;
@@ -664,40 +664,34 @@ export default function ArBreweryExperience() {
     }
     function syncPlaceButton() {
       const b = $("#btn-place") as HTMLButtonElement | null;
-      const scan = $("#scan");
-      if (!b || !scan) return;
+      const note = $("#place-note");
+      if (!b) return;
+      const say = (text: string) => {
+        if (note) note.textContent = text;
+      };
 
       // 초기 로딩 중일 때는 무조건 준비 중 상태로 표시
       if (S.isInitializing) {
         b.disabled = true;
         b.textContent = "AR 환경 준비 중…";
-        scan.textContent = "잠시만 기다려 주세요";
+        say("잠시만 기다려 주세요.");
         return;
       }
 
       if (arSupported && !S.xr) {
         b.disabled = false;
         b.textContent = "카메라 켜고 AR 시작";
-        scan.textContent = "AR 준비됨";
+        say("카메라를 켜면 바닥을 인식해 양조장을 놓을 수 있어요.");
       } else if (surfaceReady) {
         b.disabled = false;
         b.textContent = "여기에 양조장 배치";
-        scan.textContent = "평면 인식됨";
+        say("평면을 찾았어요. 아래 버튼으로 배치하세요.");
       } else {
         b.disabled = true;
         b.textContent = "평면을 찾는 중…";
-        scan.textContent = S.xr ? "바닥을 비추며 폰을 천천히 움직이세요" : "3D 모드 · 드래그해 둘러보기";
+        say(S.xr ? "바닥을 비추며 폰을 천천히 움직여 주세요." : "화면을 드래그해 둘러볼 수 있어요.");
       }
     }
-
-    $$(".seg button").forEach((btn) => {
-      (btn as HTMLElement).onclick = () => {
-        $$(".seg button").forEach((b) => b.setAttribute("aria-pressed", "false"));
-        btn.setAttribute("aria-pressed", "true");
-        S.surface = (btn as HTMLElement).dataset.surface!;
-        anchor.scale.setScalar(S.surface === "table" ? 0.55 : 1);
-      };
-    });
 
     const placeBtn = $("#btn-place") as HTMLButtonElement | null;
     if (placeBtn) {
@@ -710,7 +704,6 @@ export default function ArBreweryExperience() {
         const m = new THREE.Matrix4().copy(reticle.matrix);
         anchor.position.setFromMatrixPosition(m);
         anchor.visible = true;
-        anchor.scale.setScalar(S.surface === "table" ? 0.55 : 1);
         S.placed = true;
         if (!S.xr) controls.target.copy(anchor.position).add(new THREE.Vector3(0, 0.2, 0));
         setStep("ingredient");
@@ -955,18 +948,13 @@ export default function ArBreweryExperience() {
 
       {/* 11 · AR 시작 */}
       <div className="panel-step" id="p-place">
-        <div className="fill">
-          <div className="scan" id="scan">평면 인식 중</div>
-        </div>
-        <div className="dock">
+        <div className="fill lead-center">
           <div className="lead">
             <h2>양조장을 놓을 곳을 정해요</h2>
-            <p>바닥이나 책상 위 평면을 인식한 뒤,<br />원하는 위치를 탭해 배치하세요.</p>
+            <p id="place-note">바닥이나 책상 위 평면을 비춰주세요.</p>
           </div>
-          <div className="seg">
-            <button data-surface="floor" aria-pressed="true">바닥 · 양조장</button>
-            <button data-surface="table" aria-pressed="false">탁상 · 미니어처</button>
-          </div>
+        </div>
+        <div className="dock">
           <button className="cta" id="btn-place" disabled>평면을 찾는 중…</button>
         </div>
       </div>
@@ -1080,19 +1068,15 @@ const styles = `
 
 .ar-ui.ar-mode{background:transparent}
 .ar-ui.ar-mode canvas#gl{background:transparent}
-.ar-ui.ar-mode .scan{border-color:rgba(232,201,138,.8)}
 .ar-ui.ar-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
 .ar-ui.ar-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 .ar-ui.ar-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 
 .ar-ui .fill{flex:1; position:relative}
-.ar-ui .dock{padding:0 22px calc(20px + var(--safe-b)); display:flex; flex-direction:column; gap:14px}
-
-.ar-ui .scan{position:absolute; left:50%; top:44%; transform:translate(-50%,-50%);
-  width:150px; height:86px; border:1.5px dashed rgba(232,201,138,.5); border-radius:8px;
-  display:grid; place-items:center; font-size:12px; color:var(--cream-dim); letter-spacing:.2em;
-  animation:breathe 2.6s ease-in-out infinite}
-@keyframes breathe{0%,100%{opacity:.55}50%{opacity:1}}
+/* 하단 여백은 헤더 위 여백과 비슷하게 — 버튼이 화면 끝에 붙지 않도록 */
+.ar-ui .dock{padding:0 22px calc(34px + var(--safe-b)); display:flex; flex-direction:column; gap:14px}
+/* 첫 화면 안내문은 카메라 화면 가운데에 */
+.ar-ui .lead-center{display:flex; align-items:center; justify-content:center; padding:0 22px}
 
 .ar-ui .coach{display:flex; gap:12px; align-items:flex-start; background:var(--cream); color:var(--ink-strong);
   border:1px solid rgba(198,165,104,.4); border-radius:var(--r-md); padding:14px 15px;
@@ -1149,11 +1133,6 @@ const styles = `
 .ar-ui .cta:disabled{background:#3a2c1c; color:rgba(243,230,204,.35); box-shadow:none; cursor:default}
 .ar-ui .cta.ghost{background:transparent; border:1px solid var(--line); color:var(--cream-dim);
   font-family:var(--font-gowun), system-ui, sans-serif; font-weight:600; font-size:14px; padding:13px; box-shadow:none}
-
-.ar-ui .seg{display:flex; gap:8px; justify-content:center}
-.ar-ui .seg button{border:1px solid var(--line); background:transparent; color:var(--cream-dim); font:inherit;
-  font-size:12px; padding:8px 15px; border-radius:999px; cursor:pointer}
-.ar-ui .seg button[aria-pressed="true"]{background:var(--sage); border-color:var(--sage); color:var(--ink); font-weight:600}
 
 .ar-ui .lead{text-align:center}
 .ar-ui .lead h2{margin:0; font-family:var(--font-myeongjo), serif; font-size:19px; letter-spacing:.02em; font-weight:700}
