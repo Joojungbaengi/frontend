@@ -355,11 +355,14 @@ export default function ArBreweryExperience() {
         });
         // GLB마다 원점 위치가 제각각이라, 바운딩 박스로 바닥면을 y=0에 정확히 맞춘다.
         // (예전처럼 -0.3 같은 상수를 쓰면 받침대가 실제 탁자 속으로 파묻힌다)
+        // ※ 이 시점의 root 는 아직 부모가 없어 raw 가 곧 로컬 좌표 기준이다.
+        //   씬에 넣은 뒤 Box3 를 다시 재면 anchor 의 위치·배율까지 섞인 월드 좌표가 나오는데,
+        //   호출부는 이 값을 stageGroup 로컬 y 로 쓰므로 물건이 바닥 아래로 파묻힌다.
         const raw = new THREE.Box3().setFromObject(root);
         root.position.y = -raw.min.y;
         stageGroup.add(root);
 
-        return new THREE.Box3().setFromObject(root).max.y;
+        return raw.max.y - raw.min.y; // 받침대 높이 = 상판의 로컬 y
       }
 
       // 받침대 모델을 못 불러왔을 때의 대체 받침대. 두께 4cm, 바닥면을 y=0에 맞춘다.
@@ -439,11 +442,31 @@ export default function ArBreweryExperience() {
     }
 
     /* --- 13 · 고두밥 --- */
+    /** 씻는 동작을 눈에 보이게 해주는 주걱 — 폰을 돌린 만큼 그릇 안에서 함께 돈다 */
+    let stirrer: THREE.Object3D | null = null;
+
     function buildGodubap() {
       const platformTop = addPlatform();
       // 가상의 찜기+아이코사헤드론 쌀알 대신 rice_bowl.glb 실물 모델을 놓는다.
       // (rice_bowl 은 arModels.ts 에 step:"godubap" 으로 등록되어 있어 이 호출로 자동 배치됨)
       placeModelsForStep("godubap", stageGroup, platformTop);
+
+      // 그릇은 공간에 고정된 채(AR이므로) 주걱만 돌아야 "내가 젓고 있다"가 읽힌다.
+      stirrer = null;
+      const bowl = live.models.find((m) => (m.userData.def as ModelDef | undefined)?.id === "rice_bowl");
+      if (bowl) {
+        const pivot = new THREE.Group();
+        const stick = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.006, 0.009, 0.22, 12),
+          new THREE.MeshStandardMaterial({ color: 0xb5651d, roughness: 0.75 })
+        );
+        stick.position.set(0.045, 0.1, 0);
+        stick.rotation.z = THREE.MathUtils.degToRad(15);
+        stick.castShadow = true;
+        pivot.add(stick);
+        bowl.add(pivot);
+        stirrer = pivot;
+      }
 
       const glow = new THREE.PointLight(0xffd9a0, 0, 0.8);
       glow.position.set(0, 0.2, 0);
@@ -458,6 +481,7 @@ export default function ArBreweryExperience() {
 
       live.tick = () => {
         const stage = S.godubap;
+        if (stirrer) stirrer.visible = stage === 0; // 주걱은 씻는 동안에만
         const hot = stage >= 4 ? 0.05 : stage >= 2 ? 1 : 0.15;
         glow.intensity += (hot * 1.6 - glow.intensity) * 0.05;
         steam.material.opacity += ((stage >= 2 && stage < 4 ? 0.55 : 0.06) - steam.material.opacity) * 0.05;
@@ -852,6 +876,8 @@ export default function ArBreweryExperience() {
     const gest = {
       progress: 0,
       angle: null as number | null,
+      /** 주걱에 그대로 먹이는 누적 회전각 (부호 유지) */
+      stir: 0,
       prev: null as THREE.Vector2 | null,
       dir: null as THREE.Vector2 | null,
       seg: 0,
@@ -860,9 +886,11 @@ export default function ArBreweryExperience() {
     function resetGesture() {
       gest.progress = 0;
       gest.angle = null;
+      gest.stir = 0;
       gest.prev = null;
       gest.dir = null;
       gest.seg = 0;
+      if (stirrer) stirrer.rotation.y = 0;
       syncGestureBar();
     }
 
@@ -902,6 +930,9 @@ export default function ArBreweryExperience() {
             while (d > Math.PI) d -= Math.PI * 2;
             while (d < -Math.PI) d += Math.PI * 2;
             gained = Math.abs(d);
+            // 주걱은 폰이 돈 방향 그대로, 조금 앞서 돌게 해서 젓는 느낌을 준다
+            gest.stir += d * 1.6;
+            if (stirrer) stirrer.rotation.y = gest.stir;
           }
           gest.angle = a;
         } else {
