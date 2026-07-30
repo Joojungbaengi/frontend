@@ -55,12 +55,14 @@ function SoulCard({ drink, flipping, onActivate }: { drink: Drink; flipping: boo
               }}
             />
           )}
-          {/* 이름 칸은 두 줄 높이로 고정 — 이름 길이와 상관없이 모든 카드가 같은 크기가 된다.
-              한 줄짜리 이름은 칸 안에서 세로 가운데 정렬되고, 두 줄을 넘기면 말줄임 처리한다. */}
+          {/* 이름 칸은 두 줄 높이(31px)로 못박는다 — 이름이 길든 짧든 카드 높이가 변하지 않게.
+              한 줄짜리는 칸 안에서 세로 가운데 정렬되고, 두 줄을 넘으면 잘라낸다. */}
           <div
             style={{
-              height: "2.7em",
-              fontSize: 11.5,
+              height: 31,
+              minHeight: 31,
+              maxHeight: 31,
+              overflow: "hidden",
               marginTop: 8,
               display: "flex",
               alignItems: "center",
@@ -72,8 +74,9 @@ function SoulCard({ drink, flipping, onActivate }: { drink: Drink; flipping: boo
               title={drink.name}
               style={{
                 fontWeight: 700,
-                fontSize: "inherit",
-                lineHeight: 1.35,
+                fontSize: 11.5,
+                lineHeight: "15.5px",
+                maxHeight: 31,
                 color: "var(--ink)",
                 textAlign: "center",
                 display: "-webkit-box",
@@ -88,7 +91,10 @@ function SoulCard({ drink, flipping, onActivate }: { drink: Drink; flipping: boo
           </div>
           <div
             style={{
+              height: 12,
+              minHeight: 12,
               fontSize: 9,
+              lineHeight: "12px",
               color: "var(--ink-faint)",
               textAlign: "center",
               marginTop: 1,
