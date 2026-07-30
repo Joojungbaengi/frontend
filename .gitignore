@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# onnxruntime-web wasm (dev/build 시 node_modules에서 복사)
+/public/ort/
