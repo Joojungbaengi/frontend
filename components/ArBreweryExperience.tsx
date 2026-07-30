@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -57,6 +58,8 @@ export default function ArBreweryExperience() {
       xr: false,
       isInitializing: true,
     };
+    const PLATFORM_CONTENT_LIFT = 0.72;
+    const platformContentY = (platformTop: number) => platformTop + PLATFORM_CONTENT_LIFT;
 
     function setStep(next: typeof S.step) {
       S.step = next;
@@ -215,7 +218,9 @@ export default function ArBreweryExperience() {
         if (step === "ingredient") {
           g.position.set(0, baseY, 0); // 플랫폼 정중앙에 배치
         } else if (def.id === "rice_bowl") {
-          g.position.set(0, baseY + 0.1, 0);
+          g.position.set(0, platformContentY(baseY), 0);
+        } else if (def.id === "water_jar") {
+          g.position.set(0, platformContentY(baseY), 0);
         } else {
           const maxH = Math.max(...defs.map((d) => d.height));
           const radius = defs.length === 1 ? 0 : Math.max(0.14, maxH * 0.9);
@@ -479,6 +484,7 @@ export default function ArBreweryExperience() {
     /* --- 15 · 완성 --- */
     function buildFinish() {
       const platformTop = addPlatform();
+      const contentY = platformContentY(platformTop);
       placeModelsForStep("done", stageGroup, platformTop);
       const bottle = new THREE.Group();
       const body = new THREE.Mesh(
@@ -507,12 +513,12 @@ export default function ArBreweryExperience() {
       );
       label.position.y = 0.14;
       bottle.add(label);
-      bottle.position.y = 0.03;
+      bottle.position.y = contentY;
       stageGroup.add(bottle);
 
       const sparks = makeParticles(90, {
         color: 0xffe9b8, size: 0.011, opacity: 0.75, speed: 0.2,
-        radius: 0.22, baseY: 0.05, height: 0.45, taper: -0.3,
+        radius: 0.22, baseY: contentY + 0.05, height: 0.45, taper: -0.3,
       });
       stageGroup.add(sparks);
       live.particles.push(sparks);
@@ -1028,11 +1034,12 @@ export default function ArBreweryExperience() {
 
       {/* 15 · 완성 */}
       <div id="finish">
-        <div className="label">완성된 막걸리</div>
+        <img className="finish-drink" src="/drinks/cheongju_yongin_dongnim.webp" alt="동림청주" />
         <div className="eyebrow">탁주 · 양조 완료</div>
         <h1>가와지쌀 생막걸리<br />양조 체험 완료!</h1>
         <p>직접 빚어본 가와지쌀 생막걸리가 완성됐어요. 원료와 발효 곡선이 맛과 향을 어떻게 바꾸는지 체험해봤답니다.</p>
         <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
+        <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
         <button className="cta ghost" id="btn-restart" style={{ maxWidth: 320, marginTop: 10 }}>처음부터 다시 빚기</button>
       </div>
 
@@ -1139,18 +1146,18 @@ const styles = `
 .lead p{margin:9px 0 0; font-size:12px; line-height:1.7; color:var(--cream-dim)}
 
 #finish{position:absolute; inset:0; display:none; flex-direction:column; align-items:center;
-  justify-content:flex-start; text-align:center; padding:40px 28px calc(32px + var(--safe-b));
+  justify-content:center; text-align:center; padding:72px 28px calc(44px + var(--safe-b));
   overflow-y:auto;
-  background:linear-gradient(180deg,#dbe8dc 0%,#bcd6c2 100%); color:#243027;
+  background:linear-gradient(180deg,#fffdf7 0%,#f7fbf5 54%,#eef6ed 100%); color:#243027;
   animation:rise .5s cubic-bezier(.2,.8,.3,1) both}
-#finish .label{width:150px;height:190px;border-radius:12px;background:#f2e9d2;
-  box-shadow:0 18px 40px rgba(36,48,39,.28); display:grid; place-items:center; font-size:10.5px;
-  color:#9a8f72; letter-spacing:.2em; margin-bottom:26px; animation:float 4s ease-in-out infinite}
+#finish .finish-drink{width:150px;height:190px;object-fit:contain;border-radius:12px;background:#f7f0dd;
+  box-shadow:0 18px 40px rgba(36,48,39,.18); padding:16px; margin-bottom:26px; animation:float 4s ease-in-out infinite}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
 #finish .eyebrow{font-size:11px; letter-spacing:.24em; color:var(--clay); font-weight:700}
 #finish h1{margin:10px 0 0; font-size:23px; line-height:1.45; letter-spacing:.02em}
 #finish p{margin:14px 0 24px; font-size:12.5px; line-height:1.8; color:#3e4d41; max-width:300px}
 #finish .cta{max-width:320px}
+#finish .dex-link{margin-top:10px; text-decoration:none}
 
 #report{position:absolute; inset:0; background:rgba(12,15,11,.6); backdrop-filter:blur(3px);
   display:none; align-items:flex-end; z-index:20}
@@ -1170,6 +1177,7 @@ const styles = `
 .ar-ui[data-step="ingredient"] #p-ingredient,
 .ar-ui[data-step="godubap"] #p-godubap,
 .ar-ui[data-step="ferment"] #p-ferment{display:flex}
+.ar-ui[data-step="done"] #finish{display:flex}
 
 @media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
 `;
