@@ -57,9 +57,6 @@ export default function ArBreweryExperience() {
       xr: false,
       isInitializing: true,
     };
-    const STAGE_MODEL_LIFT = 0.32;
-    const modelSurfaceY = (platformTop: number) => platformTop + STAGE_MODEL_LIFT;
-
     function setStep(next: typeof S.step) {
       S.step = next;
       uiRoot!.dataset.step = next;
@@ -212,16 +209,19 @@ export default function ArBreweryExperience() {
         const node = spawnModel(def);
         if (!node) return;
         const g = new THREE.Group();
-        const surfaceY = modelSurfaceY(baseY);
         
         // 💡 원료(ingredient) 단계일 때는 바구니와 공들이 확실히 보이도록 위치를 직접 잡아줍니다.
         if (step === "ingredient") {
           g.position.set(0, baseY, 0); // 플랫폼 정중앙에 배치
+        } else if (def.id === "rice_bowl") {
+          g.position.set(0, baseY + 0.1, 0);
+        } else if (def.id === "water_jar") {
+          g.position.set(0, baseY + 0.25, 0);
         } else {
           const maxH = Math.max(...defs.map((d) => d.height));
           const radius = defs.length === 1 ? 0 : Math.max(0.14, maxH * 0.9);
           const ang = (i / defs.length) * Math.PI * 2 - Math.PI / 2;
-          g.position.set(Math.cos(ang) * radius, surfaceY + def.y, Math.sin(ang) * radius);
+          g.position.set(Math.cos(ang) * radius, baseY + def.y, Math.sin(ang) * radius);
           g.rotation.y = Math.atan2(g.position.x, g.position.z) + Math.PI;
         }
 
@@ -420,18 +420,17 @@ export default function ArBreweryExperience() {
     /* --- 13 · 고두밥 --- */
     function buildGodubap() {
       const platformTop = addPlatform();
-      const surfaceY = modelSurfaceY(platformTop);
       // 가상의 찜기+아이코사헤드론 쌀알 대신 rice_bowl.glb 실물 모델을 놓는다.
       // (rice_bowl 은 arModels.ts 에 step:"godubap" 으로 등록되어 있어 이 호출로 자동 배치됨)
       placeModelsForStep("godubap", stageGroup, platformTop);
 
       const glow = new THREE.PointLight(0xffd9a0, 0, 0.8);
-      glow.position.set(0, surfaceY + 0.2, 0);
+      glow.position.set(0, 0.2, 0);
       stageGroup.add(glow);
 
       const steam = makeParticles(140, {
         color: 0xf2ecdb, size: 0.016, opacity: 0.5, speed: 0.25,
-        radius: 0.1, baseY: surfaceY + 0.24, height: 0.34, taper: 0.55,
+        radius: 0.1, baseY: 0.24, height: 0.34, taper: 0.55,
       });
       stageGroup.add(steam);
       live.particles.push(steam);
@@ -448,7 +447,6 @@ export default function ArBreweryExperience() {
     /* --- 14 · 발효 --- */
     function buildFerment() {
       const platformTop = addPlatform();
-      const surfaceY = modelSurfaceY(platformTop);
       // "누룩 섞고 항아리에 담기" 클릭 시 clearStage()로 rice_bowl.glb 는 사라지고,
       // 여기서 water_jar.glb (arModels.ts: step "ferment")가 대신 배치된다.
       // ※ 예전에 실물 항아리 모델이 없을 때 쓰던 간이 액체 원기둥(liquid 메쉬)은
@@ -458,13 +456,13 @@ export default function ArBreweryExperience() {
 
       const bubbles = makeParticles(180, {
         color: 0xfff6dd, size: 0.009, opacity: 0.7, speed: 0.5,
-        radius: 0.1, baseY: surfaceY + 0.06, height: 0.2, taper: 0.2,
+        radius: 0.1, baseY: 0.06, height: 0.2, taper: 0.2,
       });
       stageGroup.add(bubbles);
       live.particles.push(bubbles);
 
       const heat = new THREE.PointLight(0xff8a4a, 0, 1.2);
-      heat.position.set(0, surfaceY + 0.2, 0);
+      heat.position.set(0, 0.2, 0);
       stageGroup.add(heat);
 
       live.tick = () => {
@@ -472,7 +470,7 @@ export default function ArBreweryExperience() {
         const hot = THREE.MathUtils.clamp((S.temp - 24) / 10, 0, 1);
         const bo = (bubbles.userData as any).opt;
         bo.speed = 0.25 + hot * 0.9;
-        bo.baseY = surfaceY + 0.06;
+        bo.baseY = 0.06;
         bo.height = fill + 0.05;
         bubbles.material.opacity = 0.35 + hot * 0.45;
         heat.intensity += (hot * 1.4 - heat.intensity) * 0.06;
@@ -482,7 +480,6 @@ export default function ArBreweryExperience() {
     /* --- 15 · 완성 --- */
     function buildFinish() {
       const platformTop = addPlatform();
-      const surfaceY = modelSurfaceY(platformTop);
       placeModelsForStep("done", stageGroup, platformTop);
       const bottle = new THREE.Group();
       const body = new THREE.Mesh(
@@ -511,12 +508,12 @@ export default function ArBreweryExperience() {
       );
       label.position.y = 0.14;
       bottle.add(label);
-      bottle.position.y = surfaceY + 0.03;
+      bottle.position.y = platformTop + 0.16;
       stageGroup.add(bottle);
 
       const sparks = makeParticles(90, {
         color: 0xffe9b8, size: 0.011, opacity: 0.75, speed: 0.2,
-        radius: 0.22, baseY: surfaceY + 0.05, height: 0.45, taper: -0.3,
+        radius: 0.22, baseY: platformTop + 0.18, height: 0.45, taper: -0.3,
       });
       stageGroup.add(sparks);
       live.particles.push(sparks);
