@@ -176,6 +176,21 @@ export default function ArBreweryExperience() {
 
       const root = skinnedClone(gltf.scene) as THREE.Object3D;
 
+      // 쓰지 않을 메시는 크기·중심을 재기 전에 먼저 떼어낸다
+      if (def.hide?.length) {
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const targets = def.hide.map(norm);
+        const drop: THREE.Object3D[] = [];
+        root.traverse((o) => {
+          // GLTFLoader 가 이름 뒤에 중복 방지 접미사를 붙이는 경우가 있어 앞부분만 본다
+          if (o.name && targets.some((t) => norm(o.name).startsWith(t))) drop.push(o);
+        });
+        if (drop.length !== def.hide.length) {
+          console.warn(`[ar] ${def.id}: 숨기려던 ${def.hide.length}개 중 ${drop.length}개만 찾음`);
+        }
+        drop.forEach((o) => o.removeFromParent());
+      }
+
       const box = new THREE.Box3().setFromObject(root);
       const size = box.getSize(new THREE.Vector3());
       const srcH = size.y || 1;
@@ -485,9 +500,9 @@ export default function ArBreweryExperience() {
     const washBowlHome = new THREE.Vector3();
     /** 물결·쌀알 연출 */
     let washFx: { group: THREE.Group; water: THREE.Mesh } | null = null;
-    /** 0=제자리, 1=화면 중앙에 고정 */
+    /** 0=평소 크기, 1=씻기용으로 확대 */
     let washFocus = 0;
-    let washFocusDist = 0.32;
+    let washFocusScale = 1.8;
     const tmpA = new THREE.Vector3();
     const tmpB = new THREE.Vector3();
 
@@ -565,24 +580,17 @@ export default function ArBreweryExperience() {
         const stage = S.godubap;
         if (stirrer) stirrer.visible = stage === 0; // 주걱은 씻는 동안에만
 
-        // 쌀 씻기 동안에는 그릇을 화면 정중앙에 붙잡아 둔다.
-        // 폰을 돌려도 그릇은 그대로고 주걱만 도는 그림이 나온다.
+        // 쌀 씻기에 들어오면 그릇은 놓인 자리에 그대로 둔 채 크기만 키운다.
+        // (카메라를 따라오게 하면 AR이 아니라 화면에 붙은 UI처럼 보인다)
         if (washBowl) {
           const want = stage === 0 ? 1 : 0;
           if (want === 1 && washFocus < 0.002) {
-            // 이미 가까우면 그 거리를 쓰고, 멀어서 작게 보일 때만 당겨온다
+            // 멀리 있어 작게 보일수록 더 키우고, 이미 가까우면 거의 그대로 둔다
             const cur = camera.getWorldPosition(tmpA).distanceTo(washBowl.getWorldPosition(tmpB));
-            washFocusDist = Math.min(cur, 0.32 * anchor.scale.x);
+            washFocusScale = THREE.MathUtils.clamp(cur / 0.34, 1, 2.6);
           }
           washFocus = THREE.MathUtils.lerp(washFocus, want, 0.06);
-
-          if (washFocus > 0.002) {
-            const homeWorld = stageGroup.localToWorld(washBowlHome.clone());
-            const focusWorld = camera.localToWorld(new THREE.Vector3(0, -0.03, -washFocusDist));
-            washBowl.position.copy(stageGroup.worldToLocal(homeWorld.lerp(focusWorld, washFocus)));
-          } else {
-            washBowl.position.copy(washBowlHome);
-          }
+          washBowl.scale.setScalar(THREE.MathUtils.lerp(1, washFocusScale, washFocus));
         }
 
         // 물결 — 젓는 속도에 따라 찰랑임이 커지고, 쌀알이 물살을 따라 돈다
@@ -993,6 +1001,8 @@ export default function ArBreweryExperience() {
     const gest = {
       progress: 0,
       angle: null as number | null,
+      /** 직전 프레임의 폰 방향(요) */
+      yaw: null as number | null,
       /** 주걱에 그대로 먹이는 누적 회전각 (부호 유지) */
       stir: 0,
       /** 최근에 얼마나 세게 젓고 있는지 0~1 — 물결 세기에 쓴다 */
@@ -1005,6 +1015,7 @@ export default function ArBreweryExperience() {
     function resetGesture() {
       gest.progress = 0;
       gest.angle = null;
+      gest.yaw = null;
       gest.stir = 0;
       gest.speed = 0;
       gest.prev = null;
@@ -1030,6 +1041,13 @@ export default function ArBreweryExperience() {
 
     const camDir = new THREE.Vector3();
 
+    /** 각도 차이를 -π~π 로 접어준다 */
+    function wrapPi(d: number): number {
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      return d;
+    }
+
     function updateGodubapGesture(dt: number) {
       const stage = S.godubap;
       if (S.step !== "godubap" || stage > 3) return;
@@ -1046,24 +1064,34 @@ export default function ArBreweryExperience() {
       gest.speed *= 0.93; // 손을 멈추면 물결도 잦아든다
 
       if (stage === 0) {
-        // 그릇을 중심으로 폰이 돌아간 각도를 누적한다 (제자리에서 폰만 돌리면 안 쌓임)
+        // 젓는 동작은 두 가지 다 인정한다.
+        //  · 그릇 둘레를 도는 이동(궤도각)
+        //  · 제자리에서 폰을 비트는 회전(요)
+        // 둘 중 더 크게 움직인 쪽이 주걱을 돌린다. 더하면 서로 상쇄될 수 있어 max 로 고른다.
+        let dOrbit = 0;
         const flat = Math.hypot(to.x, to.z);
-        if (dist < 1.4 && flat > 0.05) {
+        if (dist < 1.6 && flat > 0.05) {
           const a = Math.atan2(to.z, to.x);
-          if (gest.angle !== null) {
-            let d = a - gest.angle;
-            while (d > Math.PI) d -= Math.PI * 2;
-            while (d < -Math.PI) d += Math.PI * 2;
-            gained = Math.abs(d);
-            // 주걱은 폰이 돈 방향 그대로, 조금 앞서 돌게 해서 젓는 느낌을 준다
-            gest.stir += d * 1.6;
-            gest.speed = Math.min(1, gest.speed + Math.abs(d) * 5);
-            if (stirrer) stirrer.rotation.y = gest.stir;
-          }
+          if (gest.angle !== null) dOrbit = wrapPi(a - gest.angle);
           gest.angle = a;
         } else {
           gest.angle = null;
         }
+
+        camera.getWorldDirection(camDir);
+        const yaw = Math.atan2(camDir.x, camDir.z);
+        let dYaw = 0;
+        if (gest.yaw !== null) dYaw = wrapPi(yaw - gest.yaw);
+        gest.yaw = yaw;
+
+        const drive = Math.abs(dYaw) > Math.abs(dOrbit) ? -dYaw : dOrbit;
+        if (Math.abs(drive) > 0.0004) {
+          gained = Math.abs(drive);
+          // 주걱은 폰이 돈 방향 그대로, 조금 앞서 돌게 해서 젓는 느낌을 준다
+          gest.stir += drive * 1.6;
+          gest.speed = Math.min(1, gest.speed + gained * 5);
+        }
+        if (stirrer) stirrer.rotation.y = gest.stir;
       } else if (stage === 1) {
         if (dist < 0.42) gained = dt;
       } else if (stage === 2) {

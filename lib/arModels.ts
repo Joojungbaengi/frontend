@@ -19,6 +19,12 @@ export interface ModelDef {
   step: ArStep;
   height: number;
   y: number;
+  /**
+   * 이 모델에서 빼고 쓸 메시 이름들.
+   * GLB 원본을 건드리지 않고 로드 직후 씬에서 제거한다.
+   * 이름은 대소문자·구분자(. | _ 등)를 무시하고 비교하므로 원본 이름 그대로 적으면 된다.
+   */
+  hide?: string[];
 }
 
 const BASE = "/models/Dongrim_Cheongju";
@@ -29,7 +35,11 @@ export const MY_MODELS: ModelDef[] = [
 
   // 쌀 씻기(godubap) 단계 — 가상의 아이코사헤드론 대신 실제 모델을 그릇째로 놓는다.
   // "항아리에 담기" 클릭 전까지(쌀 씻기/불리기/찌기/식히기 내내) 계속 보인다.
-  { id: "rice_bowl", file: `${BASE}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
+  {
+    id: "rice_bowl", file: `${BASE}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03,
+    // 그릇 본체(Cylinder_Material.002_0)와 쌀(Cylinder.002__0)만 남기고 나머지는 뺀다
+    hide: ["Cube.001_Material.004_0", "Cylinder.002|Cylinder.001|Dupli|_Material.001_0"],
+  },
 
   // 발효(ferment) 단계 — "누룩 섞고 항아리에 담기" 클릭 순간 rice_bowl 은 사라지고 이 모델이 나타난다.
   { id: "water_jar", file: `${BASE}/water_jar.glb`, step: "ferment", height: 0.17, y: 0.03 },
