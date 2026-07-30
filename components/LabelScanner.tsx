@@ -249,33 +249,14 @@ export default function LabelScanner() {
       </div>
 
       <div style={{ padding: "22px 22px 44px", textAlign: "center" }}>
-        {phase === "error" ? (
-          <>
-            <p style={{ margin: "0 0 16px", fontSize: 13, lineHeight: 1.6, color: "rgba(255,255,255,.6)" }}>
-              카메라 없이 둘러보시려면 아래에서 직접 골라주세요.
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {YOLO_CLASSES.map((c) => (
-                <button
-                  key={c.drinkId}
-                  className="btn-outline"
-                  style={{ padding: 14, color: "#f6ecd6", borderColor: "rgba(232,201,138,.45)" }}
-                  onClick={() => router.push(`/drink/${c.drinkId}`)}
-                >
-                  {c.label} 정보 보기
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,.8)" }}>
-            {phase === "scanning" ? hint : phase === "preparing" ? hint : ""}
-            <br />
-            <span style={{ fontSize: 12, color: "rgba(255,255,255,.45)" }}>
-              인식 가능: {YOLO_CLASSES.map((c) => c.label).join(" · ")}
-            </span>
-          </p>
-        )}
+        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,.8)" }}>
+          {/* 오류 문구는 화면 위 오버레이에 이미 떠 있으므로 여기서는 생략 */}
+          {phase === "preparing" || phase === "scanning" ? hint : ""}
+          <br />
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,.45)" }}>
+            인식 가능: {YOLO_CLASSES.map((c) => c.label).join(" · ")}
+          </span>
+        </p>
       </div>
     </>
   );
