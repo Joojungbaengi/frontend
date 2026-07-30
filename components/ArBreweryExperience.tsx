@@ -380,6 +380,10 @@ export default function ArBreweryExperience() {
       const floatY = platformTop + 0.1;       // 상판에서 살짝만 띄움 (기존 0.18 → 대체)
       const layoutRadius = 0.26;              // 0.2 → 0.26 (원 배치 반경도 넓혀서 안 겹치게)
 
+      // 고르면 바구니 안으로 내려앉고, 해제하면 제자리로 떠오른다.
+      const basketY = platformTop + 0.075;
+      const basketSpread = 0.026;
+
       ingredientNodes = INGREDIENTS.map((ing, i) => {
         const a = (i / INGREDIENTS.length) * Math.PI * 2;
         const g = new THREE.Group();
@@ -414,18 +418,33 @@ export default function ArBreweryExperience() {
 
         g.add(mesh);
 
-        // 입체감을 더하는 얇은 테두리 링
-        (g.userData as any) = { id: ing.id, mesh, phase: i };
+        (g.userData as any) = {
+          id: ing.id,
+          mesh,
+          phase: i,
+          // 고르지 않았을 때 떠 있는 제자리
+          home: new THREE.Vector3(Math.cos(a) * layoutRadius, floatY, Math.sin(a) * layoutRadius),
+          // 골랐을 때 내려앉을 바구니 안 자리 (겹치지 않게 조금씩 흩어 놓는다)
+          inside: new THREE.Vector3(Math.cos(a) * basketSpread, basketY, Math.sin(a) * basketSpread),
+        };
         stageGroup.add(g);
         return g;
       });
 
+      const seat = new THREE.Vector3();
       live.tick = (t) => {
         ingredientNodes.forEach((n) => {
           const ud = n.userData as any;
           const on = S.selected.has(ud.id);
-          n.position.y = floatY + Math.sin(t * 1.4 + ud.phase) * 0.018 + (on ? 0.03 : 0);
-          const s = on ? 1.35 : 1;
+          const target: THREE.Vector3 = on ? ud.inside : ud.home;
+
+          // 둥둥 뜨는 흔들림은 그대로 두되, 바구니에 담기면 잔물결 정도로 잦아든다
+          const bob = Math.sin(t * 1.4 + ud.phase) * (on ? 0.004 : 0.018);
+          seat.set(target.x, target.y + bob, target.z);
+          n.position.lerp(seat, 0.12);
+
+          // 담기면 바구니에 들어앉은 것처럼 살짝 작아진다
+          const s = on ? 0.72 : 1;
           n.scale.lerp(new THREE.Vector3(s, s, s), 0.1);
         });
       };
