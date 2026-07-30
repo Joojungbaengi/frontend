@@ -161,15 +161,7 @@ export default function ResultPage() {
           <div style={{ fontSize: 12, letterSpacing: ".3em", color: "#a67c3e", marginBottom: 14 }}>
             京畿 神仙 · 나의 술 취향
           </div>
-          <HangingScroll
-            seal={
-              <>
-                신선
-                <br />
-                유형
-              </>
-            }
-          >
+          <HangingScroll>
             <div style={{ display: "flex", gap: 14, textAlign: "left" }}>
               {/* 이름이 길면 세로쓰기가 자동으로 여러 줄로 흐른다 */}
               <div
@@ -186,7 +178,8 @@ export default function ResultPage() {
               >
                 {sinseon.name}
               </div>
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* 낙관은 그림 오른쪽 아래에 찍는다 */}
+              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
                 <AppImage
                   src={sinseon.image}
                   alt={sinseon.name}
@@ -198,21 +191,11 @@ export default function ResultPage() {
                     border: "1px solid rgba(120,95,50,.12)",
                   }}
                 />
-                <span
-                  style={{
-                    alignSelf: "flex-start",
-                    fontSize: 12,
-                    color: "#fff",
-                    background: "var(--seal)",
-                    padding: "5px 12px",
-                    borderRadius: 99,
-                  }}
-                >
-                  유형 {String(sinseon.no).padStart(2, "0")} · {sinseon.axis}
-                </span>
-                <p style={{ margin: 0, paddingRight: 52, fontSize: 13, lineHeight: 1.6, color: "#4a4940" }}>
-                  {sinseon.tagline}
-                </p>
+                <div className="scroll-seal" style={{ right: 10, bottom: 10, background: "rgba(246,239,224,.86)" }}>
+                  신선
+                  <br />
+                  유형
+                </div>
               </div>
             </div>
           </HangingScroll>

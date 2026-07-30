@@ -13,9 +13,9 @@ export interface Sinseon {
   /** 유형 번호 (1~8) — 결과 화면 배지에 표시 */
   no: number;
   name: string;
-  /** 배지에 붙는 짧은 취향 축 라벨 */
+  /** 짧은 취향 축 라벨 */
   axis: string;
-  /** 족자 아래 한 줄 소개 */
+  /** 한 줄 소개 */
   tagline: string;
   /** "이런 신선입니다" 본문 */
   description: string;
