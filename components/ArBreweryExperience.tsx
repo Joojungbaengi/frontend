@@ -1145,14 +1145,13 @@ const styles = `
 .ar-ui .bar{height:6px; border-radius:999px; background:rgba(232,201,138,.18); overflow:hidden}
 .ar-ui .bar i{display:block; height:100%; width:0; background:var(--sage-deep); transition:width .4s linear}
 
-/* 앱의 .btn-seal(인주 강조버튼)과 같은 결 */
-.ar-ui .cta{width:100%; border:none; font-family:var(--font-myeongjo), serif; font-weight:700; font-size:15px;
-  letter-spacing:.02em; color:#fbeee5; background:var(--clay); padding:15px; border-radius:var(--r-sm);
-  cursor:pointer; box-shadow:0 12px 26px -10px rgba(181,72,47,.6); transition:.2s}
+/* 앱의 .btn-seal(인주 강조버튼)과 같은 규격 — 그림자 없이 색만 다르게 */
+.ar-ui .cta{width:100%; box-sizing:border-box; border:1px solid transparent; font-family:var(--font-myeongjo), serif;
+  font-weight:700; font-size:15px; line-height:1.3; letter-spacing:.02em; color:#fbeee5; background:var(--clay);
+  padding:15px; border-radius:14px; cursor:pointer; box-shadow:none; transition:.2s}
 .ar-ui .cta:hover:not(:disabled){background:var(--clay-hi)}
-.ar-ui .cta:disabled{background:#3a2c1c; color:rgba(243,230,204,.35); box-shadow:none; cursor:default}
-.ar-ui .cta.ghost{background:transparent; border:1px solid var(--line); color:var(--cream-dim);
-  font-family:var(--font-gowun), system-ui, sans-serif; font-weight:600; font-size:14px; padding:13px; box-shadow:none}
+.ar-ui .cta:disabled{background:#3a2c1c; color:rgba(243,230,204,.35); cursor:default}
+.ar-ui .cta.ghost{background:transparent; border-color:var(--line); color:var(--cream-dim)}
 
 .ar-ui .seg{display:flex; gap:8px; justify-content:center}
 .ar-ui .seg button{border:1px solid var(--line); background:transparent; color:var(--cream-dim); font:inherit;
