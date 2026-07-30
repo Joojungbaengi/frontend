@@ -47,6 +47,8 @@ export default function ArBreweryExperience() {
 
     const S = {
       step: "place" as "place" | ArStep,
+      /** 배치 크기 — "floor"는 실제 크기, "table"은 책상용 미니어처(55%) */
+      surface: "floor",
       placed: false,
       selected: new Set<string>(),
       godubap: 0,
@@ -693,6 +695,20 @@ export default function ArBreweryExperience() {
       }
     }
 
+    /** 선택한 크기(실제 / 미니어처)를 배치 그룹에 반영 */
+    function applySurfaceScale() {
+      anchor.scale.setScalar(S.surface === "table" ? 0.55 : 1);
+    }
+
+    $$(".seg button").forEach((btn) => {
+      (btn as HTMLElement).onclick = () => {
+        $$(".seg button").forEach((b) => b.setAttribute("aria-pressed", "false"));
+        btn.setAttribute("aria-pressed", "true");
+        S.surface = (btn as HTMLElement).dataset.surface!;
+        applySurfaceScale();
+      };
+    });
+
     const placeBtn = $("#btn-place") as HTMLButtonElement | null;
     if (placeBtn) {
       placeBtn.onclick = async () => {
@@ -704,6 +720,7 @@ export default function ArBreweryExperience() {
         const m = new THREE.Matrix4().copy(reticle.matrix);
         anchor.position.setFromMatrixPosition(m);
         anchor.visible = true;
+        applySurfaceScale();
         S.placed = true;
         if (!S.xr) controls.target.copy(anchor.position).add(new THREE.Vector3(0, 0.2, 0));
         setStep("ingredient");
@@ -955,6 +972,10 @@ export default function ArBreweryExperience() {
           </div>
         </div>
         <div className="dock">
+          <div className="seg">
+            <button data-surface="floor" aria-pressed="true">바닥에 크게</button>
+            <button data-surface="table" aria-pressed="false">책상에 작게</button>
+          </div>
           <button className="cta" id="btn-place" disabled>평면을 찾는 중…</button>
         </div>
       </div>
@@ -1133,6 +1154,11 @@ const styles = `
 .ar-ui .cta:disabled{background:#3a2c1c; color:rgba(243,230,204,.35); box-shadow:none; cursor:default}
 .ar-ui .cta.ghost{background:transparent; border:1px solid var(--line); color:var(--cream-dim);
   font-family:var(--font-gowun), system-ui, sans-serif; font-weight:600; font-size:14px; padding:13px; box-shadow:none}
+
+.ar-ui .seg{display:flex; gap:8px; justify-content:center}
+.ar-ui .seg button{border:1px solid var(--line); background:transparent; color:var(--cream-dim); font:inherit;
+  font-size:12.5px; padding:9px 16px; border-radius:999px; cursor:pointer}
+.ar-ui .seg button[aria-pressed="true"]{background:var(--sage); border-color:var(--sage); color:var(--ink); font-weight:600}
 
 .ar-ui .lead{text-align:center}
 .ar-ui .lead h2{margin:0; font-family:var(--font-myeongjo), serif; font-size:19px; letter-spacing:.02em; font-weight:700}
