@@ -763,6 +763,9 @@ export default function ArBreweryExperience() {
     /* --- 13 · 고두밥 --- */
     const pills = $("#pills");
     if (pills) {
+      // 개발 모드(StrictMode)에서 이 effect가 두 번 실행돼도 pill이 쌓이지 않도록 비우고 시작한다.
+      // 비우지 않으면 pill이 GODUBAP_STEPS 개수를 넘어가 syncGodubap 에서 undefined 를 읽는다.
+      pills.innerHTML = "";
       GODUBAP_STEPS.forEach((st, i) => {
         const b = document.createElement("button");
         b.className = "pill";
