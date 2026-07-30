@@ -261,13 +261,9 @@ export default function LabelScanner() {
       </div>
 
       <div style={{ padding: "22px 22px 44px", textAlign: "center" }}>
-        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,.8)" }}>
-          {/* 오류 문구는 화면 위 오버레이에 이미 떠 있으므로 여기서는 생략 */}
+        {/* 오류 문구는 화면 위 오버레이에 이미 떠 있으므로 여기서는 생략 */}
+        <p style={{ margin: 0, minHeight: 22, fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,.8)" }}>
           {phase === "preparing" || phase === "scanning" ? hint : ""}
-          <br />
-          <span style={{ fontSize: 12, color: "rgba(255,255,255,.45)" }}>
-            인식 가능: {YOLO_CLASSES.map((c) => c.label).join(" · ")}
-          </span>
         </p>
       </div>
     </>
