@@ -55,10 +55,50 @@ function SoulCard({ drink, flipping, onActivate }: { drink: Drink; flipping: boo
               }}
             />
           )}
-          <div className="serif" style={{ fontWeight: 700, fontSize: 12, color: "var(--ink)", textAlign: "center", marginTop: 8 }}>
-            {drink.name}
+          {/* 이름 칸은 두 줄 높이로 고정 — 이름 길이와 상관없이 모든 카드가 같은 크기가 된다.
+              한 줄짜리 이름은 칸 안에서 세로 가운데 정렬되고, 두 줄을 넘기면 말줄임 처리한다. */}
+          <div
+            style={{
+              height: "2.7em",
+              fontSize: 11.5,
+              marginTop: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <span
+              className="serif"
+              title={drink.name}
+              style={{
+                fontWeight: 700,
+                fontSize: "inherit",
+                lineHeight: 1.35,
+                color: "var(--ink)",
+                textAlign: "center",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+                wordBreak: "keep-all",
+              }}
+            >
+              {drink.name}
+            </span>
           </div>
-          <div style={{ fontSize: 9, color: "var(--ink-faint)", textAlign: "center", marginTop: 1 }}>{drink.region}</div>
+          <div
+            style={{
+              fontSize: 9,
+              color: "var(--ink-faint)",
+              textAlign: "center",
+              marginTop: 1,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {drink.region}
+          </div>
         </div>
       </div>
     </div>
