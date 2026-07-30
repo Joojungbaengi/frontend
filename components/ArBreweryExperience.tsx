@@ -59,8 +59,13 @@ export default function ArBreweryExperience() {
       xr: false,
       isInitializing: true,
     };
-    const PLATFORM_CONTENT_LIFT = 0.72;
-    const platformContentY = (platformTop: number) => platformTop + PLATFORM_CONTENT_LIFT;
+    /**
+     * 받침대 상판 위에 물건을 올릴 때 띄우는 높이(m).
+     * 모든 모델이 이 하나의 기준을 쓴다 — 모델마다 기준이 달라지면
+     * 어떤 건 허공에 뜨고 어떤 건 상판(또는 실제 탁자) 속에 파묻힌다.
+     */
+    const CONTENT_LIFT = 0.03;
+    const platformContentY = (platformTop: number) => platformTop + CONTENT_LIFT;
 
     function setStep(next: typeof S.step) {
       S.step = next;
@@ -214,19 +219,17 @@ export default function ArBreweryExperience() {
         const node = spawnModel(def);
         if (!node) return;
         const g = new THREE.Group();
-        
-        // 💡 원료(ingredient) 단계일 때는 바구니와 공들이 확실히 보이도록 위치를 직접 잡아줍니다.
-        if (step === "ingredient") {
-          g.position.set(0, baseY, 0); // 플랫폼 정중앙에 배치
-        } else if (def.id === "rice_bowl") {
-          g.position.set(0, platformContentY(baseY), 0);
-        } else if (def.id === "water_jar") {
-          g.position.set(0, platformContentY(baseY), 0);
+
+        // 높이는 모델 종류와 무관하게 항상 "상판 + def.y" 하나의 기준을 쓴다.
+        // 하나뿐이면 정중앙, 여러 개면 원형으로 벌려 놓는다.
+        const y = baseY + def.y;
+        if (defs.length === 1) {
+          g.position.set(0, y, 0);
         } else {
           const maxH = Math.max(...defs.map((d) => d.height));
-          const radius = defs.length === 1 ? 0 : Math.max(0.14, maxH * 0.9);
+          const radius = Math.max(0.14, maxH * 0.9);
           const ang = (i / defs.length) * Math.PI * 2 - Math.PI / 2;
-          g.position.set(Math.cos(ang) * radius, baseY + def.y, Math.sin(ang) * radius);
+          g.position.set(Math.cos(ang) * radius, y, Math.sin(ang) * radius);
           g.rotation.y = Math.atan2(g.position.x, g.position.z) + Math.PI;
         }
 
@@ -327,37 +330,40 @@ export default function ArBreweryExperience() {
     }
 
     
+    /** 받침대를 놓고 그 "상판 y좌표"를 돌려준다. y=0 이 곧 인식된 바닥면이다. */
     function addPlatform(): number {
-      const gltf = LOADED["low_wooden_bench"] || LOADED["m4"];
-      
+      const gltf = LOADED["low_wooden_bench"];
+
       if (gltf) {
-        // GLB 모델이 이미 로드되어 있는 경우
         const root = skinnedClone(gltf.scene) as THREE.Object3D;
         root.scale.setScalar(0.5);
-        root.position.set(0, -0.3, 0);
         root.traverse((o: any) => {
           if (o.isMesh) {
             o.castShadow = true;
             o.receiveShadow = true;
           }
         });
+        // GLB마다 원점 위치가 제각각이라, 바운딩 박스로 바닥면을 y=0에 정확히 맞춘다.
+        // (예전처럼 -0.3 같은 상수를 쓰면 받침대가 실제 탁자 속으로 파묻힌다)
+        const raw = new THREE.Box3().setFromObject(root);
+        root.position.y = -raw.min.y;
         stageGroup.add(root);
-        
-        // 모델의 실제 바운딩 박스를 계산해서 "윗면 y좌표"를 구한다
-        const box = new THREE.Box3().setFromObject(root);
-        return box.max.y;
-      } else {
-        // 모델 로드가 아직 안 끝났을 때 빈 화면으로 두지 않고 임시 플랫폼(원기둥)을 먼저 생성
-        const fallbackMesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.35, 0.38, 0.04, 32),
-          new THREE.MeshStandardMaterial({ color: 0x8B5A2B, roughness: 0.8 })
-        );
-        fallbackMesh.position.set(0, 0.02, 0);
-        fallbackMesh.castShadow = true;
-        fallbackMesh.receiveShadow = true;
-        stageGroup.add(fallbackMesh);
-        return 0.02 + 0.02;
+
+        return new THREE.Box3().setFromObject(root).max.y;
       }
+
+      // 받침대 모델을 못 불러왔을 때의 대체 받침대. 두께 4cm, 바닥면을 y=0에 맞춘다.
+      console.warn("[ar] low_wooden_bench.glb 로드 실패 — 임시 받침대로 대체합니다.");
+      const thickness = 0.04;
+      const fallbackMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35, 0.38, thickness, 32),
+        new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 })
+      );
+      fallbackMesh.position.set(0, thickness / 2, 0);
+      fallbackMesh.castShadow = true;
+      fallbackMesh.receiveShadow = true;
+      stageGroup.add(fallbackMesh);
+      return thickness;
     }
 
     /* --- 12 · 원료 --- */
