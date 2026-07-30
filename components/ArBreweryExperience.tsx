@@ -432,6 +432,8 @@ export default function ArBreweryExperience() {
           id: ing.id,
           mesh,
           phase: i,
+          /** 담기는 정도 0(제자리) ~ 1(바구니 안) */
+          t: 0,
           // 고르지 않았을 때 떠 있는 제자리
           home: new THREE.Vector3(Math.cos(a) * layoutRadius, floatY, Math.sin(a) * layoutRadius),
           // 골랐을 때 내려앉을 바구니 안 자리 (겹치지 않게 조금씩 흩어 놓는다)
@@ -442,20 +444,35 @@ export default function ArBreweryExperience() {
       });
 
       const seat = new THREE.Vector3();
+      const rimY = platformTop + 0.2; // 바구니 입구보다 확실히 위
+
       live.tick = (t) => {
         ingredientNodes.forEach((n) => {
           const ud = n.userData as any;
           const on = S.selected.has(ud.id);
-          const target: THREE.Vector3 = on ? ud.inside : ud.home;
+          const home: THREE.Vector3 = ud.home;
+          const inside: THREE.Vector3 = ud.inside;
 
-          // 둥둥 뜨는 흔들림은 그대로 두되, 바구니에 담기면 잔물결 정도로 잦아든다
-          const bob = Math.sin(t * 1.4 + ud.phase) * (on ? 0.004 : 0.018);
-          seat.set(target.x, target.y + bob, target.z);
-          n.position.lerp(seat, 0.12);
+          ud.t = THREE.MathUtils.lerp(ud.t, on ? 1 : 0, 0.09);
+          const p: number = ud.t;
+
+          // 수평으로 먼저 바구니 입구 위까지 옮겨간 뒤에 아래로 내려앉는다.
+          // 한 번에 직선으로 보내면 바구니 옆면을 뚫고 지나간다.
+          const ph = THREE.MathUtils.smoothstep(p, 0, 0.62); // 수평 이동
+          const pv = THREE.MathUtils.smoothstep(p, 0.45, 1); // 입구 위에서 하강
+
+          // 둥둥 뜨는 흔들림은 그대로 두되, 바구니에 담길수록 잔물결 정도로 잦아든다
+          const bob = Math.sin(t * 1.4 + ud.phase) * THREE.MathUtils.lerp(0.018, 0.004, p);
+          seat.set(
+            THREE.MathUtils.lerp(home.x, inside.x, ph),
+            THREE.MathUtils.lerp(THREE.MathUtils.lerp(home.y, rimY, ph), inside.y, pv) + bob,
+            THREE.MathUtils.lerp(home.z, inside.z, ph)
+          );
+          n.position.copy(seat);
 
           // 담기면 바구니에 들어앉은 것처럼 살짝 작아진다
-          const s = on ? 0.72 : 1;
-          n.scale.lerp(new THREE.Vector3(s, s, s), 0.1);
+          const s = THREE.MathUtils.lerp(1, 0.72, p);
+          n.scale.setScalar(s);
         });
       };
     }
