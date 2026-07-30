@@ -93,12 +93,15 @@ export default function LabelScanner() {
 
     /** 후면 카메라 켜기 */
     const startCamera = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("mediaDevices-unavailable");
+      }
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
       const video = videoRef.current;
-      if (!video) return;
+      if (!video) throw new Error("video-element-missing");
       video.srcObject = stream;
       await video.play();
     };
@@ -134,22 +137,31 @@ export default function LabelScanner() {
     };
 
     (async () => {
-      try {
-        // 카메라 권한 창과 모델 다운로드를 동시에 진행
-        const [, loaded] = await Promise.all([startCamera(), LabelDetector.load()]);
-        if (cancelled) {
-          void loaded.release();
-          return;
-        }
-        detector = loaded;
-        setPhase("scanning");
-        setHint("라벨이 화면 안에 꽉 차도록 비춰주세요.");
-        void loop();
-      } catch (err) {
-        if (cancelled) return;
-        setPhase("error");
-        setHint(describeError(err));
+      // 카메라 권한 창과 모델 다운로드를 동시에 진행하되, 실패 원인은 따로 구분한다
+      const [camera, model] = await Promise.allSettled([startCamera(), LabelDetector.load()]);
+      if (cancelled) {
+        if (model.status === "fulfilled") void model.value.release();
+        return;
       }
+
+      if (camera.status === "rejected") {
+        console.error("[scan] 카메라 실패", camera.reason);
+        if (model.status === "fulfilled") void model.value.release();
+        setPhase("error");
+        setHint(describeCameraError(camera.reason));
+        return;
+      }
+      if (model.status === "rejected") {
+        console.error("[scan] 모델 로드 실패", model.reason);
+        setPhase("error");
+        setHint(`인식 모델을 불러오지 못했어요. ${detail(model.reason)}`);
+        return;
+      }
+
+      detector = model.value;
+      setPhase("scanning");
+      setHint("라벨이 화면 안에 꽉 차도록 비춰주세요.");
+      void loop();
     })();
 
     return () => {
@@ -262,16 +274,30 @@ export default function LabelScanner() {
   );
 }
 
+/** 원인 파악용 꼬리표 — 콘솔을 안 열어도 무엇이 터졌는지 보이게 */
+function detail(err: unknown): string {
+  if (!(err instanceof Error)) return `(${String(err)})`;
+  return `(${err.name}: ${err.message || "메시지 없음"})`;
+}
+
 /** getUserMedia 실패 사유를 사용자 문장으로 */
-function describeError(err: unknown): string {
+function describeCameraError(err: unknown): string {
   const name = err instanceof Error ? err.name : "";
-  if (name === "NotAllowedError")
-    return "카메라 권한이 거부되었어요. 브라우저 주소창의 자물쇠 아이콘에서 카메라를 허용해 주세요.";
-  if (name === "NotFoundError" || name === "OverconstrainedError")
-    return "사용할 수 있는 카메라를 찾지 못했어요.";
+  const message = err instanceof Error ? err.message : "";
+
   if (typeof window !== "undefined" && !window.isSecureContext)
-    return "카메라는 HTTPS에서만 열 수 있어요. 배포된 주소로 접속해 주세요.";
-  return "카메라나 인식 모델을 준비하지 못했어요. 잠시 뒤 다시 시도해 주세요.";
+    return "카메라는 HTTPS 또는 localhost 에서만 열 수 있어요. 배포된 주소로 접속해 주세요.";
+  if (message === "mediaDevices-unavailable")
+    return "이 브라우저에서 카메라 API를 쓸 수 없어요. 최신 크롬·사파리에서 열어주세요.";
+  if (name === "NotAllowedError")
+    return "카메라 권한이 거부되었어요. 주소창의 자물쇠(또는 카메라) 아이콘에서 허용으로 바꿔주세요.";
+  if (name === "NotFoundError")
+    return "연결된 카메라를 찾지 못했어요. PC라면 웹캠이 있는지 확인해 주세요.";
+  if (name === "NotReadableError")
+    return "다른 앱이 카메라를 쓰고 있어요. 화상회의·카메라 앱을 모두 끄고 다시 시도해 주세요.";
+  if (name === "OverconstrainedError")
+    return "요청한 카메라 설정을 지원하지 않아요. 다른 기기에서 시도해 주세요.";
+  return `카메라를 열지 못했어요. ${detail(err)}`;
 }
 
 const CORNER_BASE: React.CSSProperties = { position: "absolute", width: 26, height: 26 };
