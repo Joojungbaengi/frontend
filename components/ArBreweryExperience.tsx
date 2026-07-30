@@ -478,8 +478,8 @@ export default function ArBreweryExperience() {
 
     /* --- 15 · 완성 --- */
     function buildFinish() {
-      addPlatform();
-      placeModelsForStep("done", stageGroup);
+      const platformTop = addPlatform();
+      placeModelsForStep("done", stageGroup, platformTop);
       const bottle = new THREE.Group();
       const body = new THREE.Mesh(
         new THREE.LatheGeometry(onggiProfile(0.26, 0.085), 40),
