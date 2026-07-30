@@ -1047,12 +1047,11 @@ export default function ArBreweryExperience() {
       {/* 15 · 완성 */}
       <div id="finish">
         <img className="finish-drink" src="/drinks/cheongju_yongin_dongnim.webp" alt="동림청주" />
-        <div className="eyebrow">탁주 · 양조 완료</div>
-        <h1>가와지쌀 생막걸리<br />양조 체험 완료!</h1>
-        <p>직접 빚어본 가와지쌀 생막걸리가 완성됐어요. 원료와 발효 곡선이 맛과 향을 어떻게 바꾸는지 체험해봤답니다.</p>
+        <h1>동림청주<br />양조 체험 완료!</h1>
+        <p>직접 빚은 동림청주가 완성됐어요. 원료를 고르고 고두밥을 지어 발효 온도까지 맞춰보며, 술맛이 어디에서 갈리는지 겪어봤답니다.</p>
         <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
         <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
-        <button className="cta ghost" id="btn-restart" style={{ maxWidth: 320, marginTop: 10 }}>처음부터 다시 빚기</button>
+        <button className="cta ghost" id="btn-restart">처음부터 다시 빚기</button>
       </div>
 
       {/* 리포트 */}
@@ -1174,14 +1173,16 @@ const styles = `
   background:var(--hanji-bright); border:1px solid rgba(198,165,104,.4);
   box-shadow:0 12px 30px rgba(120,95,50,.18); padding:16px; margin-bottom:24px; animation:ar-float 4s ease-in-out infinite}
 @keyframes ar-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
-.ar-ui #finish .eyebrow{font-size:12px; letter-spacing:.3em; color:var(--gold-deep); font-weight:700}
-.ar-ui #finish h1{margin:12px 0 0; font-family:var(--font-myeongjo), serif; font-size:23px; line-height:1.45;
+.ar-ui #finish h1{margin:0; font-family:var(--font-myeongjo), serif; font-size:23px; line-height:1.45;
   letter-spacing:.02em; color:var(--ink)}
 .ar-ui #finish p{margin:14px 0 24px; font-size:13px; line-height:1.8; color:var(--ink-soft); max-width:300px}
-.ar-ui #finish .cta{max-width:320px}
-.ar-ui #finish .dex-link{margin-top:10px; text-decoration:none}
+/* 버튼 3개는 크기·모양·글씨를 똑같이 두고 색만 다르게 간다 */
+.ar-ui #finish .cta{max-width:320px; box-sizing:border-box; display:block; text-align:center; text-decoration:none}
+.ar-ui #finish .cta + .cta{margin-top:10px}
+.ar-ui #finish .dex-link{background:var(--brown); color:#f3e6cc}
+.ar-ui #finish .dex-link:hover{background:var(--brown-deep)}
 /* 밝은 배경에서는 앱의 .btn-outline 처럼 */
-.ar-ui #finish .cta.ghost{border-color:rgba(58,44,27,.3); background:rgba(255,255,255,.5); color:var(--ink-strong)}
+.ar-ui #finish .cta.ghost{border:1px solid rgba(58,44,27,.3); background:rgba(255,255,255,.5); color:var(--ink-strong)}
 
 .ar-ui #report{position:absolute; inset:0; background:rgba(36,27,16,.62); backdrop-filter:blur(3px);
   display:none; align-items:flex-end; z-index:20}
