@@ -57,6 +57,8 @@ export default function ArBreweryExperience() {
       xr: false,
       isInitializing: true,
     };
+    const PLATFORM_CONTENT_LIFT = 0.72;
+    const platformContentY = (platformTop: number) => platformTop + PLATFORM_CONTENT_LIFT;
 
     function setStep(next: typeof S.step) {
       S.step = next;
@@ -215,7 +217,9 @@ export default function ArBreweryExperience() {
         if (step === "ingredient") {
           g.position.set(0, baseY, 0); // 플랫폼 정중앙에 배치
         } else if (def.id === "rice_bowl") {
-          g.position.set(0, baseY + 0.1, 0);
+          g.position.set(0, platformContentY(baseY), 0);
+        } else if (def.id === "water_jar") {
+          g.position.set(0, platformContentY(baseY), 0);
         } else {
           const maxH = Math.max(...defs.map((d) => d.height));
           const radius = defs.length === 1 ? 0 : Math.max(0.14, maxH * 0.9);
@@ -479,6 +483,7 @@ export default function ArBreweryExperience() {
     /* --- 15 · 완성 --- */
     function buildFinish() {
       const platformTop = addPlatform();
+      const contentY = platformContentY(platformTop);
       placeModelsForStep("done", stageGroup, platformTop);
       const bottle = new THREE.Group();
       const body = new THREE.Mesh(
@@ -507,12 +512,12 @@ export default function ArBreweryExperience() {
       );
       label.position.y = 0.14;
       bottle.add(label);
-      bottle.position.y = 0.03;
+      bottle.position.y = contentY;
       stageGroup.add(bottle);
 
       const sparks = makeParticles(90, {
         color: 0xffe9b8, size: 0.011, opacity: 0.75, speed: 0.2,
-        radius: 0.22, baseY: 0.05, height: 0.45, taper: -0.3,
+        radius: 0.22, baseY: contentY + 0.05, height: 0.45, taper: -0.3,
       });
       stageGroup.add(sparks);
       live.particles.push(sparks);
@@ -1170,6 +1175,7 @@ const styles = `
 .ar-ui[data-step="ingredient"] #p-ingredient,
 .ar-ui[data-step="godubap"] #p-godubap,
 .ar-ui[data-step="ferment"] #p-ferment{display:flex}
+.ar-ui[data-step="done"] #finish{display:flex}
 
 @media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
 `;
