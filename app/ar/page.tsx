@@ -1,4 +1,3 @@
-import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import ArBreweryClient from "@/components/ArBreweryClient";
 
@@ -33,12 +32,6 @@ export default function ArPage() {
         <ArBreweryClient />
       </div>
       {/* ▲▲▲ AR 구현 영역 끝 ▲▲▲ */}
-
-      <div style={{ padding: "22px 22px 44px" }}>
-        <Link href="/dex" className="btn-outline" style={{ display: "block", textAlign: "center", color: "#fff", borderColor: "rgba(255,255,255,.35)", background: "rgba(255,255,255,.08)" }}>
-          (임시) 체험 완료 → 도감 보기
-        </Link>
-      </div>
     </div>
   );
 }
