@@ -70,6 +70,9 @@ export default function ArBreweryExperience() {
     function setStep(next: typeof S.step) {
       S.step = next;
       uiRoot!.dataset.step = next;
+      // 완료 화면은 한지 배경이라 헤더도 함께 밝아져야 한다.
+      // 헤더는 이 컴포넌트 바깥에 있으므로 문서 루트에 표시해 두고 CSS로 받는다.
+      document.documentElement.dataset.arStep = next;
       buildStageFor(next);
     }
 
@@ -380,6 +383,16 @@ export default function ArBreweryExperience() {
     function buildIngredients() {
       const platformTop = addPlatform();       // 실제 상판 높이를 받음
       placeModelsForStep("ingredient", stageGroup, platformTop);
+
+      // 3D 모드에서는 정면에서 보면 바구니 옆에 뜬 원료가 서로 겹쳐 보인다.
+      // 대각선 위에서 내려다보는 시점으로 옮겨 원료가 한눈에 들어오게 한다. (AR은 실제 시점을 쓰므로 제외)
+      if (!S.xr) {
+        const c = anchor.position;
+        const s = anchor.scale.x;
+        camera.position.set(c.x, c.y + 0.82 * s, c.z + 0.7 * s);
+        controls.target.set(c.x, c.y + (platformTop + 0.08) * s, c.z);
+        controls.update();
+      }
 
       const textureLoader = new THREE.TextureLoader();
       const floatY = platformTop + 0.1;       // 상판에서 살짝만 띄움 (기존 0.18 → 대체)
@@ -1042,6 +1055,7 @@ export default function ArBreweryExperience() {
       clearStage();
       controls.dispose();
       renderer.dispose();
+      delete document.documentElement.dataset.arStep;
     };
   }, []);
 
@@ -1296,10 +1310,10 @@ const styles = `
   overflow-y:auto;
   background:linear-gradient(180deg,#f3ece0 0%,#e7dac3 100%); color:var(--ink);
   animation:ar-rise .5s cubic-bezier(.2,.8,.3,1) both}
-.ar-ui #finish .finish-drink{width:150px;height:190px;object-fit:contain;border-radius:14px;
-  background:var(--hanji-bright); border:1px solid rgba(198,165,104,.4);
-  box-shadow:0 12px 30px rgba(120,95,50,.18); padding:16px; margin-bottom:24px; animation:ar-float 4s ease-in-out infinite}
-@keyframes ar-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+/* 도감 카드와 같은 3:4 비율로, 여백 없이 꽉 채운다 */
+.ar-ui #finish .finish-drink{width:168px; aspect-ratio:3/4; height:auto; object-fit:cover; display:block;
+  border-radius:14px; background:var(--hanji-bright); border:1px solid rgba(198,165,104,.4);
+  box-shadow:0 12px 30px rgba(120,95,50,.18); padding:0; margin-bottom:24px}
 .ar-ui #finish h1{margin:0; font-family:var(--font-myeongjo), serif; font-size:23px; line-height:1.45;
   letter-spacing:.02em; color:var(--ink)}
 .ar-ui #finish p{margin:14px 0 24px; font-size:13px; line-height:1.8; color:var(--ink-soft); max-width:300px}
