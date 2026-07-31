@@ -43,10 +43,10 @@ export const nyangiTakju: Recipe = {
     { id: "rice_bowl",       file: `${MODEL_BASE}/rice_bowl.glb`,       step: "godubap", height: 0.16, y: 0.03 },
     { id: "kitchen_pot",     file: `${MODEL_BASE}/kitchen_pot.glb`,     step: "godubap", height: 0.22, y: 0.03 },
     { id: "metal_food_tray", file: `${MODEL_BASE}/metal_food_tray.glb`, step: "godubap", height: 0.05, y: 0.03 },
-    { id: "blanket",         file: `${MODEL_BASE}/blanket.glb`,         step: "godubap", height: 0.04, y: 0.05, scaleFactor: 0.05, drop: true },
   ],
-  // 냉각 때 채반/보자기 위에 얹는 고두밥 평면. texture 에 '고두밥' 이미지를 넣는다.
-  godubapRicePlane: { texture: "/models/godubap.png", size: 0.22, y: 0.065 },
+  // 냉각/혼합 때 채반 위에 까는 고두밥 평면. 채반 크기에 맞춰 자동으로 덮되,
+  // 채반이 없을 때 쓸 기본 크기는 3:5(직사각). texture 에 '고두밥' 이미지를 넣는다.
+  godubapRicePlane: { texture: "/models/godubap.png", width: 0.18, depth: 0.30, y: 0.055 },
 
   // 완성 공정 '출고' 단계에서 나타나는 완성 제품 병 (Nyangi.glb 를 아래 경로에 넣어야 보인다)
   finishModel: { id: "nyangi", file: `${MODEL_BASE}/Nyangi.glb`, step: "done", height: 0.28, y: 0.03 },
@@ -57,7 +57,7 @@ export const nyangiTakju: Recipe = {
     { id: "chimsu",   name: "침수", caption: "세 시간 동안 물에 충분히 불려요", models: ["rice_bowl"], water: 1 },
     { id: "talsu",    name: "탈수", caption: "한 시간 동안 물을 빼줘요", models: ["rice_bowl"] },
     { id: "jeungja",  name: "증자", caption: "강한 증기로 쪄 고두밥을 지어요", models: ["kitchen_pot"], steam: true },
-    { id: "naenggak", name: "냉각", caption: "다단식 채반에 펼쳐 차게 식혀요", models: ["metal_food_tray", "blanket", "rice_plane"], dark: true },
+    { id: "naenggak", name: "냉각", caption: "다단식 채반에 펼쳐 차게 식혀요", models: ["metal_food_tray", "rice_plane"], dark: true },
   ],
 
   // 담금·발효 (혼합 → 후발효). 마지막 '후발효'에서 항아리가 등장하고 시간(온도)으로 자동 발효.

@@ -93,6 +93,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let godubapShowStage: (() => void) | null = null;
     // 완성 공정 단계가 바뀔 때 출고 제품(Nyangi)을 보이는 함수(buildFinish 가 채운다)
     let finishShowShip: (() => void) | null = null;
+    // 발효 하위 단계가 바뀔 때 채반고두밥/항아리를 갈아 끼우는 함수(buildFerment 가 채운다)
+    let fermentShowStage: (() => void) | null = null;
     function resetIngredientSelection() {
       enteredIngredientAt = performance.now();
       S.selected.clear();
@@ -380,6 +382,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.tick = null;
       godubapShowStage = null;
       finishShowShip = null;
+      fermentShowStage = null;
       uiRoot!.classList.remove("cooling"); // 냉각 비네트는 무대가 바뀌면 끈다
     }
 
@@ -550,6 +553,50 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       };
     }
 
+    // ── 냉각/혼합 공용 헬퍼 ─────────────────────────────────────────────
+    // 모델의 가로·세로(바닥 면적) 실측 (스폰 직후 부모 없을 때 로컬 좌표)
+    function trayFootprint(node: THREE.Object3D): [number, number] {
+      const b = new THREE.Box3().setFromObject(node);
+      return [b.max.x - b.min.x, b.max.z - b.min.z];
+    }
+    // 고두밥(쌀) 텍스처 평면 — w×d 크기로. 채반 위에 깔린 고두밥을 표현.
+    function makeRicePlane(baseY: number, w: number, d: number): THREE.Mesh | null {
+      const rp = recipe.godubapRicePlane;
+      if (!rp) return null;
+      const tex = new THREE.TextureLoader().load(rp.texture, undefined, undefined,
+        (err) => console.warn("고두밥 텍스처 로드 실패:", rp.texture, err));
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, side: THREE.DoubleSide })
+      );
+      plane.position.set(0, baseY + rp.y, 0);
+      plane.receiveShadow = true;
+      return plane;
+    }
+    // 채반 + 그 위 고두밥 평면을 한 그룹으로. (냉각→혼합 연결에 재사용)
+    function makeCooledRice(baseY: number): THREE.Group {
+      const group = new THREE.Group();
+      const rp = recipe.godubapRicePlane;
+      let tw = 0, td = 0;
+      const trayDef = GODUBAP_MODELS.find((m) => m.id === "metal_food_tray");
+      if (trayDef) {
+        const node = spawnModel(trayDef);
+        if (node) {
+          [tw, td] = trayFootprint(node);
+          const g = new THREE.Group();
+          g.position.set(0, baseY + trayDef.y, 0);
+          g.add(node);
+          group.add(g);
+        }
+      }
+      const w = tw > 0 ? tw * 0.92 : (rp?.width ?? 0.2);
+      const d = td > 0 ? td * 0.92 : (rp?.depth ?? 0.3);
+      const rice = makeRicePlane(baseY, w, d);
+      if (rice) group.add(rice);
+      return group;
+    }
+
     /* --- 13 · 고두밥 --- */
     function buildGodubap() {
       const platformTop = addPlatform();
@@ -560,11 +607,13 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       const stage: Record<string, THREE.Object3D[]> = {};
       const drops: THREE.Object3D[] = [];    // 위에서 내려앉는 모션(보자기)
       const scatters: THREE.Object3D[] = []; // 흩뿌리는 모션(고두밥 쌀)
+      let gTrayW = 0, gTrayD = 0;            // 채반 실측 (고두밥 평면 크기에 사용)
       GODUBAP_MODELS.forEach((def) => {
         const count = def.scatter && def.scatter > 0 ? def.scatter : 1;
         const groups: THREE.Object3D[] = [];
         for (let k = 0; k < count; k++) {
           const node = spawnModel(def); // 파일이 없으면 null → 빈 그룹(보이지 않음)
+          if (node && def.id === "metal_food_tray") [gTrayW, gTrayD] = trayFootprint(node);
           const g = new THREE.Group();
           if (node) g.add(node);
           if (count > 1) {
@@ -590,23 +639,17 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         stage[def.id] = groups;
       });
 
-      // 냉각 때 채반/보자기 위에 얹는 고두밥(쌀) 텍스처 평면 (rice_plane)
+      // 냉각 때 채반 위에 까는 고두밥(쌀) 텍스처 평면 — 채반 크기에 맞춰 덮는다.
       if (recipe.godubapRicePlane) {
         const rp = recipe.godubapRicePlane;
-        const tex = new THREE.TextureLoader().load(
-          rp.texture, undefined, undefined,
-          (err) => console.warn("고두밥 텍스처 로드 실패:", rp.texture, err)
-        );
-        tex.colorSpace = THREE.SRGBColorSpace;
-        const plane = new THREE.Mesh(
-          new THREE.PlaneGeometry(rp.size, rp.size).rotateX(-Math.PI / 2),
-          new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, side: THREE.DoubleSide })
-        );
-        plane.position.set(0, platformTop + rp.y, 0);
-        plane.visible = false;
-        plane.receiveShadow = true;
-        stageGroup.add(plane);
-        stage["rice_plane"] = [plane];
+        const w = gTrayW > 0 ? gTrayW * 0.92 : rp.width;
+        const d = gTrayD > 0 ? gTrayD * 0.92 : rp.depth;
+        const plane = makeRicePlane(platformTop, w, d);
+        if (plane) {
+          plane.visible = false;
+          stageGroup.add(plane);
+          stage["rice_plane"] = [plane];
+        }
       }
 
       const glow = new THREE.PointLight(0xffd9a0, 0, 0.8);
@@ -704,41 +747,58 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     }
 
     /* --- 14 · 발효 --- */
-    let fermentTop = 0; // 후발효 진입 시 항아리를 올릴 받침 높이
     function buildFerment() {
       const platformTop = addPlatform();
-      fermentTop = platformTop;
-      // 항아리가 하단 조작부에 가리지 않도록 조금 더 물러나 위에서 잡는다
       frame3D(platformTop, 0.64, 0.5);
-      // 혼합·1차 발효·덧술(fstage 0~2) 동안은 받침만 둔다.
-      // 항아리(water_jar)와 자동 발효는 '후발효'(fstage 3)에서만 시작한다.
-      if (S.fstage >= 3) startHufermentation();
-    }
-    // '후발효' 진입 순간 호출 — 항아리를 올리고, 물방울·열·발효 진행 애니메이션을 켠다.
-    function startHufermentation() {
-      // "누룩 섞고 항아리에 담기" 이후 후발효에서 water_jar.glb (arModels.ts: step "ferment")가 배치된다.
-      placeModelsForStep("ferment", stageGroup, fermentTop);
 
+      // 혼합(fstage 0) 단계 — 냉각에서 이어지는 '채반 위 고두밥'
+      const cooled = makeCooledRice(platformTop);
+      cooled.visible = false;
+      stageGroup.add(cooled);
+
+      // 1차발효(fstage 1)부터 등장하는 발효 항아리
+      const jar = new THREE.Group();
+      const jarDef = MODELS.find((m) => m.step === "ferment");
+      if (jarDef) {
+        const node = spawnModel(jarDef);
+        if (node) {
+          const g = new THREE.Group();
+          g.position.set(0, platformTop + jarDef.y, 0);
+          g.add(node);
+          jar.add(g);
+        }
+      }
+      jar.visible = false;
+      stageGroup.add(jar);
+
+      // 후발효(마지막 단계) 발효 애니메이션 — 물방울·열
       const bubbles = makeParticles(180, {
-        color: 0xfff6dd, size: 0.009, opacity: 0.7, speed: 0.5,
+        color: 0xfff6dd, size: 0.009, opacity: 0, speed: 0.5,
         radius: 0.1, baseY: 0.06, height: 0.2, taper: 0.2,
       });
       stageGroup.add(bubbles);
       live.particles.push(bubbles);
-
       const heat = new THREE.PointLight(0xff8a4a, 0, 1.2);
       heat.position.set(0, 0.2, 0);
       stageGroup.add(heat);
 
+      const F_LAST_I = FERMENT_STEPS.length - 1;
+      fermentShowStage = () => {
+        cooled.visible = S.fstage === 0;   // 혼합에서만 채반+고두밥
+        jar.visible = S.fstage >= 1;       // 1차발효부터 항아리
+      };
+      fermentShowStage();
+
       live.tick = () => {
+        const active = S.fstage >= F_LAST_I; // 후발효에서만 실제 발효 진행
         const fill = 0.06 + (S.ferment / 100) * 0.16;
         const hot = THREE.MathUtils.clamp((S.temp - 24) / 10, 0, 1);
         const bo = (bubbles.userData as any).opt;
-        bo.speed = 0.25 + hot * 0.9;
+        bo.speed = active ? 0.25 + hot * 0.9 : 0;
         bo.baseY = 0.06;
         bo.height = fill + 0.05;
-        bubbles.material.opacity = 0.35 + hot * 0.45;
-        heat.intensity += (hot * 1.4 - heat.intensity) * 0.06;
+        bubbles.material.opacity += ((active ? 0.35 + hot * 0.45 : 0) - bubbles.material.opacity) * 0.1;
+        heat.intensity += ((active ? hot * 1.4 : 0) - heat.intensity) * 0.06;
       };
     }
 
@@ -923,7 +983,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         reticle.visible = false;
       }
 
-      if (S.step === "ferment" && S.fstage >= 3 && S.ferment < 100) {
+      if (S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
         const dist = Math.abs(S.temp - OPTIMAL_C);
         // 25℃에서 약 17초에 완주. 너무 빨리 끝나면 온도를 조절해 본 효과를 느끼기 어렵다.
         const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 6;
@@ -1215,7 +1275,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           if (i !== S.fstage) return;   // 지금 켜진 단계만 누를 수 있다
           if (i >= F_LAST) return;       // 후발효는 클릭이 아니라 발효로 완료된다
           S.fstage = i + 1;
-          if (S.fstage >= F_LAST) startHufermentation(); // 후발효 진입 — 항아리 등장 + 자동 발효
           syncFermentPhase();
         };
         fpills.appendChild(b);
@@ -1223,6 +1282,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     }
     // 후발효(fstage 3)에서만 온도 게임·항아리 자동 발효가 돈다. 그 전엔 탭으로만 진행.
     function syncFermentPhase() {
+      fermentShowStage?.(); // 혼합=채반+고두밥 / 1차발효~=항아리
       $$("#ferment-pills .pill").forEach((p, i) => {
         (p as HTMLElement).dataset.state = i < S.fstage ? "done" : i === S.fstage ? "now" : "todo";
       });

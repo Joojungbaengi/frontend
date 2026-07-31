@@ -74,9 +74,10 @@ export interface Recipe {
   models: ModelDef[];
   /** 고두밥 단계에서 하위 단계별로 갈아 끼우는 무대 모델들(그릇·솥·채반·보자기·쌀 등) */
   godubapModels?: ModelDef[];
-  /** 냉각 단계에 채반/보자기 위에 얹는, 고두밥(쌀) 텍스처를 입힌 평면.
-   *  step.models 목록에 "rice_plane" 을 넣으면 그 단계에 이 평면이 표시된다. */
-  godubapRicePlane?: { texture: string; size: number; y: number };
+  /** 냉각/혼합 단계에 채반 위에 얹는, 고두밥(쌀) 텍스처를 입힌 직사각 평면.
+   *  step.models 목록에 "rice_plane" 을 넣으면 표시된다. width×depth (예: 3:5).
+   *  채반(metal_food_tray)이 있으면 그 크기에 맞춰 자동으로 덮고, 없으면 이 값을 쓴다. */
+  godubapRicePlane?: { texture: string; width: number; depth: number; y: number };
   /** 완성 공정 '출고' 단계에서 나타나는 완성 제품 모델 (예: Nyangi.glb) */
   finishModel?: ModelDef;
 
