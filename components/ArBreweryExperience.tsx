@@ -18,10 +18,15 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
-import { MY_MODELS, type ModelDef, type ArStep } from "@/lib/arModels";
-import { INGREDIENTS } from "@/lib/ingredientsData";
+import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
+import { getRecipe } from "@/lib/brewery/recipes";
+import { styles } from "@/components/arBreweryStyles";
 
-export default function ArBreweryExperience() {
+/**
+ * 공통 엔진 — 술 종류별 데이터는 recipe(Recipe) 하나로만 받는다.
+ * recipe 를 넘기지 않으면 기본 레시피(냥이탁주)로 동작한다.
+ */
+export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?: Recipe }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -35,35 +40,26 @@ export default function ArBreweryExperience() {
     const $$ = (s: string) => Array.from(uiRoot.querySelectorAll(s));
 
     /* =====================================================================
-     * 0. 상태
+     * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
      * ===================================================================*/
-    
-    const GODUBAP_STEPS = [
-      { id: "semi",    name: "세미", caption: "가와지쌀을 열 번 넘게 깨끗이 씻고 헹궈요" },
-      { id: "chimsu",  name: "침수", caption: "세 시간 동안 물에 충분히 불려요" },
-      { id: "talsu",   name: "탈수", caption: "한 시간 동안 물을 빼줘요" },
-      { id: "jeungja", name: "증자", caption: "강한 증기로 쪄 고두밥을 지어요" },
-      { id: "naenggak",name: "냉각", caption: "다단식 채반에 펼쳐 차게 식혀요" },
-    ];
+
+    const MODELS = recipe.models;
+    const INGREDIENTS = recipe.ingredients;
+    const ESSENTIALS = INGREDIENTS.filter((i) => i.essential);
+    const ESS_N = ESSENTIALS.length;                 // 주원료 개수 (술마다 달라짐)
+    const ESS_NAMES = ESSENTIALS.map((i) => i.name).join("·");
+    const OPTIMAL_C = recipe.ferment.optimalC;       // 최적 발효 온도
+
+    const GODUBAP_STEPS = recipe.godubapSteps;
     // 핀 개수가 바뀌어도 로직이 따라오도록 하드코딩 대신 길이를 쓴다.
     const GB_N = GODUBAP_STEPS.length;      // 전체 단계 수
-    const GB_LAST = GB_N - 1;               // 마지막 단계(냉각) 인덱스 — 여기서 장인 퀴즈가 뜬다
+    const GB_LAST = GB_N - 1;               // 마지막 단계 인덱스 — 여기서 장인 퀴즈가 뜬다
 
-    // 담금·발효 단계 타임라인 — 항아리에 담근 뒤로는 시간이 익혀 준다.
-    // 클릭이 아니라 발효 진행도(S.ferment)에 따라 점등된다.
-    const FERMENT_STEPS = [
-      { id: "mix",  name: "혼합",   caption: "식힌 고두밥에 불린 전통누룩을 섞어 항아리에 담았어요" },
-      { id: "prim", name: "1차발효", caption: "발효실에서 사흘, 첫 술이 부글부글 끓어올라요" },
-      { id: "deot", name: "덧술",   caption: "고두밥을 두 번 더 안쳐 삼양주로 빚어요" },
-      { id: "post", name: "후발효", caption: "서른 날 남짓, 맑은 술이 천천히 익어가요" },
-    ];
+    // 담금·발효 타임라인 — 탭을 눌러 진행, 마지막 단계에서만 항아리+자동 발효.
+    const FERMENT_STEPS = recipe.fermentSteps;
 
     // 완성 공정 타임라인 — 발효가 끝난 뒤 손으로 마무리하는 단계들(클릭해 진행).
-    const PRESS_STEPS = [
-      { id: "press", name: "압착·여과", caption: "보자기에 술덧을 붓고 손으로 정성껏 짜 맑게 걸러요" },
-      { id: "aging", name: "저온숙성", caption: "1℃ 냉장창고에서 한 달 넘게 저온으로 숙성해요" },
-      { id: "ship",  name: "출고",     caption: "손으로 병입하고 라벨을 붙여 세상에 내보내요" },
-    ];
+    const PRESS_STEPS = recipe.pressSteps;
 
     const S = {
       step: "place" as "place" | ArStep,
@@ -89,6 +85,17 @@ export default function ArBreweryExperience() {
     const CONTENT_LIFT = 0.03;
     const platformContentY = (platformTop: number) => platformTop + CONTENT_LIFT;
 
+    // 원료 단계에 막 들어온 시각 — 화면 전환 직후 밀려오는 '유령 클릭'을 걸러내는 데 쓴다.
+    let enteredIngredientAt = 0;
+    function resetIngredientSelection() {
+      enteredIngredientAt = performance.now();
+      S.selected.clear();
+      $$("#grid .card").forEach((c) => c.setAttribute("aria-pressed", "false"));
+      const msg = $("#msg-ingredient");
+      if (msg) msg.textContent = recipe.intro; // 진입 시 항상 인트로부터
+      syncIngredient(); // 버튼 "주원료 0/N" 로 초기화 (interacted=false → 멘트는 인트로 유지)
+    }
+
     function setStep(next: typeof S.step) {
       S.step = next;
       uiRoot!.dataset.step = next;
@@ -96,6 +103,8 @@ export default function ArBreweryExperience() {
       // 다만 'done'의 앞 국면(압착~출고 완성 공정 walkthrough)은 AR 카메라를 그대로 두므로,
       // 헤더도 카메라 톤을 유지한다. 한지 축하 화면(.shipped)일 때만 밝은 헤더로 바꾼다.
       document.documentElement.dataset.arStep = next === "done" ? "ferment" : next;
+      // 원료 단계에 들어올 때마다 선택을 깨끗이 비워 '1개 선택된 채 시작'을 막는다.
+      if (next === "ingredient") resetIngredientSelection();
       buildStageFor(next);
     }
 
@@ -181,7 +190,7 @@ export default function ArBreweryExperience() {
 
     async function preloadModels() {
       await Promise.all(
-        MY_MODELS.map(async (m) => {
+        MODELS.map(async (m) => {
           try {
             LOADED[m.id] = await gltfLoader.loadAsync(m.file);
           } catch (e: any) {
@@ -223,7 +232,7 @@ export default function ArBreweryExperience() {
 
     // 모든 단계에 공통으로 띄울 모델 배치 (step:"common", 단 받침대 모델은 제외)
     function placeCommonModels(parent: THREE.Object3D, baseY: number) {
-      const defs = MY_MODELS.filter(
+      const defs = MODELS.filter(
         (m) => m.step === "common" && m.id !== "low_wooden_bench"
       );
       defs.forEach((def) => {
@@ -243,7 +252,7 @@ export default function ArBreweryExperience() {
       placeCommonModels(parent, baseY);
 
       // 1. 해당 단계의 모델들을 가져옵니다.
-      const defs = MY_MODELS.filter((m) => m.step === step);
+      const defs = MODELS.filter((m) => m.step === step);
       if (!defs.length) return;
 
       defs.forEach((def, i) => {
@@ -547,9 +556,9 @@ export default function ArBreweryExperience() {
       live.particles.push(steam);
 
       live.tick = () => {
-        // 김은 '증자'(찌기, index 3) 단계에서만 피어오른다.
-        // 세미·침수·탈수(0~2)에서는 뜨지 않고, 냉각(4)으로 넘어가면 사라진다.
-        const steaming = S.godubap === 3;
+        // 김은 레시피에서 steam:true 로 표시한 단계(증자/찌기)가 '지금' 단계일 때만 피어오른다.
+        // 그 앞 단계에서는 뜨지 않고, 다음 단계(냉각 등)로 넘어가면 사라진다.
+        const steaming = GODUBAP_STEPS[S.godubap]?.steam === true;
         glow.intensity += ((steaming ? 1.6 : 0.05) - glow.intensity) * 0.05;
         steam.material.opacity += ((steaming ? 0.55 : 0) - steam.material.opacity) * 0.06;
         (steam.userData as any).opt.speed = steaming ? 0.35 : 0.15;
@@ -755,7 +764,7 @@ export default function ArBreweryExperience() {
       }
 
       if (S.step === "ferment" && S.fstage >= 3 && S.ferment < 100) {
-        const dist = Math.abs(S.temp - 25);
+        const dist = Math.abs(S.temp - OPTIMAL_C);
         // 25℃에서 약 17초에 완주. 너무 빨리 끝나면 온도를 조절해 본 효과를 느끼기 어렵다.
         const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 6;
         S.ferment = Math.min(100, S.ferment + rate * dt);
@@ -854,6 +863,8 @@ export default function ArBreweryExperience() {
         // .chip 의 배경색이 테두리처럼 비쳐 보인다.
         b.innerHTML = `<span class="chip" style="background-image:url('${ing.texture}')"></span>${ing.name}`;
         b.onclick = () => {
+          // 평면 놓기 → 원료 화면으로 넘어온 그 탭이 카드로 새어 들어오는 유령 클릭 방지.
+          if (performance.now() - enteredIngredientAt < 500) return;
           const had = S.selected.has(ing.id);
           if (had) S.selected.delete(ing.id);
           else S.selected.add(ing.id);
@@ -864,11 +875,6 @@ export default function ArBreweryExperience() {
         grid.appendChild(b);
       });
     }
-    // 부재료를 담았을 때 장인이 들려주는 향 설명
-    const FLAVOR_NOTE: Record<string, string> = {
-      flower: "국화를 넣으면 은은한 국화 향이 감돈다네.",
-      honey: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지.",
-    };
     function syncIngredient(justAdded?: (typeof INGREDIENTS)[number], interacted = false) {
       const needed = INGREDIENTS.filter((i) => i.essential && !S.selected.has(i.id));
       const extras = INGREDIENTS.filter((i) => !i.essential && S.selected.has(i.id));
@@ -876,22 +882,20 @@ export default function ArBreweryExperience() {
       if (!b) return;
       b.disabled = needed.length > 0;
       b.textContent = needed.length
-        ? `주원료 ${4 - needed.length}/4 선택`
+        ? `주원료 ${ESS_N - needed.length}/${ESS_N} 선택`
         : extras.length
-          ? `주원료 4종 · 부재료 ${extras.length}종`
-          : "주원료 4개 선택 완료";
+          ? `주원료 ${ESS_N}종 · 부재료 ${extras.length}종`
+          : `주원료 ${ESS_N}개 선택 완료`;
       // 부팅·초기화 때는 인트로 안내문을 유지하고, 사용자가 재료를 만졌을 때만 멘트를 바꾼다.
       if (!interacted) return;
       if (justAdded && !justAdded.essential) {
-        coach("#msg-ingredient", FLAVOR_NOTE[justAdded.id] ?? "부재료를 더하면 향이 한결 깊어진다네.");
+        coach("#msg-ingredient", justAdded.flavorNote ?? "부재료를 더하면 향이 한결 깊어진다네.");
       } else if (needed.length) {
-        coach("#msg-ingredient", `가와지쌀·정제수·누룩·밀이 주원료라네. ${needed.map((i) => i.name).join("·")}을(를) 마저 담아보게.`);
+        coach("#msg-ingredient", `${ESS_NAMES}이 주원료라네. ${needed.map((i) => i.name).join("·")}을(를) 마저 담아보게.`);
       } else {
         coach(
           "#msg-ingredient",
-          extras.length
-            ? "좋아, 주원료에 부재료까지 갖췄네. 이제 고두밥부터 지어 세 번 담글 준비를 하세."
-            : "좋아, 주원료가 다 모였네. 이제 고두밥부터 지어 세 번 담글 준비를 하세."
+          (extras.length ? "좋아, 주원료에 부재료까지 갖췄네. " : "좋아, 주원료가 다 모였네. ") + recipe.ingredientsReady
         );
       }
     }
@@ -957,22 +961,32 @@ export default function ArBreweryExperience() {
         b.textContent = S.godubap < GB_N ? "공정을 순서대로 진행하세요" : "누룩 섞고 항아리에 담기";
       }
     }
-    $$("#quiz .choice").forEach((c) => {
-      (c as HTMLElement).onclick = () => {
-        const right = (c as HTMLElement).dataset.correct === "1";
-        c.classList.add(right ? "ok" : "no");
-        if (right) {
-          S.quizDone = true;
-          setTimeout(() => {
-            $("#quiz")?.classList.add("hidden");
-            S.godubap = GB_N;
-            syncGodubap();
-          }, 900);
-        } else {
-          setTimeout(() => c.classList.remove("no"), 900);
-        }
-      };
-    });
+    // 퀴즈 문항·선택지는 레시피에서 온다. (술마다 문구가 달라져도 그대로 동작)
+    const quizQ = $("#quiz-q");
+    if (quizQ) quizQ.textContent = recipe.quiz.question;
+    const quizChoices = $("#quiz-choices");
+    if (quizChoices) {
+      quizChoices.innerHTML = "";
+      recipe.quiz.choices.forEach((choice) => {
+        const c = document.createElement("button");
+        c.className = "choice";
+        c.textContent = choice.text;
+        c.onclick = () => {
+          c.classList.add(choice.correct ? "ok" : "no");
+          if (choice.correct) {
+            S.quizDone = true;
+            setTimeout(() => {
+              $("#quiz")?.classList.add("hidden");
+              S.godubap = GB_N;
+              syncGodubap();
+            }, 900);
+          } else {
+            setTimeout(() => c.classList.remove("no"), 900);
+          }
+        };
+        quizChoices.appendChild(c);
+      });
+    }
     const btnGodubap = $("#btn-godubap");
     if (btnGodubap)
       (btnGodubap as HTMLElement).onclick = () => {
@@ -993,14 +1007,15 @@ export default function ArBreweryExperience() {
       };
     }
     function tempLabel(v: number) {
-      if (v < 21) return "조금 낮음";
-      if (v <= 26) return "알맞음";
-      if (v <= 29) return "조금 높음";
+      // 최적 온도(OPTIMAL_C)를 기준으로 한 상대 구간. 원래 25℃ 기준(−4~+1 알맞음)을 일반화했다.
+      if (v < OPTIMAL_C - 4) return "조금 낮음";
+      if (v <= OPTIMAL_C + 1) return "알맞음";
+      if (v <= OPTIMAL_C + 4) return "조금 높음";
       return "너무 높음";
     }
-    /** 25℃에서 얼마나 벗어났는지 — 색과 속도 표시에 함께 쓴다 */
+    /** 최적 온도에서 얼마나 벗어났는지 — 색과 속도 표시에 함께 쓴다 */
     function tempState(): "ok" | "warn" | "bad" {
-      const off = Math.abs(S.temp - 25);
+      const off = Math.abs(S.temp - OPTIMAL_C);
       return off <= 2 ? "ok" : off <= 4 ? "warn" : "bad";
     }
 
@@ -1020,9 +1035,9 @@ export default function ArBreweryExperience() {
       }
       const m = $("#msg-ferment");
       if (!m) return;
-      if (S.temp > 26) m.textContent = "온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.";
-      else if (S.temp < 21) m.textContent = "너무 서늘하면 효모가 잠들어 버린다네. 조금만 올려보게.";
-      else m.textContent = "24~26℃, 딱 좋구먼. 이대로 두면 곱게 익겠네.";
+      if (S.temp > OPTIMAL_C + 1) m.textContent = "온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.";
+      else if (S.temp < OPTIMAL_C - 4) m.textContent = "너무 서늘하면 효모가 잠들어 버린다네. 조금만 올려보게.";
+      else m.textContent = `${OPTIMAL_C - 1}~${OPTIMAL_C + 1}℃, 딱 좋구먼. 이대로 두면 곱게 익겠네.`;
     }
     /* 담금·발효 타임라인 핀 — 탭을 눌러 혼합 → 1차발효 → 덧술 순으로 넘어간다.
        마지막 '후발효'에 이르면 항아리가 나타나고 시간(온도 조절)으로 자동 발효된다. */
@@ -1142,20 +1157,16 @@ export default function ArBreweryExperience() {
     if (btnReport) {
       (btnReport as HTMLElement).onclick = () => {
         const avg = S.tempLog.length ? S.tempLog.reduce((a, b) => a + b, 0) / S.tempLog.length : S.temp;
-        const score = Math.round(THREE.MathUtils.clamp(100 - Math.abs(avg - 25) * 7, 40, 99));
-        const notes: Record<string, string> = {
-          flower: "은은한 국화 향", honey: "둥근 단맛",
-        };
+        const score = Math.round(THREE.MathUtils.clamp(100 - Math.abs(avg - OPTIMAL_C) * 7, 40, 99));
+        const notes = recipe.report.notes;
         const extra = INGREDIENTS.find((i) => !i.essential && S.selected.has(i.id));
         const body = $("#report-body");
         if (body)
           body.innerHTML = `
-            <dt>제조 방식</dt><dd>삼양주 · 세 번 담금 · 수작업 100%</dd>
+            <dt>제조 방식</dt><dd>${recipe.report.method}</dd>
             <dt>사용한 원료</dt><dd>${[...S.selected].map((id) => INGREDIENTS.find((i) => i.id === id)!.name).join(" · ")}</dd>
             <dt>평균 발효 온도</dt><dd>${avg.toFixed(1)}℃</dd>
-            <dt>완전발효</dt><dd>30여 일 (가속 체험)</dd>
-            <dt>저온 숙성</dt><dd>1℃ 냉장창고 · 30일 이상</dd>
-            <dt>총 제조 기간</dt><dd>60일 이상</dd>
+            ${(recipe.report.extraRows ?? []).map((r) => `<dt>${r.label}</dt><dd>${r.value}</dd>`).join("")}
             <dt>맛 프로파일</dt><dd>${extra ? notes[extra.id] : "깔끔한 곡물 단맛"}</dd>
             <dt>양조 점수</dt><dd>${score}점</dd>`;
         $("#report")?.classList.add("open");
@@ -1236,7 +1247,9 @@ export default function ArBreweryExperience() {
       renderer.dispose();
       delete document.documentElement.dataset.arStep;
     };
-  }, []);
+    // recipe 가 바뀌면 씬·UI를 새 술로 다시 초기화한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe]);
 
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
@@ -1266,14 +1279,14 @@ export default function ArBreweryExperience() {
             <div className="avatar" />
             <div>
               <div className="who">AI 술도가 장인</div>
-              <div className="msg" id="msg-ingredient">이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 가와지쌀·정제수·누룩·밀, 이 네 가지 주원료를 골라 담아보게.</div>
+              <div className="msg" id="msg-ingredient">{recipe.intro}</div>
             </div>
           </div>
         </div>
         <div className="fill" />
         <div className="dock">
           <div className="grid" id="grid" />
-          <button className="cta" id="btn-ingredient" disabled>주원료 0/4 선택</button>
+          <button className="cta" id="btn-ingredient" disabled>주원료 선택</button>
         </div>
       </div>
 
@@ -1282,7 +1295,7 @@ export default function ArBreweryExperience() {
         <div className="steps" id="pills" />
         <div className="steps-hint" id="godubap-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
         <div className="fill">
-          <div className="caption" id="cap-godubap">가와지쌀을 열 번 넘게 깨끗이 씻고 헹궈요</div>
+          <div className="caption" id="cap-godubap">{recipe.godubapSteps[0]?.caption}</div>
         </div>
         <div className="dock">
           <div id="quiz" className="hidden">
@@ -1290,11 +1303,8 @@ export default function ArBreweryExperience() {
               <div className="avatar" />
               <div style={{ flex: 1 }}>
                 <div className="who">AI 술도가 장인</div>
-                <div className="msg">고두밥이 아직 뜨겁네. 지금 누룩을 섞으면 발효에 어떤 영향을 줄까?</div>
-                <div className="choices">
-                  <button className="choice" data-correct="1">뜨거우면 누룩 속 효소·미생물이 죽어요</button>
-                  <button className="choice" data-correct="0">더 빨리 발효돼서 좋아요</button>
-                </div>
+                <div className="msg" id="quiz-q">{recipe.quiz.question}</div>
+                <div className="choices" id="quiz-choices" />
               </div>
             </div>
           </div>
@@ -1307,7 +1317,7 @@ export default function ArBreweryExperience() {
         <div className="steps" id="ferment-pills" />
         <div className="steps-hint" id="ferment-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
         <div className="fill">
-          <div className="caption" id="cap-ferment">식힌 고두밥에 불린 전통누룩을 섞어 항아리에 담았어요</div>
+          <div className="caption" id="cap-ferment">{recipe.fermentSteps[0]?.caption}</div>
         </div>
         <div className="dock">
           <div id="ferment-game" className="hidden">
@@ -1337,7 +1347,7 @@ export default function ArBreweryExperience() {
         <div className="steps" id="press-pills" />
         <div className="steps-hint" id="finishing-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
         <div className="fill">
-          <div className="caption" id="cap-finishing">보자기에 술덧을 붓고 손으로 정성껏 짜 맑게 걸러요</div>
+          <div className="caption" id="cap-finishing">{recipe.pressSteps[0]?.caption}</div>
         </div>
         <div className="dock">
           <button className="cta" id="btn-finishing" disabled>공정을 순서대로 진행하세요</button>
@@ -1346,9 +1356,9 @@ export default function ArBreweryExperience() {
 
       {/* 16 · 완성 */}
       <div id="finish">
-        <img className="finish-drink" src="/drinks/takju_goyang_nyangi9.webp" alt="냥이탁주9" />
-        <h1>냥이탁주 9<br />양조 체험 완료!</h1>
-        <p>고양 가와지쌀로 빚은 냥이탁주 9가 완성됐어요. 쌀을 열 번 넘게 헹궈 고두밥을 짓고, 누룩을 섞어 세 번 담그는 삼양주로 서른 날을 발효한 뒤, 보자기에 손으로 짜 1℃ 냉장창고에서 다시 한 달 넘게 저온 숙성합니다. 씻기부터 병입까지 예순 날 넘게, 행주산성주가가 손으로 빚는 과정을 그대로 따라와 보셨어요.</p>
+        <img className="finish-drink" src={recipe.finish.image} alt={recipe.finish.alt} />
+        <h1>{recipe.name}<br />양조 체험 완료!</h1>
+        <p>{recipe.finish.note}</p>
         <div className="finish-actions">
           <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
           <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
@@ -1370,195 +1380,3 @@ export default function ArBreweryExperience() {
     </div>
   );
 }
-
-/* 원본 index.html의 CSS를 이식하되, 값은 앱 공통 디자인(globals.css :root)에 맞춘다.
-   .topbar 는 ScreenHeader가 대신하므로 제거. #ui → .ar-ui 로 치환.
-   이 <style> 은 전역으로 주입되므로 모든 선택자를 .ar-ui 로 감싸
-   앱 공통 클래스(.card, .hidden 등)와 부딪히지 않게 한다. */
-const styles = `
-.ar-ui{position:absolute; inset:0; display:flex; flex-direction:column; overflow:hidden;
-  font-family:var(--font-gowun), system-ui, sans-serif;
-  color:#f3e6cc;
-  /* 앱 팔레트에 맞춘 지역 별칭 — --hanji/--seal/--gold/--sage 등은 :root 것을 그대로 쓴다 */
-  --cream:var(--hanji); --cream-dim:rgba(243,230,204,.66); --panel-2:#3a2c1c;
-  --clay:var(--seal); --clay-hi:#c9573c; --sage-deep:var(--gold);
-  --line:rgba(232,201,138,.22);
-  --r-md:16px; --r-sm:14px; --safe-b:env(safe-area-inset-bottom,0px);
-  padding-top:20px;}
-.ar-ui canvas#gl{position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0}
-.ar-ui > *{position:relative; z-index:1}
-
-.ar-ui.ar-mode{background:transparent}
-.ar-ui.ar-mode canvas#gl{background:transparent}
-.ar-ui.ar-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
-.ar-ui.ar-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
-.ar-ui.ar-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
-
-.ar-ui .fill{flex:1; position:relative}
-/* 하단 여백은 헤더 위 여백과 비슷하게 — 버튼이 화면 끝에 붙지 않도록 */
-.ar-ui .dock{padding:0 22px calc(34px + var(--safe-b)); display:flex; flex-direction:column; gap:14px}
-/* 첫 화면 안내문은 카메라 화면 가운데에 */
-.ar-ui .lead-center{display:flex; align-items:center; justify-content:center; padding:0 22px}
-
-.ar-ui .coach{display:flex; gap:12px; align-items:flex-start; background:var(--cream); color:var(--ink-strong);
-  border:1px solid rgba(198,165,104,.4); border-radius:var(--r-md); padding:14px 15px;
-  box-shadow:0 8px 20px rgba(120,95,50,.22);
-  animation:ar-rise .34s cubic-bezier(.2,.8,.3,1) both}
-@keyframes ar-rise{from{opacity:0; transform:translateY(10px)}to{opacity:1; transform:none}}
-.ar-ui .coach .avatar{width:28px;height:28px;border-radius:50%;flex:none;margin-top:2px;
-  background:radial-gradient(circle at 35% 30%, #e8c98a, #a67c3e)}
-.ar-ui .coach .who{font-size:11px; font-weight:700; color:var(--clay); letter-spacing:.02em}
-.ar-ui .coach .msg{font-size:13px; line-height:1.65; margin-top:4px; color:var(--ink-soft)}
-
-.ar-ui .choices{display:flex; flex-direction:column; gap:9px; margin-top:12px}
-.ar-ui .choice{text-align:left; width:100%; cursor:pointer; background:var(--hanji-bright);
-  border:1px solid rgba(198,165,104,.45); color:var(--ink-strong); font:inherit; font-size:13px;
-  padding:12px 14px; border-radius:var(--r-sm); transition:.18s}
-.ar-ui .choice.ok{background:var(--sage); border-color:#8ea77f}
-.ar-ui .choice.no{background:#f4e0da; border-color:#c58c80}
-
-/* 재료 고르기 — 네모 상자 없이 재료만 놓인 것처럼.
-   투명 PNG라 배경색을 깔면 테두리처럼 비쳐 보이므로 색을 주지 않고,
-   대신 그림자로 카메라 화면 위에서도 또렷하게 보이게 한다. */
-.ar-ui .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:4px}
-.ar-ui .card{background:none; border:none; border-radius:12px; padding:8px 4px 6px; cursor:pointer;
-  color:var(--cream-dim); display:flex; flex-direction:column; align-items:center; gap:7px;
-  font:inherit; font-size:12px; text-shadow:0 1px 6px rgba(0,0,0,.85);
-  -webkit-tap-highlight-color:transparent; transition:.2s}
-.ar-ui .card .chip{width:54px; height:54px; background-color:transparent;
-  background-size:contain; background-repeat:no-repeat; background-position:center;
-  filter:drop-shadow(0 3px 7px rgba(0,0,0,.6)); transition:transform .22s, filter .22s}
-.ar-ui .card[aria-pressed="true"]{color:var(--gold-bright); font-weight:700}
-.ar-ui .card[aria-pressed="true"] .chip{transform:scale(1.18) translateY(-2px);
-  filter:drop-shadow(0 0 11px rgba(232,201,138,.9)) drop-shadow(0 4px 8px rgba(0,0,0,.5))}
-.ar-ui .card:active .chip{transform:scale(.94)}
-
-/* 고두밥 공정 진행 표시 — 점과 선으로 잇는 타임라인.
-   지금 눌러야 할 단계만 인주색으로 살아 있어, 어디를 눌러야 하는지 바로 보인다. */
-.ar-ui .steps{display:flex; align-items:flex-start; padding:0 20px; margin-top:2px}
-.ar-ui .pill{position:relative; z-index:1; flex:1; display:flex; flex-direction:column; align-items:center; gap:8px;
-  border:none; background:none; padding:0; cursor:default; font:inherit; font-size:11.5px; font-weight:600;
-  color:rgba(243,230,204,.42); text-shadow:0 1px 6px rgba(0,0,0,.7); transition:.2s}
-.ar-ui .pill::before{content:""; box-sizing:border-box; width:22px; height:22px; border-radius:50%;
-  background:var(--panel-2); border:2px solid rgba(232,201,138,.3);
-  display:grid; place-items:center; font-size:12px; line-height:1; transition:.2s}
-/* 다음 점까지 잇는 선 (마지막 단계 제외) */
-.ar-ui .pill::after{content:""; position:absolute; z-index:-1; top:10px; left:50%; width:100%; height:2px;
-  background:rgba(232,201,138,.25)}
-.ar-ui .pill:last-child::after{display:none}
-.ar-ui .pill[data-state="done"]{color:rgba(243,230,204,.72)}
-.ar-ui .pill[data-state="done"]::before{content:"✓"; color:var(--ink); background:var(--sage); border-color:var(--sage)}
-.ar-ui .pill[data-state="done"]::after{background:var(--sage)}
-.ar-ui .pill[data-state="now"]{color:var(--gold-bright); cursor:pointer}
-.ar-ui .pill[data-state="now"]::before{background:var(--clay); border-color:#dd8a72;
-  animation:ar-pulse 1.8s ease-in-out infinite}
-@keyframes ar-pulse{0%,100%{box-shadow:0 0 0 0 rgba(181,72,47,.55)}50%{box-shadow:0 0 0 8px rgba(181,72,47,0)}}
-.ar-ui .steps-hint{margin:10px 22px 0; text-align:center; font-size:12px; color:var(--gold-bright);
-  text-shadow:0 1px 6px rgba(0,0,0,.75)}
-
-.ar-ui .caption{position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:12px; color:var(--cream-dim)}
-
-.ar-ui .meter{background:var(--cream); color:var(--ink-strong); border:1px solid rgba(198,165,104,.4);
-  border-radius:var(--r-md); padding:14px 15px}
-.ar-ui .meter .row{display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px; font-weight:600}
-.ar-ui .meter .val{color:var(--clay); font-size:14px; font-variant-numeric:tabular-nums}
-.ar-ui .meter input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:9px; margin:12px 0 0;
-  border-radius:999px; outline:none; background:linear-gradient(90deg,#3f7a4e,#8fae4a,#e0b23c,#d1662f,#b7332a)}
-.ar-ui .meter input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:19px;height:19px;border-radius:50%;
-  background:#fff; border:2px solid var(--brown); cursor:pointer}
-.ar-ui .meter input[type=range]::-moz-range-thumb{width:19px;height:19px;border-radius:50%;background:#fff;border:2px solid var(--brown)}
-
-.ar-ui .bar{height:8px; border-radius:999px; background:rgba(232,201,138,.18); overflow:hidden}
-.ar-ui .bar i{display:block; height:100%; width:0; background:var(--sage-deep);
-  transition:width .4s linear, background .3s}
-/* 온도가 어긋나면 진행 막대와 안내 문구가 함께 색으로 알려준다 */
-.ar-ui .bar i[data-state="warn"]{background:#d8a441}
-.ar-ui .bar i[data-state="bad"]{background:var(--clay)}
-.ar-ui .ferment-row{display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px;
-  color:var(--cream-dim); text-shadow:0 1px 6px rgba(0,0,0,.7)}
-/* 온도 게임 묶음 — 후발효에서만 보인다. dock과 같은 간격을 안에서 유지한다. */
-.ar-ui #ferment-game{display:flex; flex-direction:column; gap:14px}
-.ar-ui .ferment-rate[data-state="ok"]{color:var(--sage)}
-.ar-ui .ferment-rate[data-state="warn"]{color:#e8c07a}
-.ar-ui .ferment-rate[data-state="bad"]{color:#e8927a}
-.ar-ui .ferment-pct{font-weight:700; color:var(--gold-bright); font-variant-numeric:tabular-nums}
-.ar-ui .meter .val[data-state="ok"]{color:#3f7a4e}
-.ar-ui .meter .val[data-state="warn"]{color:#c1862a}
-.ar-ui .meter .val[data-state="bad"]{color:var(--clay)}
-
-/* 앱의 .btn-seal(인주 강조버튼)과 같은 규격 — 그림자 없이 색만 다르게 */
-.ar-ui .cta{width:100%; box-sizing:border-box; border:1px solid transparent; font-family:var(--font-myeongjo), serif;
-  font-weight:700; font-size:15px; line-height:1.3; letter-spacing:.02em; color:#fbeee5; background:var(--clay);
-  padding:15px; border-radius:14px; cursor:pointer; box-shadow:none; transition:.2s}
-.ar-ui .cta:hover:not(:disabled){background:var(--clay-hi)}
-.ar-ui .cta:disabled{background:#3a2c1c; color:rgba(243,230,204,.35); cursor:default}
-.ar-ui .cta.ghost{background:transparent; border-color:var(--line); color:var(--cream-dim)}
-
-.ar-ui .seg{display:flex; gap:8px; justify-content:center}
-.ar-ui .seg button{border:1px solid var(--line); background:transparent; color:var(--cream-dim); font:inherit;
-  font-size:12.5px; padding:9px 16px; border-radius:999px; cursor:pointer}
-.ar-ui .seg button[aria-pressed="true"]{background:var(--sage); border-color:var(--sage); color:var(--ink); font-weight:600}
-
-.ar-ui .lead{text-align:center}
-.ar-ui .lead h2{margin:0; font-family:var(--font-myeongjo), serif; font-size:19px; letter-spacing:.02em; font-weight:700}
-.ar-ui .lead p{margin:10px 0 0; font-size:13px; line-height:1.7; color:var(--cream-dim)}
-
-/* 완료 화면 — 앱의 한지 배경으로 */
-/* 위아래 여백을 헤더 위 간격과 비슷하게 두어 내용이 화면 가운데 놓이게 한다 */
-.ar-ui #finish{position:absolute; inset:0; display:none; flex-direction:column; align-items:center;
-  justify-content:center; text-align:center; padding:46px 22px calc(46px + var(--safe-b));
-  overflow-y:auto;
-  background:linear-gradient(180deg,#f3ece0 0%,#e7dac3 100%); color:var(--ink);
-  animation:ar-rise .5s cubic-bezier(.2,.8,.3,1) both}
-/* 도감 카드와 같은 3:4 비율로, 여백 없이 꽉 채운다 */
-.ar-ui #finish .finish-drink{width:138px; aspect-ratio:3/4; height:auto; object-fit:cover; display:block;
-  border-radius:14px; background:var(--hanji-bright); border:1px solid rgba(198,165,104,.4);
-  box-shadow:0 12px 30px rgba(120,95,50,.18); padding:0; margin-bottom:20px}
-.ar-ui #finish h1{margin:0; font-family:var(--font-myeongjo), serif; font-size:22px; line-height:1.45;
-  letter-spacing:.02em; color:var(--ink)}
-.ar-ui #finish p{margin:12px 0 20px; font-size:13px; line-height:1.75; color:var(--ink-soft); max-width:300px}
-/* 버튼은 색만 다르게. 위 두 개는 한 줄에 반씩, 아래 하나는 전체 폭 */
-.ar-ui #finish .cta{max-width:320px; box-sizing:border-box; display:block; text-align:center; text-decoration:none}
-.ar-ui #finish .finish-actions{display:flex; gap:10px; width:100%; max-width:320px}
-.ar-ui #finish .finish-actions .cta{flex:1; min-width:0; max-width:none; font-size:14px; padding:14px 8px;
-  line-height:1.35; word-break:keep-all}
-.ar-ui #finish .finish-actions + .cta{margin-top:10px}
-.ar-ui #finish .dex-link{background:var(--brown); color:#f3e6cc}
-.ar-ui #finish .dex-link:hover{background:var(--brown-deep)}
-/* 밝은 배경에서는 앱의 .btn-outline 처럼 */
-.ar-ui #finish .cta.ghost{border:1px solid rgba(58,44,27,.3); background:rgba(255,255,255,.5); color:var(--ink-strong)}
-
-.ar-ui #report{position:absolute; inset:0; background:rgba(36,27,16,.62); backdrop-filter:blur(3px);
-  display:none; align-items:flex-end; z-index:20}
-.ar-ui #report.open{display:flex}
-.ar-ui #report .sheet{width:100%; background:var(--cream); color:var(--ink-strong); border-radius:18px 18px 0 0;
-  border-top:1px solid rgba(198,165,104,.4);
-  padding:22px 22px calc(22px + var(--safe-b)); animation:ar-up .32s cubic-bezier(.2,.8,.3,1) both}
-@keyframes ar-up{from{transform:translateY(100%)}to{transform:none}}
-.ar-ui #report h3{margin:0 0 4px; font-family:var(--font-myeongjo), serif; font-size:17px; color:var(--ink)}
-.ar-ui #report .sub{font-size:12px; color:var(--ink-faint); margin-bottom:16px}
-.ar-ui #report dl{display:grid; grid-template-columns:auto 1fr; gap:11px 14px; margin:0 0 18px; font-size:13px}
-.ar-ui #report dt{color:var(--ink-faint)}
-.ar-ui #report dd{margin:0; text-align:right; font-weight:600; color:var(--ink-strong)}
-
-.ar-ui .hidden{display:none !important}
-/* 단계 패널은 화면 전체를 덮으므로 포인터를 통과시킨다.
-   그래야 3D 모드에서 캔버스를 드래그해 시점을 돌릴 수 있다.
-   실제로 눌러야 하는 영역(하단 조작부·진행 표시)만 다시 살린다. */
-.ar-ui .panel-step{display:none; flex-direction:column; flex:1; pointer-events:none}
-.ar-ui .dock, .ar-ui .steps{pointer-events:auto}
-.ar-ui[data-step="place"] #p-place,
-.ar-ui[data-step="ingredient"] #p-ingredient,
-.ar-ui[data-step="godubap"] #p-godubap,
-.ar-ui[data-step="ferment"] #p-ferment{display:flex}
-/* 완성(done) 단계는 두 국면 — 먼저 완성 공정 walkthrough, 다 마치면(.shipped) 축하 화면 */
-.ar-ui[data-step="done"] #p-finishing{display:flex}
-.ar-ui[data-step="done"].shipped #p-finishing{display:none}
-.ar-ui[data-step="done"].shipped #finish{display:flex}
-
-/* 완성 공정 패널 — 배경을 깔지 않아 AR 카메라 화면이 그대로 유지된다.
-   (한지 배경으로 덮으면 카메라가 사라진 것처럼 보여 '나가진다'고 느껴진다) */
-.ar-ui #p-finishing{background:transparent}
-
-@media (prefers-reduced-motion:reduce){.ar-ui *{animation:none !important; transition:none !important}}
-`;
