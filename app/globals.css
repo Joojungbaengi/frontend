@@ -327,6 +327,20 @@ button {
   background: rgba(255, 255, 255, 0.16);
 }
 
+/* AR 양조 체험이 완료 화면일 때는 헤더도 한지색으로 — 본문과 경계가 지지 않게 */
+html[data-ar-step="done"] .screen-header {
+  background: #f3ece0;
+}
+html[data-ar-step="done"] .screen-header-title {
+  color: var(--ink);
+}
+html[data-ar-step="done"] .btn-back.on-dark {
+  background: rgba(255, 255, 255, 0.55);
+}
+html[data-ar-step="done"] .btn-back svg path {
+  stroke: var(--ink-strong);
+}
+
 /* 화면 상단 헤더 — 뒤로가기 + 가운데 페이지명(명조 19px) 한 줄 */
 .screen-header {
   position: relative;
