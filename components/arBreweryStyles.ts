@@ -120,6 +120,9 @@ export const styles = `
   padding:15px; border-radius:14px; cursor:pointer; box-shadow:none; transition:.2s}
 .ar-ui .cta:hover:not(:disabled){background:var(--clay-hi)}
 .ar-ui .cta:disabled{background:#3a2c1c; color:rgba(243,230,204,.35); cursor:default}
+/* 아직 다음으로 넘어갈 수 없는 상태 — 비활성처럼 보이되 눌리면 안내창을 띄운다 */
+.ar-ui .cta.waiting{background:#3a2c1c; color:rgba(243,230,204,.5)}
+.ar-ui .cta.waiting:hover{background:#463620}
 .ar-ui .cta.ghost{background:transparent; border-color:var(--line); color:var(--cream-dim)}
 
 .ar-ui .seg{display:flex; gap:8px; justify-content:center}
@@ -168,6 +171,16 @@ export const styles = `
 .ar-ui #report dl{display:grid; grid-template-columns:auto 1fr; gap:11px 14px; margin:0 0 18px; font-size:13px}
 .ar-ui #report dt{color:var(--ink-faint)}
 .ar-ui #report dd{margin:0; text-align:right; font-weight:600; color:var(--ink-strong)}
+
+/* 안내 알림 — 리포트와 같은 재질이되 화면 가운데에 뜬다 */
+.ar-ui #notice{position:absolute; inset:0; background:rgba(36,27,16,.62); backdrop-filter:blur(3px);
+  display:none; align-items:center; justify-content:center; padding:22px; z-index:30}
+.ar-ui #notice.open{display:flex}
+.ar-ui #notice .sheet{width:100%; max-width:296px; background:var(--cream); color:var(--ink-strong);
+  border-radius:18px; border:1px solid rgba(198,165,104,.4); text-align:center;
+  padding:24px 22px; animation:ar-pop .28s cubic-bezier(.2,.8,.3,1) both}
+@keyframes ar-pop{from{opacity:0; transform:scale(.94)}to{opacity:1; transform:none}}
+.ar-ui #notice p{margin:0 0 18px; font-size:13.5px; line-height:1.75; color:var(--ink-soft); word-break:keep-all}
 
 .ar-ui .hidden{display:none !important}
 /* 단계 패널은 화면 전체를 덮으므로 포인터를 통과시킨다.
