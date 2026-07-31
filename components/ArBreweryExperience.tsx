@@ -1502,7 +1502,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <div className="coach">
             <div className="avatar" />
             <div>
-              <div className="who">AI 술도가 장인</div>
+              <div className="who">술도가 장인</div>
               <div className="msg" id="msg-ingredient">{recipe.intro}</div>
             </div>
           </div>
@@ -1526,7 +1526,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
             <div className="coach">
               <div className="avatar" />
               <div style={{ flex: 1 }}>
-                <div className="who">AI 술도가 장인</div>
+                <div className="who">술도가 장인</div>
                 <div className="msg" id="quiz-q">{recipe.quiz.question}</div>
                 <div className="choices" id="quiz-choices" />
               </div>
@@ -1557,7 +1557,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
             <div className="coach" id="coach-ferment">
               <div className="avatar" />
               <div>
-                <div className="who">AI 술도가 장인</div>
+                <div className="who">술도가 장인</div>
                 <div className="msg" id="msg-ferment">온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.</div>
               </div>
             </div>
@@ -1584,7 +1584,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         <h1>{recipe.name}<br />양조 체험 완료!</h1>
         <p>{recipe.finish.note}</p>
         <div className="finish-actions">
-          <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
+          <button className="cta" id="btn-report">양조 리포트 보기</button>
           <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
         </div>
         <button className="cta ghost" id="btn-restart">처음부터 다시 빚기</button>
@@ -1593,7 +1593,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       {/* 리포트 */}
       <div id="report">
         <div className="sheet">
-          <h3>AI 양조 리포트</h3>
+          <h3>양조 리포트</h3>
           <div className="sub">이번 체험에서 만든 술의 기록</div>
           <dl id="report-body" />
           <button className="cta" id="btn-close-report">닫기</button>

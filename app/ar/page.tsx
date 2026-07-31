@@ -4,7 +4,7 @@ import ArBreweryClient from "@/components/ArBreweryClient";
 /**
  * AR 양조 체험 — WebXR / Three.js.
  * 어떤 술을 체험할지는 /ar?type=<레시피 id> 쿼리로 고른다. (없으면 기본: 냥이탁주)
- * 체험 종료 후 흐름: AI 양조 리포트 → 경기술 카드 획득 → 도감 등록 (추후 연결)
+ * 체험 종료 후 흐름: 양조 리포트 → 경기술 카드 획득 → 도감 등록 (추후 연결)
  */
 export default async function ArPage({
   searchParams,
