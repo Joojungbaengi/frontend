@@ -847,9 +847,19 @@ export default function ArBreweryExperience() {
     }
     function syncGodubap() {
       $$("#pills .pill").forEach((p, i) => {
+        // 완료 표시(✓)는 CSS가 점 안에 그리므로 여기서는 이름만 둔다
         (p as HTMLElement).dataset.state = i < S.godubap ? "done" : i === S.godubap ? "now" : "todo";
-        p.textContent = GODUBAP_STEPS[i].name + (i < S.godubap ? " ✓" : "");
+        p.textContent = GODUBAP_STEPS[i].name;
       });
+      const hint = $("#godubap-hint");
+      if (hint) {
+        hint.textContent =
+          S.godubap >= 4
+            ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
+            : S.godubap === 3 && !S.quizDone
+              ? "장인의 질문에 먼저 답해주세요"
+              : "불이 켜진 단계를 눌러 순서대로 진행하세요";
+      }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, 3)];
       const cap = $("#cap-godubap");
       if (cap) cap.textContent = S.godubap >= 4 ? "고두밥 완성 · 25℃까지 식었어요" : cur.caption;
@@ -1053,6 +1063,7 @@ export default function ArBreweryExperience() {
       {/* 13 · 고두밥 */}
       <div className="panel-step" id="p-godubap">
         <div className="steps" id="pills" />
+        <div className="steps-hint" id="godubap-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
         <div className="fill">
           <div className="caption" id="cap-godubap">쌀을 씻어 이물질을 걷어내요</div>
         </div>
@@ -1183,12 +1194,28 @@ const styles = `
   filter:drop-shadow(0 0 11px rgba(232,201,138,.9)) drop-shadow(0 4px 8px rgba(0,0,0,.5))}
 .ar-ui .card:active .chip{transform:scale(.94)}
 
-.ar-ui .steps{display:flex; gap:8px; flex-wrap:wrap; padding:0 22px}
-.ar-ui .pill{border:none; font:inherit; font-size:12px; font-weight:600; padding:8px 14px; border-radius:999px;
-  cursor:pointer; background:var(--panel-2); color:rgba(243,230,204,.45)}
-.ar-ui .pill[data-state="done"]{background:var(--sage); color:var(--ink)}
-.ar-ui .pill[data-state="now"]{background:var(--clay); color:#fbeee5; animation:ar-pulse 1.8s ease-in-out infinite}
-@keyframes ar-pulse{0%,100%{box-shadow:0 0 0 0 rgba(181,72,47,.5)}50%{box-shadow:0 0 0 7px rgba(181,72,47,0)}}
+/* 고두밥 공정 진행 표시 — 점과 선으로 잇는 타임라인.
+   지금 눌러야 할 단계만 인주색으로 살아 있어, 어디를 눌러야 하는지 바로 보인다. */
+.ar-ui .steps{display:flex; align-items:flex-start; padding:0 20px; margin-top:2px}
+.ar-ui .pill{position:relative; z-index:1; flex:1; display:flex; flex-direction:column; align-items:center; gap:8px;
+  border:none; background:none; padding:0; cursor:default; font:inherit; font-size:11.5px; font-weight:600;
+  color:rgba(243,230,204,.42); text-shadow:0 1px 6px rgba(0,0,0,.7); transition:.2s}
+.ar-ui .pill::before{content:""; box-sizing:border-box; width:22px; height:22px; border-radius:50%;
+  background:var(--panel-2); border:2px solid rgba(232,201,138,.3);
+  display:grid; place-items:center; font-size:12px; line-height:1; transition:.2s}
+/* 다음 점까지 잇는 선 (마지막 단계 제외) */
+.ar-ui .pill::after{content:""; position:absolute; z-index:-1; top:10px; left:50%; width:100%; height:2px;
+  background:rgba(232,201,138,.25)}
+.ar-ui .pill:last-child::after{display:none}
+.ar-ui .pill[data-state="done"]{color:rgba(243,230,204,.72)}
+.ar-ui .pill[data-state="done"]::before{content:"✓"; color:var(--ink); background:var(--sage); border-color:var(--sage)}
+.ar-ui .pill[data-state="done"]::after{background:var(--sage)}
+.ar-ui .pill[data-state="now"]{color:var(--gold-bright); cursor:pointer}
+.ar-ui .pill[data-state="now"]::before{background:var(--clay); border-color:#dd8a72;
+  animation:ar-pulse 1.8s ease-in-out infinite}
+@keyframes ar-pulse{0%,100%{box-shadow:0 0 0 0 rgba(181,72,47,.55)}50%{box-shadow:0 0 0 8px rgba(181,72,47,0)}}
+.ar-ui .steps-hint{margin:10px 22px 0; text-align:center; font-size:12px; color:var(--gold-bright);
+  text-shadow:0 1px 6px rgba(0,0,0,.75)}
 
 .ar-ui .caption{position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:12px; color:var(--cream-dim)}
 
