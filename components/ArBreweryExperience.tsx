@@ -1110,7 +1110,7 @@ export default function ArBreweryExperience() {
           <div className="coach">
             <div className="avatar" />
             <div>
-              <div className="who">AI 술도가 장인</div>
+              <div className="who">술도가 장인</div>
               <div className="msg" id="msg-ingredient">이 술은 고양 가와지쌀로 빚는 냥이탁주라네. 들어갈 재료를 골라보게.</div>
             </div>
           </div>
@@ -1134,7 +1134,7 @@ export default function ArBreweryExperience() {
             <div className="coach">
               <div className="avatar" />
               <div style={{ flex: 1 }}>
-                <div className="who">AI 술도가 장인</div>
+                <div className="who">술도가 장인</div>
                 <div className="msg">고두밥이 아직 뜨겁네. 지금 누룩을 섞으면 발효에 어떤 영향을 줄까?</div>
                 <div className="choices">
                   <button className="choice" data-correct="1">뜨거우면 누룩 속 효소·미생물이 죽어요</button>
@@ -1165,7 +1165,7 @@ export default function ArBreweryExperience() {
           <div className="coach" id="coach-ferment">
             <div className="avatar" />
             <div>
-              <div className="who">AI 술도가 장인</div>
+              <div className="who">술도가 장인</div>
               <div className="msg" id="msg-ferment">온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.</div>
             </div>
           </div>
