@@ -377,12 +377,31 @@ export default function ArBreweryExperience() {
       return thickness;
     }
 
+    /**
+     * 3D 모드에서 단계별로 카메라를 잡아 준다. (AR은 실제 시점을 쓰므로 건드리지 않는다)
+     * 화면 위아래를 코치 카드와 하단 조작부가 차지하므로, 바라보는 지점을 물체보다
+     * 조금 낮게 두어 물체가 화면 가운데보다 위쪽 빈 공간에 오도록 한다.
+     *   lookAtY : 바라볼 높이 (받침대 기준)
+     *   back    : 뒤로 물러날 거리
+     *   up      : 위로 올라갈 높이 (클수록 내려다보는 각도가 커진다)
+     */
+    function frame3D(lookAtY: number, back: number, up: number) {
+      if (S.xr) return;
+      const c = anchor.position;
+      const s = anchor.scale.x;
+      camera.position.set(c.x, c.y + up * s, c.z + back * s);
+      controls.target.set(c.x, c.y + lookAtY * s, c.z);
+      controls.update();
+    }
+
     /* --- 12 · 원료 --- */
     let ingredientNodes: THREE.Group[] = [];
 
     function buildIngredients() {
       const platformTop = addPlatform();       // 실제 상판 높이를 받음
       placeModelsForStep("ingredient", stageGroup, platformTop);
+      // 정면에서 보면 바구니 옆에 뜬 원료가 서로 겹치므로 대각선 위에서 내려다본다
+      frame3D(platformTop + 0.02, 0.66, 0.92);
 
       // 3D 모드에서는 정면에서 보면 바구니 옆에 뜬 원료가 서로 겹쳐 보인다.
       // 대각선 위에서 내려다보는 시점으로 옮겨 원료가 한눈에 들어오게 한다. (AR은 실제 시점을 쓰므로 제외)
@@ -396,7 +415,7 @@ export default function ArBreweryExperience() {
 
       const textureLoader = new THREE.TextureLoader();
       const floatY = platformTop + 0.1;       // 상판에서 살짝만 띄움 (기존 0.18 → 대체)
-      const layoutRadius = 0.26;              // 0.2 → 0.26 (원 배치 반경도 넓혀서 안 겹치게)
+      const layoutRadius = 0.19;              // 0.2 → 0.26 (원 배치 반경도 넓혀서 안 겹치게)
 
       // 고르면 바구니 안으로 내려앉고, 해제하면 제자리로 떠오른다.
       const basketY = platformTop + 0.075;
@@ -491,6 +510,7 @@ export default function ArBreweryExperience() {
       // 가상의 찜기+아이코사헤드론 쌀알 대신 rice_bowl.glb 실물 모델을 놓는다.
       // (rice_bowl 은 arModels.ts 에 step:"godubap" 으로 등록되어 있어 이 호출로 자동 배치됨)
       placeModelsForStep("godubap", stageGroup, platformTop);
+      frame3D(platformTop, 0.58, 0.52);
 
       const glow = new THREE.PointLight(0xffd9a0, 0, 0.8);
       glow.position.set(0, 0.2, 0);
@@ -521,6 +541,8 @@ export default function ArBreweryExperience() {
       //    water_jar.glb가 그 역할을 대신하므로 제거했다. 발효 진행도는 물방울
       //    파티클(bubbles)만으로 표현한다.
       placeModelsForStep("ferment", stageGroup, platformTop);
+      // 항아리가 하단 조작부에 가리지 않도록 조금 더 물러나 위에서 잡는다
+      frame3D(platformTop, 0.64, 0.5);
 
       const bubbles = makeParticles(180, {
         color: 0xfff6dd, size: 0.009, opacity: 0.7, speed: 0.5,
