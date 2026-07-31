@@ -331,8 +331,10 @@ button {
 html[data-ar-step="done"] .screen-header {
   background: #f3ece0;
 }
+/* ScreenHeader가 dark일 때 제목 색을 인라인으로 지정하므로 !important 로 덮는다 */
 html[data-ar-step="done"] .screen-header-title {
-  color: var(--ink);
+  color: var(--ink) !important;
+  text-shadow: none !important;
 }
 html[data-ar-step="done"] .btn-back.on-dark {
   background: rgba(255, 255, 255, 0.55);

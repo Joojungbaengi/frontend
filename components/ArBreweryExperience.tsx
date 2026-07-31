@@ -1178,8 +1178,10 @@ export default function ArBreweryExperience() {
         <img className="finish-drink" src="/drinks/takju_goyang_nyangi9.webp" alt="냥이탁주9" />
         <h1>냥이탁주 9<br />양조 체험 완료!</h1>
         <p>고양 가와지쌀로 빚은 냥이탁주 9가 완성됐어요. 쌀을 씻어 고두밥을 짓고 누룩을 섞어 발효까지, 행주산성주가가 손으로 빚는 과정을 그대로 따라와 보셨어요.</p>
-        <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
-        <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
+        <div className="finish-actions">
+          <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
+          <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
+        </div>
         <button className="cta ghost" id="btn-restart">처음부터 다시 빚기</button>
       </div>
 
@@ -1329,21 +1331,25 @@ const styles = `
 .ar-ui .lead p{margin:10px 0 0; font-size:13px; line-height:1.7; color:var(--cream-dim)}
 
 /* 완료 화면 — 앱의 한지 배경으로 */
+/* 위아래 여백을 헤더 위 간격과 비슷하게 두어 내용이 화면 가운데 놓이게 한다 */
 .ar-ui #finish{position:absolute; inset:0; display:none; flex-direction:column; align-items:center;
-  justify-content:center; text-align:center; padding:64px 22px calc(44px + var(--safe-b));
+  justify-content:center; text-align:center; padding:46px 22px calc(46px + var(--safe-b));
   overflow-y:auto;
   background:linear-gradient(180deg,#f3ece0 0%,#e7dac3 100%); color:var(--ink);
   animation:ar-rise .5s cubic-bezier(.2,.8,.3,1) both}
 /* 도감 카드와 같은 3:4 비율로, 여백 없이 꽉 채운다 */
-.ar-ui #finish .finish-drink{width:168px; aspect-ratio:3/4; height:auto; object-fit:cover; display:block;
+.ar-ui #finish .finish-drink{width:138px; aspect-ratio:3/4; height:auto; object-fit:cover; display:block;
   border-radius:14px; background:var(--hanji-bright); border:1px solid rgba(198,165,104,.4);
-  box-shadow:0 12px 30px rgba(120,95,50,.18); padding:0; margin-bottom:24px}
-.ar-ui #finish h1{margin:0; font-family:var(--font-myeongjo), serif; font-size:23px; line-height:1.45;
+  box-shadow:0 12px 30px rgba(120,95,50,.18); padding:0; margin-bottom:20px}
+.ar-ui #finish h1{margin:0; font-family:var(--font-myeongjo), serif; font-size:22px; line-height:1.45;
   letter-spacing:.02em; color:var(--ink)}
-.ar-ui #finish p{margin:14px 0 24px; font-size:13px; line-height:1.8; color:var(--ink-soft); max-width:300px}
-/* 버튼 3개는 크기·모양·글씨를 똑같이 두고 색만 다르게 간다 */
+.ar-ui #finish p{margin:12px 0 20px; font-size:13px; line-height:1.75; color:var(--ink-soft); max-width:300px}
+/* 버튼은 색만 다르게. 위 두 개는 한 줄에 반씩, 아래 하나는 전체 폭 */
 .ar-ui #finish .cta{max-width:320px; box-sizing:border-box; display:block; text-align:center; text-decoration:none}
-.ar-ui #finish .cta + .cta{margin-top:10px}
+.ar-ui #finish .finish-actions{display:flex; gap:10px; width:100%; max-width:320px}
+.ar-ui #finish .finish-actions .cta{flex:1; min-width:0; max-width:none; font-size:14px; padding:14px 8px;
+  line-height:1.35; word-break:keep-all}
+.ar-ui #finish .finish-actions + .cta{margin-top:10px}
 .ar-ui #finish .dex-link{background:var(--brown); color:#f3e6cc}
 .ar-ui #finish .dex-link:hover{background:var(--brown-deep)}
 /* 밝은 배경에서는 앱의 .btn-outline 처럼 */
