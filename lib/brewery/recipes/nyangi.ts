@@ -20,26 +20,44 @@ export const nyangiTakju: Recipe = {
     { id: "rice",   name: "가와지쌀", texture: "/models/rice.png",   essential: true },
     { id: "water",  name: "정제수",   texture: "/models/water.png",  essential: true },
     { id: "nuruk",  name: "누룩",     texture: "/models/nuruk.png",  essential: true },
-    { id: "mil",    name: "밀",   texture: "/models/mil.png",    essential: true },
+    { id: "mil",    name: "밀함유",   texture: "/models/mil.png",    essential: true },
     { id: "flower", name: "국화",     texture: "/models/flower.png", essential: false, flavorNote: "국화를 넣으면 은은한 국화 향이 감돈다네." },
     { id: "honey",  name: "벌꿀",     texture: "/models/honey.png",  essential: false, flavorNote: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지." },
   ],
 
-  // 3D 모델 — low_wooden_bench(받침), 단계별로 rice_bowl / water_jar / bamboo_basket.
+  // 3D 모델 — low_wooden_bench(받침), 단계별로 water_jar / bamboo_basket.
+  // (고두밥 단계의 그릇·솥·채반 등은 아래 godubapModels 에서 단계별로 갈아 끼운다)
   models: [
     { id: "low_wooden_bench", file: `${MODEL_BASE}/low_wooden_bench.glb`, step: "common",     height: 0.14, y: 0.03 },
-    { id: "rice_bowl",        file: `${MODEL_BASE}/rice_bowl.glb`,        step: "godubap",    height: 0.16, y: 0.03 },
     { id: "water_jar",        file: `${MODEL_BASE}/water_jar.glb`,        step: "ferment",    height: 0.17, y: 0.03 },
     { id: "bamboo_basket",    file: `${MODEL_BASE}/bamboo_basket.glb`,    step: "ingredient", height: 0.12, y: 0.03 },
   ],
 
+  // 고두밥 하위 단계별 무대 모델 (id 를 godubapSteps[].models 에서 참조)
+  //  · 세미/침수/탈수 → rice_bowl (그릇)
+  //  · 증자           → kitchen_pot (솥을 세운다)
+  //  · 냉각           → metal_food_tray + blanket(보자기 덮기) + rice(고두밥 뿌리기)
+  // ⚠ kitchen_pot / metal_food_tray / blanket 은 아직 파일이 없으니 아래 경로에 넣어야 보인다.
+  //    (rice 는 있는 rice_grains.glb 를 흩뿌려 고두밥을 표현)
+  godubapModels: [
+    { id: "rice_bowl",       file: `${MODEL_BASE}/rice_bowl.glb`,       step: "godubap", height: 0.16, y: 0.03 },
+    { id: "kitchen_pot",     file: `${MODEL_BASE}/kitchen_pot.glb`,     step: "godubap", height: 0.22, y: 0.03 },
+    { id: "metal_food_tray", file: `${MODEL_BASE}/metal_food_tray.glb`, step: "godubap", height: 0.05, y: 0.03 },
+    { id: "blanket",         file: `${MODEL_BASE}/blanket.glb`,         step: "godubap", height: 0.04, y: 0.05, scaleFactor: 0.05, drop: true },
+  ],
+  // 냉각 때 채반/보자기 위에 얹는 고두밥 평면. texture 에 '고두밥' 이미지를 넣는다.
+  godubapRicePlane: { texture: "/models/godubap.png", size: 0.22, y: 0.065 },
+
+  // 완성 공정 '출고' 단계에서 나타나는 완성 제품 병 (Nyangi.glb 를 아래 경로에 넣어야 보인다)
+  finishModel: { id: "nyangi", file: `${MODEL_BASE}/Nyangi.glb`, step: "done", height: 0.28, y: 0.03 },
+
   // 고두밥 만들기 (세미 → 냉각). 마지막 단계에서 장인 퀴즈가 뜬다.
   godubapSteps: [
-    { id: "semi",     name: "세미", caption: "가와지쌀을 열 번 넘게 깨끗이 씻고 헹궈요" },
-    { id: "chimsu",   name: "침수", caption: "세 시간 동안 물에 충분히 불려요" },
-    { id: "talsu",    name: "탈수", caption: "한 시간 동안 물을 빼줘요" },
-    { id: "jeungja",  name: "증자", caption: "강한 증기로 쪄 고두밥을 지어요", steam: true },
-    { id: "naenggak", name: "냉각", caption: "다단식 채반에 펼쳐 차게 식혀요" },
+    { id: "semi",     name: "세미", caption: "가와지쌀을 열 번 넘게 깨끗이 씻고 헹궈요", models: ["rice_bowl"] },
+    { id: "chimsu",   name: "침수", caption: "세 시간 동안 물에 충분히 불려요", models: ["rice_bowl"], water: 1 },
+    { id: "talsu",    name: "탈수", caption: "한 시간 동안 물을 빼줘요", models: ["rice_bowl"] },
+    { id: "jeungja",  name: "증자", caption: "강한 증기로 쪄 고두밥을 지어요", models: ["kitchen_pot"], steam: true },
+    { id: "naenggak", name: "냉각", caption: "다단식 채반에 펼쳐 차게 식혀요", models: ["metal_food_tray", "blanket", "rice_plane"], dark: true },
   ],
 
   // 담금·발효 (혼합 → 후발효). 마지막 '후발효'에서 항아리가 등장하고 시간(온도)으로 자동 발효.

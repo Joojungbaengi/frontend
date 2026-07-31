@@ -19,6 +19,13 @@ export interface ModelDef {
   height: number;
   /** 받침 위로 띄우는 높이(보통 0.03) */
   y: number;
+  /** >0 이면 이 개수만큼 받침 위에 흩뿌린다 (고두밥 뿌리기용) */
+  scatter?: number;
+  /** true면 위에서 내려앉는 모션으로 등장 (보자기 덮기용) */
+  drop?: boolean;
+  /** 원본(native) 크기 대비 배율. 지정하면 height 자동정규화 대신 이 값으로 크기를 정한다.
+   *  (예: 0.05 = 원래 크기의 5%. 납작한 보자기·채반처럼 height 정규화가 안 맞는 모델에 쓴다) */
+  scaleFactor?: number;
 }
 
 export interface Ingredient {
@@ -40,6 +47,12 @@ export interface ProcessStep {
   caption: string;
   /** 고두밥 단계 중 '증자(찌기)'처럼 김이 피어오르는 단계면 true */
   steam?: boolean;
+  /** 고두밥 단계 그릇에 담긴 물 높이 0(없음)~1(가득). 침수=1, 탈수=0 처럼 쓴다 */
+  water?: number;
+  /** 이 단계에서 보여줄 무대 모델 id 목록(recipe.godubapModels 의 id) */
+  models?: string[];
+  /** 이 단계에서 화면 가장자리를 살짝 어둡게(비네트) 처리 */
+  dark?: boolean;
 }
 
 export interface Quiz {
@@ -59,6 +72,13 @@ export interface Recipe {
 
   ingredients: Ingredient[];
   models: ModelDef[];
+  /** 고두밥 단계에서 하위 단계별로 갈아 끼우는 무대 모델들(그릇·솥·채반·보자기·쌀 등) */
+  godubapModels?: ModelDef[];
+  /** 냉각 단계에 채반/보자기 위에 얹는, 고두밥(쌀) 텍스처를 입힌 평면.
+   *  step.models 목록에 "rice_plane" 을 넣으면 그 단계에 이 평면이 표시된다. */
+  godubapRicePlane?: { texture: string; size: number; y: number };
+  /** 완성 공정 '출고' 단계에서 나타나는 완성 제품 모델 (예: Nyangi.glb) */
+  finishModel?: ModelDef;
 
   /** 고두밥 만들기 탭 (세미~냉각 등) */
   godubapSteps: ProcessStep[];

@@ -28,16 +28,20 @@ export const sampleDanyangju: Recipe = {
 
   models: [
     { id: "low_wooden_bench", file: `${MODEL_BASE}/low_wooden_bench.glb`, step: "common",     height: 0.14, y: 0.03 },
-    { id: "rice_bowl",        file: `${MODEL_BASE}/rice_bowl.glb`,        step: "godubap",    height: 0.16, y: 0.03 },
     { id: "water_jar",        file: `${MODEL_BASE}/water_jar.glb`,        step: "ferment",    height: 0.17, y: 0.03 },
     { id: "bamboo_basket",    file: `${MODEL_BASE}/bamboo_basket.glb`,    step: "ingredient", height: 0.12, y: 0.03 },
   ],
 
+  // 예시는 있는 에셋(그릇)만 써서 항상 동작하게 둔다.
+  godubapModels: [
+    { id: "rice_bowl", file: `${MODEL_BASE}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
+  ],
+
   godubapSteps: [
-    { id: "wash",  name: "세척", caption: "쌀을 맑은 물이 나올 때까지 씻어요" },
-    { id: "soak",  name: "불리기", caption: "물에 넉넉히 불려요" },
-    { id: "steam", name: "증자", caption: "증기로 쪄 고두밥을 지어요", steam: true },
-    { id: "cool",  name: "냉각", caption: "채반에 펼쳐 차게 식혀요" },
+    { id: "wash",  name: "세척", caption: "쌀을 맑은 물이 나올 때까지 씻어요", models: ["rice_bowl"] },
+    { id: "soak",  name: "불리기", caption: "물에 넉넉히 불려요", models: ["rice_bowl"], water: 1 },
+    { id: "steam", name: "증자", caption: "증기로 쪄 고두밥을 지어요", models: ["rice_bowl"], steam: true },
+    { id: "cool",  name: "냉각", caption: "채반에 펼쳐 차게 식혀요", models: ["rice_bowl"], dark: true },
   ],
 
   fermentSteps: [

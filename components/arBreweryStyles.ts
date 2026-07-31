@@ -10,6 +10,10 @@ export const styles = `
   --r-md:16px; --r-sm:14px; --safe-b:env(safe-area-inset-bottom,0px);
   padding-top:20px;}
 .ar-ui canvas#gl{position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0}
+/* 냉각 단계 비네트 — 캔버스 위, 오버레이 UI 아래. 가장자리만 살짝 어둡게 */
+.ar-ui .vignette{position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .7s ease; z-index:1;
+  background:radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,.55) 100%)}
+.ar-ui.cooling .vignette{opacity:1}
 .ar-ui > *{position:relative; z-index:1}
 
 .ar-ui.ar-mode{background:transparent}

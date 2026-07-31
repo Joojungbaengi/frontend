@@ -44,6 +44,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
      * ===================================================================*/
 
     const MODELS = recipe.models;
+    const GODUBAP_MODELS = recipe.godubapModels ?? []; // 고두밥 하위 단계별 무대 모델
+    const FINISH_MODEL = recipe.finishModel;           // 출고 단계 완성 제품 모델
     const INGREDIENTS = recipe.ingredients;
     const ESSENTIALS = INGREDIENTS.filter((i) => i.essential);
     const ESS_N = ESSENTIALS.length;                 // 주원료 개수 (술마다 달라짐)
@@ -87,6 +89,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
     // 원료 단계에 막 들어온 시각 — 화면 전환 직후 밀려오는 '유령 클릭'을 걸러내는 데 쓴다.
     let enteredIngredientAt = 0;
+    // 고두밥 하위 단계가 바뀔 때 무대 모델을 갈아 끼우는 함수(buildGodubap 이 채운다)
+    let godubapShowStage: (() => void) | null = null;
+    // 완성 공정 단계가 바뀔 때 출고 제품(Nyangi)을 보이는 함수(buildFinish 가 채운다)
+    let finishShowShip: (() => void) | null = null;
     function resetIngredientSelection() {
       enteredIngredientAt = performance.now();
       S.selected.clear();
@@ -190,7 +196,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
     async function preloadModels() {
       await Promise.all(
-        MODELS.map(async (m) => {
+        [...MODELS, ...GODUBAP_MODELS, ...(FINISH_MODEL ? [FINISH_MODEL] : [])].map(async (m) => {
           try {
             LOADED[m.id] = await gltfLoader.loadAsync(m.file);
           } catch (e: any) {
@@ -206,10 +212,15 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
       const root = skinnedClone(gltf.scene) as THREE.Object3D;
 
-      const box = new THREE.Box3().setFromObject(root);
-      const size = box.getSize(new THREE.Vector3());
-      const srcH = size.y || 1;
-      root.scale.setScalar(def.height / srcH);
+      // scaleFactor 가 있으면 원본 대비 배율로, 없으면 목표 높이에 맞춰 자동 정규화한다.
+      if (def.scaleFactor) {
+        root.scale.setScalar(def.scaleFactor);
+      } else {
+        const box = new THREE.Box3().setFromObject(root);
+        const size = box.getSize(new THREE.Vector3());
+        const srcH = size.y || 1;
+        root.scale.setScalar(def.height / srcH);
+      }
 
       const box2 = new THREE.Box3().setFromObject(root);
       const center = box2.getCenter(new THREE.Vector3());
@@ -367,6 +378,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.mixers.length = 0;
       live.models.length = 0;
       live.tick = null;
+      godubapShowStage = null;
+      finishShowShip = null;
+      uiRoot!.classList.remove("cooling"); // 냉각 비네트는 무대가 바뀌면 끈다
     }
 
     
@@ -539,10 +553,61 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     /* --- 13 · 고두밥 --- */
     function buildGodubap() {
       const platformTop = addPlatform();
-      // 가상의 찜기+아이코사헤드론 쌀알 대신 rice_bowl.glb 실물 모델을 놓는다.
-      // (rice_bowl 은 arModels.ts 에 step:"godubap" 으로 등록되어 있어 이 호출로 자동 배치됨)
-      placeModelsForStep("godubap", stageGroup, platformTop);
+      placeCommonModels(stageGroup, platformTop);
       frame3D(platformTop, 0.58, 0.52);
+
+      // 하위 단계별로 갈아 끼울 무대 모델을 미리 만들어 두고 보이기만 토글한다.
+      const stage: Record<string, THREE.Object3D[]> = {};
+      const drops: THREE.Object3D[] = [];    // 위에서 내려앉는 모션(보자기)
+      const scatters: THREE.Object3D[] = []; // 흩뿌리는 모션(고두밥 쌀)
+      GODUBAP_MODELS.forEach((def) => {
+        const count = def.scatter && def.scatter > 0 ? def.scatter : 1;
+        const groups: THREE.Object3D[] = [];
+        for (let k = 0; k < count; k++) {
+          const node = spawnModel(def); // 파일이 없으면 null → 빈 그룹(보이지 않음)
+          const g = new THREE.Group();
+          if (node) g.add(node);
+          if (count > 1) {
+            // 채반 위 랜덤 산포 (고두밥을 마구 뿌린 느낌)
+            const rr = 0.1 * Math.sqrt(Math.random());
+            const aa = Math.random() * Math.PI * 2;
+            g.position.set(Math.cos(aa) * rr, platformTop + def.y, Math.sin(aa) * rr);
+            g.rotation.y = Math.random() * Math.PI * 2;
+            g.scale.setScalar(0.001);
+            (g.userData as any).delay = 0.05 + k * 0.06; // 스태거 등장
+            scatters.push(g);
+          } else {
+            g.position.set(0, platformTop + def.y, 0);
+            if (def.drop) {
+              (g.userData as any).restY = platformTop + def.y;
+              drops.push(g);
+            }
+          }
+          g.visible = false;
+          stageGroup.add(g);
+          groups.push(g);
+        }
+        stage[def.id] = groups;
+      });
+
+      // 냉각 때 채반/보자기 위에 얹는 고두밥(쌀) 텍스처 평면 (rice_plane)
+      if (recipe.godubapRicePlane) {
+        const rp = recipe.godubapRicePlane;
+        const tex = new THREE.TextureLoader().load(
+          rp.texture, undefined, undefined,
+          (err) => console.warn("고두밥 텍스처 로드 실패:", rp.texture, err)
+        );
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(rp.size, rp.size).rotateX(-Math.PI / 2),
+          new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, side: THREE.DoubleSide })
+        );
+        plane.position.set(0, platformTop + rp.y, 0);
+        plane.visible = false;
+        plane.receiveShadow = true;
+        stageGroup.add(plane);
+        stage["rice_plane"] = [plane];
+      }
 
       const glow = new THREE.PointLight(0xffd9a0, 0, 0.8);
       glow.position.set(0, 0.2, 0);
@@ -555,13 +620,86 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       stageGroup.add(steam);
       live.particles.push(steam);
 
-      live.tick = () => {
-        // 김은 레시피에서 steam:true 로 표시한 단계(증자/찌기)가 '지금' 단계일 때만 피어오른다.
-        // 그 앞 단계에서는 뜨지 않고, 다음 단계(냉각 등)로 넘어가면 사라진다.
-        const steaming = GODUBAP_STEPS[S.godubap]?.steam === true;
+      // 그릇 물 — 평면이 아니라 납작한 반구 돔(휘어진 면)으로. 침수에서 차오르고 탈수에서 빠진다.
+      // (높이·곡률이 안 맞으면 아래 세 값만 조절하면 된다)
+      const WATER_R = 0.14;                    // 물 반경
+      const DOME_FLATTEN = 0.34;               // 돔 납작 정도 (작을수록 평평, 클수록 봉긋)
+      const waterLowY = platformTop + 0.03;
+      const waterHighY = platformTop + 0.14;   // ★ 물 높이: 이 숫자를 키우면 물이 더 높이 찬다 (쌀 위로 올리려면 0.18~0.20)
+      const water = new THREE.Mesh(
+        // 위쪽 반구(돔). thetaLength=π/2 → 가장자리(적도)에서 정수리까지 휘어진 면.
+        new THREE.SphereGeometry(WATER_R, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0x5db4e6, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
+        })
+      );
+      water.scale.set(1, DOME_FLATTEN, 1);
+      water.position.y = waterLowY;
+      water.visible = false;
+      stageGroup.add(water);
+      let waterLevel = 0;
+
+      // 탈수 물빠짐 물방울 — 물이 빠지는 동안 아래로 후두둑 떨어진다.
+      const drip = makeParticles(70, {
+        color: 0xcfe6ef, size: 0.011, opacity: 0, speed: 0.9,
+        radius: WATER_R * 0.9, baseY: waterHighY, height: -0.24, taper: -0.15,
+      });
+      stageGroup.add(drip);
+      live.particles.push(drip);
+
+      let coolT = 0; // 냉각 연출 진행 시간
+
+      // 현재 하위 단계에 맞춰 무대 모델을 보이거나 숨긴다.
+      godubapShowStage = () => {
+        const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
+        const show = new Set(cur?.models ?? []);
+        Object.entries(stage).forEach(([id, groups]) => {
+          const on = show.has(id);
+          groups.forEach((g) => (g.visible = on));
+        });
+        const dark = cur?.dark === true;
+        if (!dark) coolT = 0;
+        uiRoot!.classList.toggle("cooling", dark); // 가장자리 비네트
+      };
+      godubapShowStage();
+
+      live.tick = (t, dt) => {
+        const cur = GODUBAP_STEPS[S.godubap];
+
+        // 김 — steam:true 단계에서만
+        const steaming = cur?.steam === true;
         glow.intensity += ((steaming ? 1.6 : 0.05) - glow.intensity) * 0.05;
         steam.material.opacity += ((steaming ? 0.55 : 0) - steam.material.opacity) * 0.06;
         (steam.userData as any).opt.speed = steaming ? 0.35 : 0.15;
+
+        // 물 — 현재 단계 water 값으로 채워지고 빠진다
+        const targetWater = cur?.water ?? 0;
+        waterLevel += (targetWater - waterLevel) * 0.06;
+        water.visible = waterLevel > 0.01;
+        water.position.y = THREE.MathUtils.lerp(waterLowY, waterHighY, waterLevel);
+        (water.material as THREE.MeshBasicMaterial).opacity = 0.72 * waterLevel;
+        water.rotation.y = t * 0.25;
+        const ripple = 1 + Math.sin(t * 2.2) * 0.012 * waterLevel;
+        water.scale.set(ripple, DOME_FLATTEN, ripple);
+
+        // 물빠짐 물방울 — 물이 있는데 목표가 0(=탈수)일 때만 떨어진다
+        const draining = targetWater < 0.1 && waterLevel > 0.06;
+        drip.material.opacity += ((draining ? 0.85 : 0) - drip.material.opacity) * 0.12;
+
+        // 냉각 연출 — 보자기 내려앉기 + 고두밥 흩뿌리기
+        if (cur?.dark) {
+          coolT += dt;
+          drops.forEach((g) => {
+            const restY = (g.userData as any).restY as number;
+            const p = THREE.MathUtils.smoothstep(THREE.MathUtils.clamp(coolT / 0.8, 0, 1), 0, 1);
+            g.position.y = restY + (1 - p) * 0.09; // 위에서 사뿐히 내려앉음
+          });
+          scatters.forEach((g) => {
+            const d = (g.userData as any).delay as number;
+            const pp = THREE.MathUtils.clamp((coolT - d) / 0.3, 0, 1);
+            g.scale.setScalar(THREE.MathUtils.smoothstep(pp, 0, 1));
+          });
+        }
       };
     }
 
@@ -639,6 +777,27 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       bottle.position.y = contentY;
       stageGroup.add(bottle);
 
+      // 출고 단계에 나타나는 완성 제품 모델 (Nyangi.glb). 파일이 없으면 임시 병이 그대로 보인다.
+      let shipModel: THREE.Object3D | null = null;
+      if (FINISH_MODEL) {
+        const node = spawnModel(FINISH_MODEL);
+        if (node) {
+          const g = new THREE.Group();
+          g.position.set(0, platformTop + FINISH_MODEL.y, 0);
+          g.add(node);
+          g.visible = false;
+          stageGroup.add(g);
+          shipModel = g;
+        }
+      }
+      const SHIP_AT = PRESS_STEPS.length - 1; // '출고' 인덱스
+      finishShowShip = () => {
+        const shipped = S.press >= SHIP_AT;      // 출고 단계에 도달했나
+        if (shipModel) shipModel.visible = shipped;
+        bottle.visible = shipModel ? !shipped : true; // 제품이 뜨면 임시 병은 숨긴다
+      };
+      finishShowShip();
+
       const sparks = makeParticles(90, {
         color: 0xffe9b8, size: 0.011, opacity: 0.75, speed: 0.2,
         radius: 0.22, baseY: contentY + 0.05, height: 0.45, taper: -0.3,
@@ -648,6 +807,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
       live.tick = () => {
         bottle.rotation.y += 0.006;
+        if (shipModel) shipModel.rotation.y += 0.006;
       };
     }
 
@@ -937,6 +1097,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       });
     }
     function syncGodubap() {
+      godubapShowStage?.(); // 현재 하위 단계에 맞춰 무대 모델(그릇/솥/채반)을 갈아 끼운다
       $$("#pills .pill").forEach((p, i) => {
         // 완료 표시(✓)는 CSS가 점 안에 그리므로 여기서는 이름만 둔다
         (p as HTMLElement).dataset.state = i < S.godubap ? "done" : i === S.godubap ? "now" : "todo";
@@ -949,7 +1110,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
             ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
             : S.godubap === GB_LAST && !S.quizDone
               ? "장인의 질문에 먼저 답해주세요"
-              : "불이 켜진 단계를 눌러 순서대로 진행하세요";
+              : "";
       }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
       const cap = $("#cap-godubap");
@@ -1072,7 +1233,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       if (hint)
         hint.textContent = active
           ? "항아리에 담근 뒤로는 시간이 익혀 줍니다 · 온도만 맞춰주세요"
-          : "불이 켜진 단계를 눌러 순서대로 진행하세요";
+          : "";
       if (active) onFermentTick();       // 후발효: 일차·막대·버튼 갱신
       else {
         const cap = $("#cap-ferment");
@@ -1129,6 +1290,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       });
     }
     function syncPress() {
+      finishShowShip?.(); // 출고 단계에 도달하면 완성 제품(Nyangi)이 나타난다
       $$("#press-pills .pill").forEach((p, i) => {
         (p as HTMLElement).dataset.state = i < S.press ? "done" : i === S.press ? "now" : "todo";
       });
@@ -1137,7 +1299,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       const cap = $("#cap-finishing");
       if (cap) cap.textContent = done ? "씻기부터 출고까지 예순 날 넘게, 냥이탁주가 완성됐어요" : cur.caption;
       const hint = $("#finishing-hint");
-      if (hint) hint.textContent = done ? "마지막 공정까지 마쳤어요. 완성된 술을 만나보세요." : "불이 켜진 단계를 눌러 순서대로 진행하세요";
+      if (hint) hint.textContent = done ? "마지막 공정까지 마쳤어요. 완성된 술을 만나보세요." : "";
       const b = $("#btn-finishing") as HTMLButtonElement | null;
       if (b) {
         b.disabled = !done;
@@ -1254,6 +1416,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
       <canvas ref={canvasRef} id="gl" />
+      {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
+      <div className="vignette" />
 
       {/* 11 · AR 시작 */}
       <div className="panel-step" id="p-place">
@@ -1293,7 +1457,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       {/* 13 · 고두밥 */}
       <div className="panel-step" id="p-godubap">
         <div className="steps" id="pills" />
-        <div className="steps-hint" id="godubap-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
+        <div className="steps-hint" id="godubap-hint"></div>
         <div className="fill">
           <div className="caption" id="cap-godubap">{recipe.godubapSteps[0]?.caption}</div>
         </div>
@@ -1315,7 +1479,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       {/* 14 · 발효 */}
       <div className="panel-step" id="p-ferment">
         <div className="steps" id="ferment-pills" />
-        <div className="steps-hint" id="ferment-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
+        <div className="steps-hint" id="ferment-hint"></div>
         <div className="fill">
           <div className="caption" id="cap-ferment">{recipe.fermentSteps[0]?.caption}</div>
         </div>
@@ -1345,7 +1509,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       {/* 15 · 완성 공정 (압착·여과 → 저온숙성 → 출고) */}
       <div className="panel-step" id="p-finishing">
         <div className="steps" id="press-pills" />
-        <div className="steps-hint" id="finishing-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
+        <div className="steps-hint" id="finishing-hint"></div>
         <div className="fill">
           <div className="caption" id="cap-finishing">{recipe.pressSteps[0]?.caption}</div>
         </div>
@@ -1360,7 +1524,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         <h1>{recipe.name}<br />양조 체험 완료!</h1>
         <p>{recipe.finish.note}</p>
         <div className="finish-actions">
-          <button className="cta" id="btn-report">양조 리포트 보기</button>
+          <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
           <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
         </div>
         <button className="cta ghost" id="btn-restart">처음부터 다시 빚기</button>
@@ -1369,7 +1533,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       {/* 리포트 */}
       <div id="report">
         <div className="sheet">
-          <h3>양조 리포트</h3>
+          <h3>AI 양조 리포트</h3>
           <div className="sub">이번 체험에서 만든 술의 기록</div>
           <dl id="report-body" />
           <button className="cta" id="btn-close-report">닫기</button>
