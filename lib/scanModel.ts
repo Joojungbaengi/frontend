@@ -25,12 +25,13 @@ const IOU_THRESHOLD = 0.45;
 
 /**
  * best.onnx 메타데이터의 names 순서와 **반드시** 일치해야 한다.
- *   names = {0: 'dongnim_cheongju', 1: 'cheonbihyang'}
+ *   names = {0: 'dongnim_cheongju', 1: 'cheonbihyang', 2: 'nyangi_takju'}
  * 순서가 어긋나면 엉뚱한 술 상세로 이동한다. 재학습 시 반드시 다시 확인할 것.
  */
 export const YOLO_CLASSES = [
   { drinkId: "cheongju_yongin_dongnim", label: "동림청주" },
   { drinkId: "yakju_pyeongtaek_cheonbihyang", label: "천비향 약주" },
+  { drinkId: "takju_goyang_nyangi9", label: "냥이탁주 9" },
 ] as const;
 
 /** 인식 결과 1건 — 박스는 비디오 원본 픽셀 좌표계 */
