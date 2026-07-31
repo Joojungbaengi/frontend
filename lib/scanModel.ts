@@ -5,8 +5,8 @@ import type { InferenceSession } from "onnxruntime-web";
  *
  * 모델: public/yolo/best.onnx
  *   input  : images  [1, 3, 640, 640]  (RGB, 0~1 정규화, NCHW)
- *   output : output0 [1, 6, 8400]      (cx, cy, w, h, cls0, cls1) — NMS 미포함
- * 학습 산출물·설정 기록: material/yolo/
+ *   output : output0 [1, 7, 8400]      (cx, cy, w, h, cls0~cls2) — NMS 미포함
+ *   export : imgsz=640, opset=12, nms=False, dynamic=False
  */
 
 export const YOLO_MODEL_URL = "/yolo/best.onnx";
@@ -16,8 +16,9 @@ export const YOLO_INPUT = 640;
 
 /**
  * 이 점수 미만은 버린다.
- * 제품 사진으로 시험했을 때 동림청주가 0.554로 아슬아슬하게 걸려 여유를 뒀다.
- * 낮춰도 안전한 이유는 LabelScanner 가 같은 클래스 연속 인식을 한 번 더 요구하기 때문.
+ * 3종 제품 사진 기준 0.84~0.93 으로 여유가 크지만, 흐릿하거나 역광인 프레임에서는
+ * 점수가 크게 떨어져 인식이 아예 끊긴다. 놓치는 쪽보다는 받아 두고
+ * LabelScanner 의 연속 3프레임 확인으로 걸러내는 편이 안전해 낮게 유지한다.
  */
 export const CONF_THRESHOLD = 0.45;
 /** 같은 클래스 박스가 이 정도로 겹치면 하나만 남긴다 */
@@ -25,12 +26,13 @@ const IOU_THRESHOLD = 0.45;
 
 /**
  * best.onnx 메타데이터의 names 순서와 **반드시** 일치해야 한다.
- *   names = {0: 'dongnim_cheongju', 1: 'cheonbihyang'}
+ *   names = {0: 'dongnim_cheongju', 1: 'cheonbihyang', 2: 'nyangi_takju'}
  * 순서가 어긋나면 엉뚱한 술 상세로 이동한다. 재학습 시 반드시 다시 확인할 것.
  */
 export const YOLO_CLASSES = [
   { drinkId: "cheongju_yongin_dongnim", label: "동림청주" },
   { drinkId: "yakju_pyeongtaek_cheonbihyang", label: "천비향 약주" },
+  { drinkId: "takju_goyang_nyangi9", label: "냥이탁주 9" },
 ] as const;
 
 /** 인식 결과 1건 — 박스는 비디오 원본 픽셀 좌표계 */

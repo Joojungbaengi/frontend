@@ -1110,7 +1110,7 @@ export default function ArBreweryExperience() {
           <div className="coach">
             <div className="avatar" />
             <div>
-              <div className="who">AI 술도가 장인</div>
+              <div className="who">술도가 장인</div>
               <div className="msg" id="msg-ingredient">이 술은 고양 가와지쌀로 빚는 냥이탁주라네. 들어갈 재료를 골라보게.</div>
             </div>
           </div>
@@ -1134,7 +1134,7 @@ export default function ArBreweryExperience() {
             <div className="coach">
               <div className="avatar" />
               <div style={{ flex: 1 }}>
-                <div className="who">AI 술도가 장인</div>
+                <div className="who">술도가 장인</div>
                 <div className="msg">고두밥이 아직 뜨겁네. 지금 누룩을 섞으면 발효에 어떤 영향을 줄까?</div>
                 <div className="choices">
                   <button className="choice" data-correct="1">뜨거우면 누룩 속 효소·미생물이 죽어요</button>
@@ -1165,7 +1165,7 @@ export default function ArBreweryExperience() {
           <div className="coach" id="coach-ferment">
             <div className="avatar" />
             <div>
-              <div className="who">AI 술도가 장인</div>
+              <div className="who">술도가 장인</div>
               <div className="msg" id="msg-ferment">온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.</div>
             </div>
           </div>
@@ -1179,7 +1179,7 @@ export default function ArBreweryExperience() {
         <h1>냥이탁주 9<br />양조 체험 완료!</h1>
         <p>고양 가와지쌀로 빚은 냥이탁주 9가 완성됐어요. 쌀을 씻어 고두밥을 짓고 누룩을 섞어 발효까지, 행주산성주가가 손으로 빚는 과정을 그대로 따라와 보셨어요.</p>
         <div className="finish-actions">
-          <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
+          <button className="cta" id="btn-report">양조 리포트 보기</button>
           <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
         </div>
         <button className="cta ghost" id="btn-restart">처음부터 다시 빚기</button>
@@ -1188,7 +1188,7 @@ export default function ArBreweryExperience() {
       {/* 리포트 */}
       <div id="report">
         <div className="sheet">
-          <h3>AI 양조 리포트</h3>
+          <h3>양조 리포트</h3>
           <div className="sub">이번 체험에서 만든 술의 기록</div>
           <dl id="report-body" />
           <button className="cta" id="btn-close-report">닫기</button>
