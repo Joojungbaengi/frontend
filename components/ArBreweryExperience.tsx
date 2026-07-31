@@ -794,6 +794,8 @@ export default function ArBreweryExperience() {
     /* --- 12 · 원료 --- */
     const grid = $("#grid");
     if (grid) {
+      // 개발 모드(StrictMode)에서 이 effect가 두 번 실행돼도 카드가 쌓이지 않도록 비우고 시작한다.
+      grid.innerHTML = "";
       INGREDIENTS.forEach((ing) => {
         const b = document.createElement("button");
         b.className = "card";
