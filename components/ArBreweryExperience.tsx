@@ -39,10 +39,30 @@ export default function ArBreweryExperience() {
      * ===================================================================*/
     
     const GODUBAP_STEPS = [
-      { id: "wash",  name: "쌀 씻기", caption: "쌀을 씻어 이물질을 걷어내요" },
-      { id: "soak",  name: "불리기",  caption: "쌀알이 물을 머금고 부풀어요" },
-      { id: "steam", name: "찌기",    caption: "고두밥 30분 · 김이 오릅니다" },
-      { id: "cool",  name: "식히기",  caption: "25℃까지 식혀야 누룩이 살아요" },
+      { id: "semi",    name: "세미", caption: "가와지쌀을 열 번 넘게 깨끗이 씻고 헹궈요" },
+      { id: "chimsu",  name: "침수", caption: "세 시간 동안 물에 충분히 불려요" },
+      { id: "talsu",   name: "탈수", caption: "한 시간 동안 물을 빼줘요" },
+      { id: "jeungja", name: "증자", caption: "강한 증기로 쪄 고두밥을 지어요" },
+      { id: "naenggak",name: "냉각", caption: "다단식 채반에 펼쳐 차게 식혀요" },
+    ];
+    // 핀 개수가 바뀌어도 로직이 따라오도록 하드코딩 대신 길이를 쓴다.
+    const GB_N = GODUBAP_STEPS.length;      // 전체 단계 수
+    const GB_LAST = GB_N - 1;               // 마지막 단계(냉각) 인덱스 — 여기서 장인 퀴즈가 뜬다
+
+    // 담금·발효 단계 타임라인 — 항아리에 담근 뒤로는 시간이 익혀 준다.
+    // 클릭이 아니라 발효 진행도(S.ferment)에 따라 점등된다.
+    const FERMENT_STEPS = [
+      { id: "mix",  name: "혼합",   caption: "식힌 고두밥에 불린 전통누룩을 섞어 항아리에 담았어요" },
+      { id: "prim", name: "1차발효", caption: "발효실에서 사흘, 첫 술이 부글부글 끓어올라요" },
+      { id: "deot", name: "덧술",   caption: "고두밥을 두 번 더 안쳐 삼양주로 빚어요" },
+      { id: "post", name: "후발효", caption: "서른 날 남짓, 맑은 술이 천천히 익어가요" },
+    ];
+
+    // 완성 공정 타임라인 — 발효가 끝난 뒤 손으로 마무리하는 단계들(클릭해 진행).
+    const PRESS_STEPS = [
+      { id: "press", name: "압착·여과", caption: "보자기에 술덧을 붓고 손으로 정성껏 짜 맑게 걸러요" },
+      { id: "aging", name: "저온숙성", caption: "1℃ 냉장창고에서 한 달 넘게 저온으로 숙성해요" },
+      { id: "ship",  name: "출고",     caption: "손으로 병입하고 라벨을 붙여 세상에 내보내요" },
     ];
 
     const S = {
@@ -55,6 +75,8 @@ export default function ArBreweryExperience() {
       quizDone: false,
       temp: 27,
       ferment: 0,
+      fstage: 0,
+      press: 0,
       tempLog: [] as number[],
       xr: false,
       isInitializing: true,
@@ -71,8 +93,9 @@ export default function ArBreweryExperience() {
       S.step = next;
       uiRoot!.dataset.step = next;
       // 완료 화면은 한지 배경이라 헤더도 함께 밝아져야 한다.
-      // 헤더는 이 컴포넌트 바깥에 있으므로 문서 루트에 표시해 두고 CSS로 받는다.
-      document.documentElement.dataset.arStep = next;
+      // 다만 'done'의 앞 국면(압착~출고 완성 공정 walkthrough)은 AR 카메라를 그대로 두므로,
+      // 헤더도 카메라 톤을 유지한다. 한지 축하 화면(.shipped)일 때만 밝은 헤더로 바꾼다.
+      document.documentElement.dataset.arStep = next === "done" ? "ferment" : next;
       buildStageFor(next);
     }
 
@@ -517,32 +540,37 @@ export default function ArBreweryExperience() {
       stageGroup.add(glow);
 
       const steam = makeParticles(140, {
-        color: 0xf2ecdb, size: 0.016, opacity: 0.5, speed: 0.25,
+        color: 0xf2ecdb, size: 0.016, opacity: 0, speed: 0.15,
         radius: 0.1, baseY: 0.24, height: 0.34, taper: 0.55,
       });
       stageGroup.add(steam);
       live.particles.push(steam);
 
       live.tick = () => {
-        const stage = S.godubap;
-        const hot = stage >= 4 ? 0.05 : stage >= 2 ? 1 : 0.15;
-        glow.intensity += (hot * 1.6 - glow.intensity) * 0.05;
-        steam.material.opacity += ((stage >= 2 && stage < 4 ? 0.55 : 0.06) - steam.material.opacity) * 0.05;
-        (steam.userData as any).opt.speed = stage >= 2 ? 0.35 : 0.15;
+        // 김은 '증자'(찌기, index 3) 단계에서만 피어오른다.
+        // 세미·침수·탈수(0~2)에서는 뜨지 않고, 냉각(4)으로 넘어가면 사라진다.
+        const steaming = S.godubap === 3;
+        glow.intensity += ((steaming ? 1.6 : 0.05) - glow.intensity) * 0.05;
+        steam.material.opacity += ((steaming ? 0.55 : 0) - steam.material.opacity) * 0.06;
+        (steam.userData as any).opt.speed = steaming ? 0.35 : 0.15;
       };
     }
 
     /* --- 14 · 발효 --- */
+    let fermentTop = 0; // 후발효 진입 시 항아리를 올릴 받침 높이
     function buildFerment() {
       const platformTop = addPlatform();
-      // "누룩 섞고 항아리에 담기" 클릭 시 clearStage()로 rice_bowl.glb 는 사라지고,
-      // 여기서 water_jar.glb (arModels.ts: step "ferment")가 대신 배치된다.
-      // ※ 예전에 실물 항아리 모델이 없을 때 쓰던 간이 액체 원기둥(liquid 메쉬)은
-      //    water_jar.glb가 그 역할을 대신하므로 제거했다. 발효 진행도는 물방울
-      //    파티클(bubbles)만으로 표현한다.
-      placeModelsForStep("ferment", stageGroup, platformTop);
+      fermentTop = platformTop;
       // 항아리가 하단 조작부에 가리지 않도록 조금 더 물러나 위에서 잡는다
       frame3D(platformTop, 0.64, 0.5);
+      // 혼합·1차 발효·덧술(fstage 0~2) 동안은 받침만 둔다.
+      // 항아리(water_jar)와 자동 발효는 '후발효'(fstage 3)에서만 시작한다.
+      if (S.fstage >= 3) startHufermentation();
+    }
+    // '후발효' 진입 순간 호출 — 항아리를 올리고, 물방울·열·발효 진행 애니메이션을 켠다.
+    function startHufermentation() {
+      // "누룩 섞고 항아리에 담기" 이후 후발효에서 water_jar.glb (arModels.ts: step "ferment")가 배치된다.
+      placeModelsForStep("ferment", stageGroup, fermentTop);
 
       const bubbles = makeParticles(180, {
         color: 0xfff6dd, size: 0.009, opacity: 0.7, speed: 0.5,
@@ -726,7 +754,7 @@ export default function ArBreweryExperience() {
         reticle.visible = false;
       }
 
-      if (S.step === "ferment" && S.ferment < 100) {
+      if (S.step === "ferment" && S.fstage >= 3 && S.ferment < 100) {
         const dist = Math.abs(S.temp - 25);
         // 25℃에서 약 17초에 완주. 너무 빨리 끝나면 온도를 조절해 본 효과를 느끼기 어렵다.
         const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 6;
@@ -826,25 +854,46 @@ export default function ArBreweryExperience() {
         // .chip 의 배경색이 테두리처럼 비쳐 보인다.
         b.innerHTML = `<span class="chip" style="background-image:url('${ing.texture}')"></span>${ing.name}`;
         b.onclick = () => {
-          if (S.selected.has(ing.id)) S.selected.delete(ing.id);
-          else if (S.selected.size < 3) S.selected.add(ing.id);
-          else return coach("#msg-ingredient", "재료는 세 가지까지만 넣을 수 있다네. 하나를 빼고 다시 골라보게.");
+          const had = S.selected.has(ing.id);
+          if (had) S.selected.delete(ing.id);
+          else S.selected.add(ing.id);
           b.setAttribute("aria-pressed", String(S.selected.has(ing.id)));
-          syncIngredient();
+          // 방금 새로 담은 재료를 넘겨, 부재료면 그 향을 장인이 짚어준다.
+          syncIngredient(had ? undefined : ing, true);
         };
         grid.appendChild(b);
       });
     }
-    function syncIngredient() {
-      const n = S.selected.size;
+    // 부재료를 담았을 때 장인이 들려주는 향 설명
+    const FLAVOR_NOTE: Record<string, string> = {
+      flower: "국화를 넣으면 은은한 국화 향이 감돈다네.",
+      honey: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지.",
+    };
+    function syncIngredient(justAdded?: (typeof INGREDIENTS)[number], interacted = false) {
       const needed = INGREDIENTS.filter((i) => i.essential && !S.selected.has(i.id));
+      const extras = INGREDIENTS.filter((i) => !i.essential && S.selected.has(i.id));
       const b = $("#btn-ingredient") as HTMLButtonElement | null;
       if (!b) return;
-      b.textContent = n === 3 && !needed.length ? "재료 3개 선택 완료" : `재료 ${n}개 선택`;
-      b.disabled = !(n === 3 && !needed.length);
-      if (n === 3 && needed.length)
-        coach("#msg-ingredient", `막걸리의 뼈대는 ${needed.map((i) => i.name).join("·")}. 이것 없이는 술이 되지 않네.`);
-      else if (n === 3) coach("#msg-ingredient", "좋아, 쌀·누룩·물이면 술이 된다네. 이제 고두밥을 지어보세.");
+      b.disabled = needed.length > 0;
+      b.textContent = needed.length
+        ? `주원료 ${4 - needed.length}/4 선택`
+        : extras.length
+          ? `주원료 4종 · 부재료 ${extras.length}종`
+          : "주원료 4개 선택 완료";
+      // 부팅·초기화 때는 인트로 안내문을 유지하고, 사용자가 재료를 만졌을 때만 멘트를 바꾼다.
+      if (!interacted) return;
+      if (justAdded && !justAdded.essential) {
+        coach("#msg-ingredient", FLAVOR_NOTE[justAdded.id] ?? "부재료를 더하면 향이 한결 깊어진다네.");
+      } else if (needed.length) {
+        coach("#msg-ingredient", `가와지쌀·정제수·누룩·밀이 주원료라네. ${needed.map((i) => i.name).join("·")}을(를) 마저 담아보게.`);
+      } else {
+        coach(
+          "#msg-ingredient",
+          extras.length
+            ? "좋아, 주원료에 부재료까지 갖췄네. 이제 고두밥부터 지어 세 번 담글 준비를 하세."
+            : "좋아, 주원료가 다 모였네. 이제 고두밥부터 지어 세 번 담글 준비를 하세."
+        );
+      }
     }
     function coach(sel: string, text: string) {
       const el = $(sel);
@@ -873,7 +922,7 @@ export default function ArBreweryExperience() {
         b.textContent = st.name;
         b.onclick = () => {
           if (i !== S.godubap) return;
-          if (i === 3 && !S.quizDone) {
+          if (i === GB_LAST && !S.quizDone) {
             $("#quiz")?.classList.remove("hidden");
             return;
           }
@@ -892,20 +941,20 @@ export default function ArBreweryExperience() {
       const hint = $("#godubap-hint");
       if (hint) {
         hint.textContent =
-          S.godubap >= 4
+          S.godubap >= GB_N
             ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
-            : S.godubap === 3 && !S.quizDone
+            : S.godubap === GB_LAST && !S.quizDone
               ? "장인의 질문에 먼저 답해주세요"
               : "불이 켜진 단계를 눌러 순서대로 진행하세요";
       }
-      const cur = GODUBAP_STEPS[Math.min(S.godubap, 3)];
+      const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
       const cap = $("#cap-godubap");
-      if (cap) cap.textContent = S.godubap >= 4 ? "고두밥 완성 · 25℃까지 식었어요" : cur.caption;
-      if (S.godubap === 3 && !S.quizDone) $("#quiz")?.classList.remove("hidden");
+      if (cap) cap.textContent = S.godubap >= GB_N ? "고두밥 완성 · 채반에서 차게 식었어요" : cur.caption;
+      if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
-        b.disabled = S.godubap < 4;
-        b.textContent = S.godubap < 4 ? "공정을 순서대로 진행하세요" : "누룩 섞고 항아리에 담기";
+        b.disabled = S.godubap < GB_N;
+        b.textContent = S.godubap < GB_N ? "공정을 순서대로 진행하세요" : "누룩 섞고 항아리에 담기";
       }
     }
     $$("#quiz .choice").forEach((c) => {
@@ -916,7 +965,7 @@ export default function ArBreweryExperience() {
           S.quizDone = true;
           setTimeout(() => {
             $("#quiz")?.classList.add("hidden");
-            S.godubap = 4;
+            S.godubap = GB_N;
             syncGodubap();
           }, 900);
         } else {
@@ -925,7 +974,15 @@ export default function ArBreweryExperience() {
       };
     });
     const btnGodubap = $("#btn-godubap");
-    if (btnGodubap) (btnGodubap as HTMLElement).onclick = () => setStep("ferment");
+    if (btnGodubap)
+      (btnGodubap as HTMLElement).onclick = () => {
+        // 발효는 '혼합'부터 탭으로 진행 — 항아리·자동 발효는 후발효에서만 켜진다.
+        S.fstage = 0;
+        S.ferment = 0;
+        setStep("ferment");
+        onFermentTick();
+        syncFermentPhase();
+      };
 
     /* --- 14 · 발효 --- */
     const tempInput = $("#temp") as HTMLInputElement | null;
@@ -967,6 +1024,46 @@ export default function ArBreweryExperience() {
       else if (S.temp < 21) m.textContent = "너무 서늘하면 효모가 잠들어 버린다네. 조금만 올려보게.";
       else m.textContent = "24~26℃, 딱 좋구먼. 이대로 두면 곱게 익겠네.";
     }
+    /* 담금·발효 타임라인 핀 — 탭을 눌러 혼합 → 1차발효 → 덧술 순으로 넘어간다.
+       마지막 '후발효'에 이르면 항아리가 나타나고 시간(온도 조절)으로 자동 발효된다. */
+    const F_LAST = FERMENT_STEPS.length - 1; // 후발효 인덱스
+    const fpills = $("#ferment-pills");
+    if (fpills) {
+      fpills.innerHTML = "";
+      FERMENT_STEPS.forEach((st, i) => {
+        const b = document.createElement("button");
+        b.className = "pill";
+        b.dataset.idx = String(i);
+        b.textContent = st.name;
+        b.onclick = () => {
+          if (i !== S.fstage) return;   // 지금 켜진 단계만 누를 수 있다
+          if (i >= F_LAST) return;       // 후발효는 클릭이 아니라 발효로 완료된다
+          S.fstage = i + 1;
+          if (S.fstage >= F_LAST) startHufermentation(); // 후발효 진입 — 항아리 등장 + 자동 발효
+          syncFermentPhase();
+        };
+        fpills.appendChild(b);
+      });
+    }
+    // 후발효(fstage 3)에서만 온도 게임·항아리 자동 발효가 돈다. 그 전엔 탭으로만 진행.
+    function syncFermentPhase() {
+      $$("#ferment-pills .pill").forEach((p, i) => {
+        (p as HTMLElement).dataset.state = i < S.fstage ? "done" : i === S.fstage ? "now" : "todo";
+      });
+      const active = S.fstage >= F_LAST; // 후발효 진행 중
+      $("#ferment-game")?.classList.toggle("hidden", !active);
+      $("#btn-ferment")?.classList.toggle("hidden", !active);
+      const hint = $("#ferment-hint");
+      if (hint)
+        hint.textContent = active
+          ? "항아리에 담근 뒤로는 시간이 익혀 줍니다 · 온도만 맞춰주세요"
+          : "불이 켜진 단계를 눌러 순서대로 진행하세요";
+      if (active) onFermentTick();       // 후발효: 일차·막대·버튼 갱신
+      else {
+        const cap = $("#cap-ferment");
+        if (cap) cap.textContent = FERMENT_STEPS[S.fstage].caption; // 혼합/1차발효/덧술 설명
+      }
+    }
     function onFermentTick() {
       const bar = $("#bar-ferment");
       if (bar) {
@@ -976,38 +1073,89 @@ export default function ArBreweryExperience() {
       }
       const pct = $("#ferment-pct");
       if (pct) pct.textContent = `${Math.round(S.ferment)}%`;
-      const day = Math.min(7, 1 + Math.floor(S.ferment / 15));
+      const day = Math.min(30, 1 + Math.floor(S.ferment / 3.4));
       const cap = $("#cap-ferment");
       if (cap)
         cap.textContent =
           S.ferment >= 100
-            ? "발효 완료 · 맑은 술이 떠올랐어요"
-            : `발효 ${day}일차 · ${S.ferment < 40 ? "거품이 활발해요" : S.ferment < 80 ? "단내가 올라와요" : "기포가 잦아들어요"}`;
+            ? "완전발효 끝 · 맑은 술이 떠올랐어요"
+            : `후발효 ${day}일차 · ${S.ferment < 40 ? "맑은 술이 서서히 떠올라요" : S.ferment < 80 ? "산도·당도가 자리를 잡아가요" : "기포가 잦아들며 곱게 익어요"}`;
       const b = $("#btn-ferment") as HTMLButtonElement | null;
       if (b) {
         b.disabled = S.ferment < 100;
-        b.textContent = S.ferment < 100 ? "발효가 무르익는 중…" : "체에 걸러 술 완성하기";
+        b.textContent = S.ferment < 100 ? "삼십여 일, 후발효가 무르익는 중…" : "발효 완료 · 마무리 공정으로";
       }
     }
     const btnFerment = $("#btn-ferment");
-    if (btnFerment) (btnFerment as HTMLElement).onclick = () => setStep("done");
+    if (btnFerment)
+      (btnFerment as HTMLElement).onclick = () => {
+        // 완성 공정 walkthrough를 처음부터 보여주기 위해 상태를 초기화한다.
+        S.press = 0;
+        uiRoot!.classList.remove("shipped");
+        setStep("done");
+        syncPress();
+      };
 
-    /* --- 15 · 완성 / 리포트 --- */
+    /* --- 15 · 완성 공정 (압착·여과 → 저온숙성 → 출고) --- */
+    const ppills = $("#press-pills");
+    if (ppills) {
+      ppills.innerHTML = "";
+      PRESS_STEPS.forEach((st, i) => {
+        const b = document.createElement("button");
+        b.className = "pill";
+        b.dataset.idx = String(i);
+        b.textContent = st.name;
+        b.onclick = () => {
+          if (i !== S.press) return; // 지금 켜진 단계만 누를 수 있다
+          S.press = i + 1;
+          syncPress();
+        };
+        ppills.appendChild(b);
+      });
+    }
+    function syncPress() {
+      $$("#press-pills .pill").forEach((p, i) => {
+        (p as HTMLElement).dataset.state = i < S.press ? "done" : i === S.press ? "now" : "todo";
+      });
+      const done = S.press >= PRESS_STEPS.length;
+      const cur = PRESS_STEPS[Math.min(S.press, PRESS_STEPS.length - 1)];
+      const cap = $("#cap-finishing");
+      if (cap) cap.textContent = done ? "씻기부터 출고까지 예순 날 넘게, 냥이탁주가 완성됐어요" : cur.caption;
+      const hint = $("#finishing-hint");
+      if (hint) hint.textContent = done ? "마지막 공정까지 마쳤어요. 완성된 술을 만나보세요." : "불이 켜진 단계를 눌러 순서대로 진행하세요";
+      const b = $("#btn-finishing") as HTMLButtonElement | null;
+      if (b) {
+        b.disabled = !done;
+        b.textContent = done ? "완성된 냥이탁주 만나기" : "공정을 순서대로 진행하세요";
+      }
+    }
+    const btnFinishing = $("#btn-finishing");
+    if (btnFinishing)
+      (btnFinishing as HTMLElement).onclick = () => {
+        uiRoot!.classList.add("shipped");
+        // 축하 화면은 한지 배경 — 이때만 헤더를 밝은 톤으로 바꾼다.
+        document.documentElement.dataset.arStep = "done";
+      };
+
+    /* --- 리포트 --- */
     const btnReport = $("#btn-report");
     if (btnReport) {
       (btnReport as HTMLElement).onclick = () => {
         const avg = S.tempLog.length ? S.tempLog.reduce((a, b) => a + b, 0) / S.tempLog.length : S.temp;
         const score = Math.round(THREE.MathUtils.clamp(100 - Math.abs(avg - 25) * 7, 40, 99));
         const notes: Record<string, string> = {
-          omija: "붉은 빛과 새콤한 끝맛", flower: "은은한 국화 향", honey: "둥근 단맛",
+          flower: "은은한 국화 향", honey: "둥근 단맛",
         };
         const extra = INGREDIENTS.find((i) => !i.essential && S.selected.has(i.id));
         const body = $("#report-body");
         if (body)
           body.innerHTML = `
+            <dt>제조 방식</dt><dd>삼양주 · 세 번 담금 · 수작업 100%</dd>
             <dt>사용한 원료</dt><dd>${[...S.selected].map((id) => INGREDIENTS.find((i) => i.id === id)!.name).join(" · ")}</dd>
             <dt>평균 발효 온도</dt><dd>${avg.toFixed(1)}℃</dd>
-            <dt>발효 기간</dt><dd>7일 (가속 체험)</dd>
+            <dt>완전발효</dt><dd>30여 일 (가속 체험)</dd>
+            <dt>저온 숙성</dt><dd>1℃ 냉장창고 · 30일 이상</dd>
+            <dt>총 제조 기간</dt><dd>60일 이상</dd>
             <dt>맛 프로파일</dt><dd>${extra ? notes[extra.id] : "깔끔한 곡물 단맛"}</dd>
             <dt>양조 점수</dt><dd>${score}점</dd>`;
         $("#report")?.classList.add("open");
@@ -1024,7 +1172,10 @@ export default function ArBreweryExperience() {
         S.quizDone = false;
         S.temp = 27;
         S.ferment = 0;
+        S.fstage = 0;
+        S.press = 0;
         S.tempLog = [];
+        uiRoot!.classList.remove("shipped");
         $$(".card").forEach((c) => c.setAttribute("aria-pressed", "false"));
         $("#quiz")?.classList.add("hidden");
         $$("#quiz .choice").forEach((c) => c.classList.remove("ok", "no"));
@@ -1033,6 +1184,8 @@ export default function ArBreweryExperience() {
         syncIngredient();
         syncGodubap();
         onFermentTick();
+        syncFermentPhase();
+        syncPress();
         setStep("ingredient");
       };
     }
@@ -1053,6 +1206,8 @@ export default function ArBreweryExperience() {
     syncGodubap();
     syncTemp();
     onFermentTick();
+    syncFermentPhase();
+    syncPress();
     syncPlaceButton();
 
     Promise.all([preloadModels(), checkAR()])
@@ -1111,14 +1266,14 @@ export default function ArBreweryExperience() {
             <div className="avatar" />
             <div>
               <div className="who">AI 술도가 장인</div>
-              <div className="msg" id="msg-ingredient">이 술은 고양 가와지쌀로 빚는 냥이탁주라네. 들어갈 재료를 골라보게.</div>
+              <div className="msg" id="msg-ingredient">이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 가와지쌀·정제수·누룩·밀, 이 네 가지 주원료를 골라 담아보게.</div>
             </div>
           </div>
         </div>
         <div className="fill" />
         <div className="dock">
           <div className="grid" id="grid" />
-          <button className="cta" id="btn-ingredient" disabled>재료 0개 선택</button>
+          <button className="cta" id="btn-ingredient" disabled>주원료 0/4 선택</button>
         </div>
       </div>
 
@@ -1127,7 +1282,7 @@ export default function ArBreweryExperience() {
         <div className="steps" id="pills" />
         <div className="steps-hint" id="godubap-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
         <div className="fill">
-          <div className="caption" id="cap-godubap">쌀을 씻어 이물질을 걷어내요</div>
+          <div className="caption" id="cap-godubap">가와지쌀을 열 번 넘게 깨끗이 씻고 헹궈요</div>
         </div>
         <div className="dock">
           <div id="quiz" className="hidden">
@@ -1149,35 +1304,51 @@ export default function ArBreweryExperience() {
 
       {/* 14 · 발효 */}
       <div className="panel-step" id="p-ferment">
+        <div className="steps" id="ferment-pills" />
+        <div className="steps-hint" id="ferment-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
         <div className="fill">
-          <div className="caption" id="cap-ferment">발효 1일차 · 거품이 오르기 시작해요</div>
+          <div className="caption" id="cap-ferment">식힌 고두밥에 불린 전통누룩을 섞어 항아리에 담았어요</div>
         </div>
         <div className="dock">
-          <div className="ferment-row">
-            <span className="ferment-rate" id="ferment-rate">발효 속도 정상</span>
-            <span className="ferment-pct" id="ferment-pct">0%</span>
-          </div>
-          <div className="bar"><i id="bar-ferment" /></div>
-          <div className="meter">
-            <div className="row"><span>발효 온도</span><span className="val" id="temp-val">27℃ · 조금 높음</span></div>
-            <input type="range" id="temp" min={18} max={34} step={1} defaultValue={27} aria-label="발효 온도" />
-          </div>
-          <div className="coach" id="coach-ferment">
-            <div className="avatar" />
-            <div>
-              <div className="who">AI 술도가 장인</div>
-              <div className="msg" id="msg-ferment">온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.</div>
+          <div id="ferment-game" className="hidden">
+            <div className="ferment-row">
+              <span className="ferment-rate" id="ferment-rate">발효 속도 정상</span>
+              <span className="ferment-pct" id="ferment-pct">0%</span>
+            </div>
+            <div className="bar"><i id="bar-ferment" /></div>
+            <div className="meter">
+              <div className="row"><span>발효 온도</span><span className="val" id="temp-val">27℃ · 조금 높음</span></div>
+              <input type="range" id="temp" min={18} max={34} step={1} defaultValue={27} aria-label="발효 온도" />
+            </div>
+            <div className="coach" id="coach-ferment">
+              <div className="avatar" />
+              <div>
+                <div className="who">AI 술도가 장인</div>
+                <div className="msg" id="msg-ferment">온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.</div>
+              </div>
             </div>
           </div>
-          <button className="cta" id="btn-ferment" disabled>발효가 무르익는 중…</button>
+          <button className="cta hidden" id="btn-ferment" disabled>발효가 무르익는 중…</button>
         </div>
       </div>
 
-      {/* 15 · 완성 */}
+      {/* 15 · 완성 공정 (압착·여과 → 저온숙성 → 출고) */}
+      <div className="panel-step" id="p-finishing">
+        <div className="steps" id="press-pills" />
+        <div className="steps-hint" id="finishing-hint">불이 켜진 단계를 눌러 순서대로 진행하세요</div>
+        <div className="fill">
+          <div className="caption" id="cap-finishing">보자기에 술덧을 붓고 손으로 정성껏 짜 맑게 걸러요</div>
+        </div>
+        <div className="dock">
+          <button className="cta" id="btn-finishing" disabled>공정을 순서대로 진행하세요</button>
+        </div>
+      </div>
+
+      {/* 16 · 완성 */}
       <div id="finish">
         <img className="finish-drink" src="/drinks/takju_goyang_nyangi9.webp" alt="냥이탁주9" />
         <h1>냥이탁주 9<br />양조 체험 완료!</h1>
-        <p>고양 가와지쌀로 빚은 냥이탁주 9가 완성됐어요. 쌀을 씻어 고두밥을 짓고 누룩을 섞어 발효까지, 행주산성주가가 손으로 빚는 과정을 그대로 따라와 보셨어요.</p>
+        <p>고양 가와지쌀로 빚은 냥이탁주 9가 완성됐어요. 쌀을 열 번 넘게 헹궈 고두밥을 짓고, 누룩을 섞어 세 번 담그는 삼양주로 서른 날을 발효한 뒤, 보자기에 손으로 짜 1℃ 냉장창고에서 다시 한 달 넘게 저온 숙성합니다. 씻기부터 병입까지 예순 날 넘게, 행주산성주가가 손으로 빚는 과정을 그대로 따라와 보셨어요.</p>
         <div className="finish-actions">
           <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
           <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
@@ -1305,6 +1476,8 @@ const styles = `
 .ar-ui .bar i[data-state="bad"]{background:var(--clay)}
 .ar-ui .ferment-row{display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px;
   color:var(--cream-dim); text-shadow:0 1px 6px rgba(0,0,0,.7)}
+/* 온도 게임 묶음 — 후발효에서만 보인다. dock과 같은 간격을 안에서 유지한다. */
+.ar-ui #ferment-game{display:flex; flex-direction:column; gap:14px}
 .ar-ui .ferment-rate[data-state="ok"]{color:var(--sage)}
 .ar-ui .ferment-rate[data-state="warn"]{color:#e8c07a}
 .ar-ui .ferment-rate[data-state="bad"]{color:#e8927a}
@@ -1378,7 +1551,14 @@ const styles = `
 .ar-ui[data-step="ingredient"] #p-ingredient,
 .ar-ui[data-step="godubap"] #p-godubap,
 .ar-ui[data-step="ferment"] #p-ferment{display:flex}
-.ar-ui[data-step="done"] #finish{display:flex}
+/* 완성(done) 단계는 두 국면 — 먼저 완성 공정 walkthrough, 다 마치면(.shipped) 축하 화면 */
+.ar-ui[data-step="done"] #p-finishing{display:flex}
+.ar-ui[data-step="done"].shipped #p-finishing{display:none}
+.ar-ui[data-step="done"].shipped #finish{display:flex}
+
+/* 완성 공정 패널 — 배경을 깔지 않아 AR 카메라 화면이 그대로 유지된다.
+   (한지 배경으로 덮으면 카메라가 사라진 것처럼 보여 '나가진다'고 느껴진다) */
+.ar-ui #p-finishing{background:transparent}
 
 @media (prefers-reduced-motion:reduce){.ar-ui *{animation:none !important; transition:none !important}}
 `;
