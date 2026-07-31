@@ -89,12 +89,17 @@ export default function ArBreweryExperience() {
     const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 40);
     camera.position.set(0, 0.42, 0.95);
 
+    // 3D 모드 조작: 좌우 드래그로 회전, 상하 드래그로 올려다보거나 내려다본다.
     const controls = new OrbitControls(camera, canvas);
     controls.target.set(0, 0.22, 0);
     controls.enableDamping = true;
-    controls.minDistance = 0.4;
-    controls.maxDistance = 2.2;
-    controls.maxPolarAngle = Math.PI * 0.49;
+    controls.dampingFactor = 0.08;
+    controls.rotateSpeed = 0.8;
+    controls.enablePan = false; // 평행이동은 막아 두어 회전·확대에만 집중하게 한다
+    controls.minDistance = 0.35;
+    controls.maxDistance = 2.6;
+    controls.minPolarAngle = Math.PI * 0.06; // 거의 수직에서 내려다보는 각도까지
+    controls.maxPolarAngle = Math.PI * 0.49; // 바닥 아래로는 내려가지 않게
 
     scene.add(new THREE.HemisphereLight(0xdfe8e0, 0x1b2118, 1.15));
     const keyLight = new THREE.DirectionalLight(0xfff2d8, 1.9);
@@ -1252,7 +1257,11 @@ const styles = `
 .ar-ui #report dd{margin:0; text-align:right; font-weight:600; color:var(--ink-strong)}
 
 .ar-ui .hidden{display:none !important}
-.ar-ui .panel-step{display:none; flex-direction:column; flex:1}
+/* 단계 패널은 화면 전체를 덮으므로 포인터를 통과시킨다.
+   그래야 3D 모드에서 캔버스를 드래그해 시점을 돌릴 수 있다.
+   실제로 눌러야 하는 영역(하단 조작부·진행 표시)만 다시 살린다. */
+.ar-ui .panel-step{display:none; flex-direction:column; flex:1; pointer-events:none}
+.ar-ui .dock, .ar-ui .steps{pointer-events:auto}
 .ar-ui[data-step="place"] #p-place,
 .ar-ui[data-step="ingredient"] #p-ingredient,
 .ar-ui[data-step="godubap"] #p-godubap,
