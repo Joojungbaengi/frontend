@@ -1179,7 +1179,7 @@ export default function ArBreweryExperience() {
         <h1>냥이탁주 9<br />양조 체험 완료!</h1>
         <p>고양 가와지쌀로 빚은 냥이탁주 9가 완성됐어요. 쌀을 씻어 고두밥을 짓고 누룩을 섞어 발효까지, 행주산성주가가 손으로 빚는 과정을 그대로 따라와 보셨어요.</p>
         <div className="finish-actions">
-          <button className="cta" id="btn-report">AI 양조 리포트 보기</button>
+          <button className="cta" id="btn-report">양조 리포트 보기</button>
           <Link href="/dex" className="cta dex-link">술 도감으로 가기</Link>
         </div>
         <button className="cta ghost" id="btn-restart">처음부터 다시 빚기</button>
@@ -1188,7 +1188,7 @@ export default function ArBreweryExperience() {
       {/* 리포트 */}
       <div id="report">
         <div className="sheet">
-          <h3>AI 양조 리포트</h3>
+          <h3>양조 리포트</h3>
           <div className="sub">이번 체험에서 만든 술의 기록</div>
           <dl id="report-body" />
           <button className="cta" id="btn-close-report">닫기</button>
