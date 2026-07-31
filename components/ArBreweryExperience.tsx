@@ -1178,8 +1178,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
-        b.disabled = S.godubap < GB_N;
-        b.textContent = S.godubap < GB_N ? "공정을 순서대로 진행하세요" : "누룩 섞고 항아리에 담기";
+        // 아직 이를 때도 눌리게 두고, 대신 눌렀을 때 무엇을 해야 하는지 알려준다
+        const ready = S.godubap >= GB_N;
+        b.classList.toggle("waiting", !ready);
+        b.textContent = ready ? "누룩 섞고 항아리에 담기" : "공정을 순서대로 진행하세요";
       }
     }
     // 퀴즈 문항·선택지는 레시피에서 온다. (술마다 문구가 달라져도 그대로 동작)
@@ -1208,9 +1210,27 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         quizChoices.appendChild(c);
       });
     }
+    /** 아직 넘어갈 수 없는 버튼을 눌렀을 때 화면 가운데에 띄우는 안내창 */
+    function showNotice(message: string) {
+      const msg = $("#notice-msg");
+      if (msg) msg.textContent = message;
+      $("#notice")?.classList.add("open");
+    }
+    const btnCloseNotice = $("#btn-close-notice");
+    if (btnCloseNotice)
+      (btnCloseNotice as HTMLElement).onclick = () => $("#notice")?.classList.remove("open");
+
     const btnGodubap = $("#btn-godubap");
     if (btnGodubap)
       (btnGodubap as HTMLElement).onclick = () => {
+        if (btnGodubap.classList.contains("waiting")) {
+          showNotice(
+            S.godubap === GB_LAST && !S.quizDone
+              ? "장인의 질문에 먼저 답해 주세요."
+              : "위쪽 타임라인에서 단계를 차례로 눌러 고두밥을 지어 주세요.",
+          );
+          return;
+        }
         // 발효는 '혼합'부터 탭으로 진행 — 항아리·자동 발효는 후발효에서만 켜진다.
         S.fstage = 0;
         S.ferment = 0;
@@ -1362,13 +1382,17 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       if (hint) hint.textContent = done ? "마지막 공정까지 마쳤어요. 완성된 술을 만나보세요." : "";
       const b = $("#btn-finishing") as HTMLButtonElement | null;
       if (b) {
-        b.disabled = !done;
+        b.classList.toggle("waiting", !done);
         b.textContent = done ? "완성된 냥이탁주 만나기" : "공정을 순서대로 진행하세요";
       }
     }
     const btnFinishing = $("#btn-finishing");
     if (btnFinishing)
       (btnFinishing as HTMLElement).onclick = () => {
+        if (btnFinishing.classList.contains("waiting")) {
+          showNotice("위쪽 타임라인에서 단계를 차례로 눌러 마지막 공정을 마쳐 주세요.");
+          return;
+        }
         uiRoot!.classList.add("shipped");
         // 축하 화면은 한지 배경 — 이때만 헤더를 밝은 톤으로 바꾼다.
         document.documentElement.dataset.arStep = "done";
@@ -1532,7 +1556,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
               </div>
             </div>
           </div>
-          <button className="cta" id="btn-godubap" disabled>공정을 순서대로 진행하세요</button>
+          <button className="cta waiting" id="btn-godubap">공정을 순서대로 진행하세요</button>
         </div>
       </div>
 
@@ -1574,7 +1598,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <div className="caption" id="cap-finishing">{recipe.pressSteps[0]?.caption}</div>
         </div>
         <div className="dock">
-          <button className="cta" id="btn-finishing" disabled>공정을 순서대로 진행하세요</button>
+          <button className="cta waiting" id="btn-finishing">공정을 순서대로 진행하세요</button>
         </div>
       </div>
 
@@ -1597,6 +1621,14 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <div className="sub">이번 체험에서 만든 술의 기록</div>
           <dl id="report-body" />
           <button className="cta" id="btn-close-report">닫기</button>
+        </div>
+      </div>
+
+      {/* 안내 알림 — 아직 진행할 수 없는 버튼을 눌렀을 때 */}
+      <div id="notice">
+        <div className="sheet">
+          <p id="notice-msg" />
+          <button className="cta" id="btn-close-notice">알겠어요</button>
         </div>
       </div>
 
