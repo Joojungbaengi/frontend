@@ -693,7 +693,8 @@ export default function ArBreweryExperience() {
 
       if (S.step === "ferment" && S.ferment < 100) {
         const dist = Math.abs(S.temp - 25);
-        const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.15, 1) * 11;
+        // 25℃에서 약 17초에 완주. 너무 빨리 끝나면 온도를 조절해 본 효과를 느끼기 어렵다.
+        const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 6;
         S.ferment = Math.min(100, S.ferment + rate * dt);
         S.tempLog.push(S.temp);
         onFermentTick();
@@ -903,9 +904,26 @@ export default function ArBreweryExperience() {
       if (v <= 29) return "조금 높음";
       return "너무 높음";
     }
+    /** 25℃에서 얼마나 벗어났는지 — 색과 속도 표시에 함께 쓴다 */
+    function tempState(): "ok" | "warn" | "bad" {
+      const off = Math.abs(S.temp - 25);
+      return off <= 2 ? "ok" : off <= 4 ? "warn" : "bad";
+    }
+
     function syncTemp() {
+      const state = tempState();
       const tv = $("#temp-val");
-      if (tv) tv.textContent = `${S.temp}℃ · ${tempLabel(S.temp)}`;
+      if (tv) {
+        tv.textContent = `${S.temp}℃ · ${tempLabel(S.temp)}`;
+        (tv as HTMLElement).dataset.state = state;
+      }
+      // 지금 온도로 발효가 얼마나 잘 진행되는지 한 줄로 보여준다
+      const rateEl = $("#ferment-rate");
+      if (rateEl) {
+        rateEl.textContent =
+          state === "ok" ? "발효 속도 정상" : state === "warn" ? "발효가 더뎌지고 있어요" : "발효가 거의 멈췄어요";
+        (rateEl as HTMLElement).dataset.state = state;
+      }
       const m = $("#msg-ferment");
       if (!m) return;
       if (S.temp > 26) m.textContent = "온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.";
@@ -914,7 +932,13 @@ export default function ArBreweryExperience() {
     }
     function onFermentTick() {
       const bar = $("#bar-ferment");
-      if (bar) (bar as HTMLElement).style.width = S.ferment + "%";
+      if (bar) {
+        (bar as HTMLElement).style.width = S.ferment + "%";
+        // 온도가 어긋나면 막대 색까지 바뀌어, 진행이 느려진 이유가 바로 보인다
+        (bar as HTMLElement).dataset.state = tempState();
+      }
+      const pct = $("#ferment-pct");
+      if (pct) pct.textContent = `${Math.round(S.ferment)}%`;
       const day = Math.min(7, 1 + Math.floor(S.ferment / 15));
       const cap = $("#cap-ferment");
       if (cap)
@@ -1091,6 +1115,10 @@ export default function ArBreweryExperience() {
           <div className="caption" id="cap-ferment">발효 1일차 · 거품이 오르기 시작해요</div>
         </div>
         <div className="dock">
+          <div className="ferment-row">
+            <span className="ferment-rate" id="ferment-rate">발효 속도 정상</span>
+            <span className="ferment-pct" id="ferment-pct">0%</span>
+          </div>
           <div className="bar"><i id="bar-ferment" /></div>
           <div className="meter">
             <div className="row"><span>발효 온도</span><span className="val" id="temp-val">27℃ · 조금 높음</span></div>
@@ -1229,8 +1257,21 @@ const styles = `
   background:#fff; border:2px solid var(--brown); cursor:pointer}
 .ar-ui .meter input[type=range]::-moz-range-thumb{width:19px;height:19px;border-radius:50%;background:#fff;border:2px solid var(--brown)}
 
-.ar-ui .bar{height:6px; border-radius:999px; background:rgba(232,201,138,.18); overflow:hidden}
-.ar-ui .bar i{display:block; height:100%; width:0; background:var(--sage-deep); transition:width .4s linear}
+.ar-ui .bar{height:8px; border-radius:999px; background:rgba(232,201,138,.18); overflow:hidden}
+.ar-ui .bar i{display:block; height:100%; width:0; background:var(--sage-deep);
+  transition:width .4s linear, background .3s}
+/* 온도가 어긋나면 진행 막대와 안내 문구가 함께 색으로 알려준다 */
+.ar-ui .bar i[data-state="warn"]{background:#d8a441}
+.ar-ui .bar i[data-state="bad"]{background:var(--clay)}
+.ar-ui .ferment-row{display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px;
+  color:var(--cream-dim); text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.ar-ui .ferment-rate[data-state="ok"]{color:var(--sage)}
+.ar-ui .ferment-rate[data-state="warn"]{color:#e8c07a}
+.ar-ui .ferment-rate[data-state="bad"]{color:#e8927a}
+.ar-ui .ferment-pct{font-weight:700; color:var(--gold-bright); font-variant-numeric:tabular-nums}
+.ar-ui .meter .val[data-state="ok"]{color:#3f7a4e}
+.ar-ui .meter .val[data-state="warn"]{color:#c1862a}
+.ar-ui .meter .val[data-state="bad"]{color:var(--clay)}
 
 /* 앱의 .btn-seal(인주 강조버튼)과 같은 규격 — 그림자 없이 색만 다르게 */
 .ar-ui .cta{width:100%; box-sizing:border-box; border:1px solid transparent; font-family:var(--font-myeongjo), serif;
