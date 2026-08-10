@@ -734,12 +734,26 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       glow.position.set(0, 0.2, 0);
       stageGroup.add(glow);
 
-      const steam = makeParticles(140, {
-        color: 0xf2ecdb, size: 0.016, opacity: 0, speed: 0.15,
-        radius: 0.1, baseY: 0.24, height: 0.34, taper: 0.55,
+      const steamWisps = Array.from({ length: 3 }, (_, index) => {
+        const phase = index * 1.9;
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3((index - 1) * 0.028, 0.19, (index % 2 ? 1 : -1) * 0.01),
+          new THREE.Vector3(Math.sin(phase) * 0.016, 0.27, 0),
+          new THREE.Vector3(Math.sin(phase + 1.1) * 0.025, 0.36, 0.006),
+          new THREE.Vector3(Math.sin(phase + 2.2) * 0.035, 0.46, -0.004),
+        ]);
+        const material = new THREE.MeshBasicMaterial({
+          color: 0xf7f3e8,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.0035, 6, false), material);
+        mesh.renderOrder = 2;
+        stageGroup.add(mesh);
+        return { mesh, material, phase, index };
       });
-      stageGroup.add(steam);
-      live.particles.push(steam);
 
       // 그릇 물 — 평면이 아니라 납작한 반구 돔(휘어진 면)으로. 침수에서 차오르고 탈수에서 빠진다.
       // (높이·곡률이 안 맞으면 아래 세 값만 조절하면 된다)
@@ -788,15 +802,25 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.tick = (t, dt) => {
         const cur = GODUBAP_STEPS[S.godubap];
 
-        // 김 — 증자 단계에서는 강하게, 손 부채질 냉각 중에는 진행률에 따라 줄인다.
+        // 김 — 큰 point particle 대신 반투명한 3개 wisp를 사용한다.
+        // 냉각이 진행될수록 뒤쪽 wisp부터 사라지고 나머지도 자연스럽게 옅어진다.
         const steaming = cur?.steam === true;
         const coolingSteam = cur?.dark === true && S.coolingActive;
         const coolingRatio = S.coolingFanCount / REQUIRED_COOLING_FAN_COUNT;
-        const steamTarget = steaming ? 0.55 : coolingSteam ? 0.48 * (1 - coolingRatio) : 0;
         const glowTarget = steaming ? 1.6 : coolingSteam ? 0.45 * (1 - coolingRatio) : 0.05;
         glow.intensity += (glowTarget - glow.intensity) * 0.05;
-        steam.material.opacity += (steamTarget - steam.material.opacity) * 0.06;
-        (steam.userData as any).opt.speed = steaming ? 0.35 : coolingSteam ? 0.24 : 0.15;
+        const steamAmount = steaming ? 1 : coolingSteam ? Math.max(0, 1 - coolingRatio) : 0;
+        steamWisps.forEach((wisp) => {
+          const presence = THREE.MathUtils.clamp(steamAmount * 3 - wisp.index, 0, 1);
+          const opacity = (steaming ? 0.28 : 0.22) * presence;
+          wisp.material.opacity += (opacity - wisp.material.opacity) * 0.06;
+          wisp.mesh.visible = wisp.material.opacity > 0.003;
+          wisp.mesh.position.x = Math.sin(t * (0.85 + wisp.index * 0.08) + wisp.phase) * 0.012;
+          wisp.mesh.position.z = Math.cos(t * 0.65 + wisp.phase) * 0.007;
+          wisp.mesh.rotation.z = Math.sin(t * 0.7 + wisp.phase) * 0.11;
+          const scale = 0.9 + presence * 0.16 + Math.sin(t * 0.8 + wisp.phase) * 0.025;
+          wisp.mesh.scale.set(1, scale, 1);
+        });
 
         // 물 — 현재 단계 water 값으로 채워지고 빠진다
         const targetWater = cur?.water ?? 0;
@@ -1396,6 +1420,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       if (bar) bar.style.width = `${progress}%`;
       const pct = $("#cooling-pct");
       if (pct) pct.textContent = `${progress}%`;
+      const phase = $("#cooling-phase");
+      if (phase) phase.textContent = S.coolingComplete ? "냉각 완료" : "식히는 중";
       const status = $("#cooling-status");
       if (status) {
         status.textContent = S.coolingComplete
@@ -1957,14 +1983,15 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         <div className="steps" id="pills" />
         <div className="steps-hint" id="godubap-hint"></div>
         <div className="fill">
-          <div id="cooling-game" className="cooling-game hidden" aria-live="polite">
-            <strong id="cooling-status">고두밥의 열기를 식혀주세요</strong>
-            <div className="bar"><i id="bar-cooling" /></div>
-            <span id="cooling-pct">0%</span>
-          </div>
           <div className="caption" id="cap-godubap">{recipe.godubapSteps[0]?.caption}</div>
         </div>
         <div className="dock">
+          <div id="cooling-game" className="cooling-game hidden" aria-live="polite">
+            <span className="cooling-label">고두밥 냉각</span>
+            <strong id="cooling-status">고두밥의 열기를 식혀주세요</strong>
+            <div className="bar"><i id="bar-cooling" /></div>
+            <div className="cooling-progress"><span id="cooling-phase">식히는 중</span><span id="cooling-pct">0%</span></div>
+          </div>
           <div id="quiz" className="hidden">
             <div className="coach">
               <div className="avatar" />

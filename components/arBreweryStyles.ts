@@ -8,7 +8,7 @@ export const styles = `
   --clay:var(--seal); --clay-hi:#c9573c; --sage-deep:var(--gold);
   --line:rgba(232,201,138,.22);
   --r-md:16px; --r-sm:14px; --safe-b:env(safe-area-inset-bottom,0px);
-  padding-top:20px;}
+  padding-top:calc(env(safe-area-inset-top,0px) + 20px);}
 .ar-ui canvas#gl{position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0}
 /* 냉각 단계 비네트 — 캔버스 위, 오버레이 UI 아래. 가장자리만 살짝 어둡게 */
 .ar-ui .vignette{position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .7s ease; z-index:1;
@@ -105,14 +105,15 @@ export const styles = `
 
 .ar-ui .caption{position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:12px; color:var(--cream-dim)}
 
-.ar-ui .cooling-game{position:absolute; left:50%; top:28px; transform:translateX(-50%); width:min(280px,calc(100% - 44px));
-  display:flex; flex-direction:column; gap:9px; padding:13px 14px; box-sizing:border-box;
-  border:1px solid rgba(232,201,138,.44); border-radius:14px; background:rgba(26,18,11,.72);
-  color:#fff7df; text-align:center; text-shadow:0 1px 7px rgba(0,0,0,.8)}
+.ar-ui .cooling-game{display:flex; flex-direction:column; gap:8px; padding:14px 15px; box-sizing:border-box;
+  border:1px solid rgba(232,201,138,.4); border-radius:14px; background:rgba(26,18,11,.76);
+  color:#fff7df; text-align:left; text-shadow:0 1px 7px rgba(0,0,0,.8); box-shadow:0 8px 20px rgba(0,0,0,.2)}
+.ar-ui .cooling-game .cooling-label{font-size:10px; font-weight:700; letter-spacing:.13em; color:rgba(255,224,138,.8)}
 .ar-ui .cooling-game strong{font-size:13px; line-height:1.45}
-.ar-ui .cooling-game .bar{height:9px; background:rgba(255,255,255,.2)}
-.ar-ui .cooling-game .bar i{background:linear-gradient(90deg,#efb85b,#76c7bb)}
-.ar-ui .cooling-game span{font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; color:#ffe08a}
+.ar-ui .cooling-game .bar{height:7px; background:rgba(255,255,255,.18)}
+.ar-ui .cooling-game .bar i{background:linear-gradient(90deg,#efb85b,#76c7bb); transition:width .2s ease}
+.ar-ui .cooling-game .cooling-progress{display:flex; align-items:center; justify-content:space-between; font-size:12px; color:rgba(255,247,223,.78)}
+.ar-ui .cooling-game .cooling-progress span:last-child{font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; color:#ffe08a}
 
 .ar-ui .meter{background:var(--cream); color:var(--ink-strong); border:1px solid rgba(198,165,104,.4);
   border-radius:var(--r-md); padding:14px 15px}
