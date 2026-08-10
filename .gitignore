@@ -43,3 +43,6 @@ next-env.d.ts
 
 # onnxruntime-web wasm (dev/build 시 node_modules에서 복사)
 /public/ort/
+
+# MediaPipe wasm + 손 랜드마크 모델 (dev/build 시 scripts/fetch-mediapipe.mjs 가 준비)
+/public/mediapipe/
