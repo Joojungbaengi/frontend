@@ -22,6 +22,7 @@ import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
 import { HandTracker } from "@/lib/hand/handTracker";
 import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
 import type { HandFrame } from "@/lib/hand/types";
+import { FanGesture } from "@/lib/hand/fanGesture";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { getRecipe } from "@/lib/brewery/recipes";
 import { styles } from "@/components/arBreweryStyles";
@@ -67,6 +68,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     // 완성 공정 타임라인 — 발효가 끝난 뒤 손으로 마무리하는 단계들(클릭해 진행).
     const PRESS_STEPS = recipe.pressSteps;
 
+    /** 고두밥을 다 식히는 데 필요한 부채질 횟수 */
+    const REQUIRED_FANS = 5;
+
     const S = {
       step: "place" as "place" | ArStep,
       /** 배치 크기 — "floor"는 실제 크기, "table"은 책상용 미니어처(55%) */
@@ -74,6 +78,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       placed: false,
       selected: new Set<string>(),
       godubap: 0,
+      /** 냉각 단계에서 지금까지 부친 횟수 */
+      coolFans: 0,
+      /** 다 식혔나 — 이게 참이 돼야 장인 퀴즈가 열린다 */
+      coolDone: false,
       quizDone: false,
       temp: 27,
       ferment: 0,
@@ -101,6 +109,20 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let finishShowShip: (() => void) | null = null;
     // 발효 하위 단계가 바뀔 때 채반고두밥/항아리를 갈아 끼우는 함수(buildFerment 가 채운다)
     let fermentShowStage: (() => void) | null = null;
+    /**
+     * 지금이 부채질로 식혀야 하는 국면인가.
+     * 손 인식이 돌고 있을 때만 해당한다 — 안 그러면 손을 못 쓰는 기기에서
+     * 영영 못 넘어가는 화면이 된다.
+     */
+    function coolingActive() {
+      return S.hand && S.godubap === GB_LAST && !S.quizDone && !S.coolDone;
+    }
+
+    /** 냉각 관문을 통과했나. 손을 못 쓰는 기기에서는 통과한 것으로 본다. */
+    function coolingCleared() {
+      return !S.hand || S.coolDone;
+    }
+
     function resetIngredientSelection() {
       enteredIngredientAt = performance.now();
       S.selected.clear();
@@ -110,12 +132,15 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       syncIngredient(); // 버튼 "주원료 0/N" 로 초기화 (interacted=false → 멘트는 인트로 유지)
     }
 
+    /** 손으로 조작하는 단계 — 원료(집기)와 고두밥(부채질) */
+    const HAND_STEPS = new Set<typeof S.step>(["ingredient", "godubap"]);
+
     function setStep(next: typeof S.step) {
       S.step = next;
       uiRoot!.dataset.step = next;
-      // 손을 쓰는 단계는 아직 원료뿐이다. 나머지 단계에서 MediaPipe 를 계속 돌리면
+      // 손을 쓰는 단계에서만 검출을 돌린다. 나머지 단계까지 MediaPipe 를 계속 굴리면
       // GPU 를 나눠 쓰느라 발효·완성 연출이 버벅인다.
-      handTracker?.setPaused(next !== "ingredient");
+      handTracker?.setPaused(!HAND_STEPS.has(next));
       // 완료 화면은 한지 배경이라 헤더도 함께 밝아져야 한다.
       // 다만 'done'의 앞 국면(압착~출고 완성 공정 walkthrough)은 AR 카메라를 그대로 두므로,
       // 헤더도 카메라 톤을 유지한다. 한지 축하 화면(.shipped)일 때만 밝은 헤더로 바꾼다.
@@ -853,6 +878,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.particles.push(drip);
 
       let coolT = 0; // 냉각 연출 진행 시간
+      /** 한 번 부칠 때마다 1로 튀었다가 잦아든다 — 김이 훅 흩어지는 연출에 쓴다 */
+      let fanPulse = 0;
 
       // 현재 하위 단계에 맞춰 무대 모델을 보이거나 숨긴다.
       godubapShowStage = () => {
@@ -873,9 +900,21 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
         // 김 — steam:true 단계에서만
         const steaming = cur?.steam === true;
-        glow.intensity += ((steaming ? 1.6 : 0.05) - glow.intensity) * 0.05;
-        steam.material.opacity += ((steaming ? 0.55 : 0) - steam.material.opacity) * 0.06;
-        (steam.userData as any).opt.speed = steaming ? 0.35 : 0.15;
+
+        // 냉각 단계에서는 김이 남아 있다가 부칠수록 걷힌다 — 진행도가 눈에 보이게.
+        const cooling = cur?.dark === true && coolingActive();
+        const coolLeft = Math.max(0, 1 - S.coolFans / REQUIRED_FANS);
+        fanPulse = Math.max(0, fanPulse - dt * 1.6);
+
+        const glowTarget = steaming ? 1.6 : cooling ? 0.5 * coolLeft : 0.05;
+        glow.intensity += (glowTarget - glow.intensity) * 0.05;
+
+        const steamTarget = steaming ? 0.55 : cooling ? 0.5 * coolLeft : 0;
+        steam.material.opacity += (steamTarget - steam.material.opacity) * 0.06;
+        const opt = (steam.userData as any).opt;
+        // 부친 순간에는 김이 빠르게 옆으로 퍼진다
+        opt.speed = steaming ? 0.35 : cooling ? 0.2 + fanPulse * 0.9 : 0.15;
+        opt.radius = 0.1 + fanPulse * 0.12;
 
         // 물 — 현재 단계 water 값으로 채워지고 빠진다
         const targetWater = cur?.water ?? 0;
@@ -905,6 +944,36 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
             g.scale.setScalar(THREE.MathUtils.smoothstep(pp, 0, 1));
           });
         }
+      };
+
+      /* ── 손으로 부채질하기 ──────────────────────────────────────────
+       * 좌우로 흔든 왕복을 세어 REQUIRED_FANS 번이면 다 식은 것으로 본다.
+       * 판정은 lib/hand/fanGesture.ts 가 하고, 여기서는 결과만 받아 쓴다.
+       */
+      const fan = new FanGesture();
+
+      live.onHand = (f) => {
+        if (!coolingActive()) {
+          if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+          return;
+        }
+
+        const gained = fan.update(f);
+        if (gained) {
+          S.coolFans = Math.min(REQUIRED_FANS, S.coolFans + gained);
+          fanPulse = 1;
+          syncCooling();
+          // 다 식히면 그때 장인이 질문을 던진다
+          if (S.coolFans >= REQUIRED_FANS && !S.coolDone) {
+            S.coolDone = true;
+            fan.reset();
+            syncGodubap();
+          }
+          return;
+        }
+
+        if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+        else setHandHud("tracking", `손을 좌우로 흔들어 식혀 주세요 · ${S.coolFans}/${REQUIRED_FANS}`);
       };
     }
 
@@ -1147,11 +1216,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
      */
     const AR_DETECT_MS = 60;
 
+    // 손 상태 표시는 단계마다 하나씩 있다 (원료·고두밥). 전부 같이 갱신한다.
     function setHandHud(state: "idle" | "tracking" | "hover" | "holding" | "dropped", text: string) {
-      const hud = $("#hand-hud");
-      if (hud) (hud as HTMLElement).dataset.state = state;
-      const msg = $("#hand-hud-msg");
-      if (msg) msg.textContent = text;
+      $$(".hand-hud").forEach((hud) => ((hud as HTMLElement).dataset.state = state));
+      $$(".hand-hud .hand-hud-msg").forEach((msg) => (msg.textContent = text));
     }
 
     /** 실제 AR 세션 안에서 손 인식을 켠다 (camera-access 를 받은 기기) */
@@ -1404,7 +1472,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         b.onclick = () => {
           if (i !== S.godubap) return;
           if (i === GB_LAST && !S.quizDone) {
-            $("#quiz")?.classList.remove("hidden");
+            // 아직 안 식었으면 부채질이 먼저다
+            if (coolingCleared()) $("#quiz")?.classList.remove("hidden");
             return;
           }
           S.godubap = i + 1;
@@ -1413,6 +1482,27 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         pills.appendChild(b);
       });
     }
+    /** 냉각 진행 막대·문구 — 부칠 때마다 부른다 */
+    function syncCooling() {
+      const on = S.hand && S.godubap === GB_LAST && !S.quizDone;
+      $("#cooling-game")?.classList.toggle("hidden", !on);
+
+      const pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
+      const bar = $("#bar-cooling") as HTMLElement | null;
+      if (bar) bar.style.width = `${pct}%`;
+      const pctEl = $("#cooling-pct");
+      if (pctEl) pctEl.textContent = `${pct}%`;
+      const label = $("#cooling-label");
+      if (label) {
+        label.textContent = S.coolDone
+          ? "다 식었어요"
+          : S.coolFans === 0
+            ? "손을 좌우로 흔들어 부채질하세요"
+            : `식히는 중 · ${S.coolFans}/${REQUIRED_FANS}번`;
+        (label as HTMLElement).dataset.state = S.coolDone ? "ok" : "warn";
+      }
+    }
+
     function syncGodubap() {
       godubapShowStage?.(); // 현재 하위 단계에 맞춰 무대 모델(그릇/솥/채반)을 갈아 끼운다
       $$("#pills .pill").forEach((p, i) => {
@@ -1426,19 +1516,34 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           S.godubap >= GB_N
             ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
             : S.godubap === GB_LAST && !S.quizDone
-              ? "장인의 질문에 먼저 답해주세요"
+              ? coolingCleared()
+                ? "장인의 질문에 먼저 답해주세요"
+                : "손을 좌우로 흔들어 고두밥을 식혀주세요"
               : "";
       }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
       const cap = $("#cap-godubap");
-      if (cap) cap.textContent = S.godubap >= GB_N ? "고두밥 완성 · 채반에서 차게 식었어요" : cur.caption;
-      if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
+      if (cap)
+        cap.textContent =
+          S.godubap >= GB_N
+            ? "고두밥 완성 · 채반에서 차게 식었어요"
+            : S.godubap === GB_LAST && !S.quizDone && S.coolDone
+              ? "고두밥이 충분히 식었어요"
+              : cur.caption;
+      // 퀴즈는 다 식힌 뒤에 열린다
+      if (S.godubap === GB_LAST && !S.quizDone && coolingCleared()) $("#quiz")?.classList.remove("hidden");
+      syncCooling();
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
         // 아직 이를 때도 눌리게 두고, 대신 눌렀을 때 무엇을 해야 하는지 알려준다
         const ready = S.godubap >= GB_N;
+        const coolStep = S.godubap === GB_LAST && !S.quizDone;
         b.classList.toggle("waiting", !ready);
-        b.textContent = ready ? "누룩 섞고 항아리에 담기" : "공정을 순서대로 진행하세요";
+        b.textContent = ready
+          ? "누룩 섞고 항아리에 담기"
+          : coolStep && !coolingCleared()
+            ? "손을 좌우로 흔들어 식혀 주세요"
+            : "공정을 순서대로 진행하세요";
       }
     }
     // 퀴즈 문항·선택지는 레시피에서 온다. (술마다 문구가 달라져도 그대로 동작)
@@ -1483,7 +1588,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         if (btnGodubap.classList.contains("waiting")) {
           showNotice(
             S.godubap === GB_LAST && !S.quizDone
-              ? "장인의 질문에 먼저 답해 주세요."
+              ? coolingCleared()
+                ? "장인의 질문에 먼저 답해 주세요."
+                : "고두밥이 아직 뜨겁습니다. 손을 좌우로 흔들어 식혀 주세요."
               : "위쪽 타임라인에서 단계를 차례로 눌러 고두밥을 지어 주세요.",
           );
           return;
@@ -1683,6 +1790,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       (btnRestart as HTMLElement).onclick = () => {
         S.selected.clear();
         S.godubap = 0;
+        S.coolFans = 0;
+        S.coolDone = false;
         S.quizDone = false;
         S.temp = 27;
         S.ferment = 0;
@@ -1793,9 +1902,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         </div>
         <div className="fill" />
         <div className="dock">
-          <div className="hand-hud" id="hand-hud" data-state="idle">
+          <div className="hand-hud" data-state="idle">
             <i className="lamp" />
-            <span id="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+            <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
           </div>
           <div className="grid" id="grid" />
           <button className="cta" id="btn-ingredient" disabled>주원료 선택</button>
@@ -1810,6 +1919,17 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <div className="caption" id="cap-godubap">{recipe.godubapSteps[0]?.caption}</div>
         </div>
         <div className="dock">
+          <div className="hand-hud" data-state="idle">
+            <i className="lamp" />
+            <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+          </div>
+          <div id="cooling-game" className="hidden">
+            <div className="ferment-row">
+              <span className="ferment-rate" id="cooling-label" data-state="warn">손을 좌우로 흔들어 부채질하세요</span>
+              <span className="ferment-pct" id="cooling-pct">0%</span>
+            </div>
+            <div className="bar"><i id="bar-cooling" /></div>
+          </div>
           <div id="quiz" className="hidden">
             <div className="coach">
               <div className="avatar" />
