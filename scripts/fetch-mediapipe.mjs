@@ -20,11 +20,24 @@ const WASM_FILES = [
   "vision_wasm_nosimd_internal.wasm",
 ];
 
-const MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
-const MODEL_NAME = "hand_landmarker.task";
-/** 내려받은 파일이 이보다 작으면 오류 페이지를 받은 것으로 본다 */
-const MODEL_MIN_BYTES = 5_000_000;
+/**
+ * 내려받을 모델들.
+ *  · hand_landmarker  — 손 관절 21개. 무엇을 집었는지 판정하는 데 쓴다.
+ *  · selfie_segmenter — 픽셀 단위 사람/배경 분할. 카메라 영상에서 손만 오려내
+ *                       AR 에셋 **위에** 얹기 위해 필요하다. 관절만으로는 윤곽을 알 수 없다.
+ */
+const MODELS = [
+  {
+    name: "hand_landmarker.task",
+    url: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+    minBytes: 5_000_000,
+  },
+  {
+    name: "selfie_segmenter.tflite",
+    url: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+    minBytes: 100_000,
+  },
+];
 
 const outDir = join(process.cwd(), "public", "mediapipe");
 mkdirSync(outDir, { recursive: true });
@@ -43,19 +56,21 @@ for (const file of WASM_FILES) {
   }
 }
 
-// 2) 손 랜드마크 모델
-const modelPath = join(outDir, MODEL_NAME);
-if (existsSync(modelPath) && statSync(modelPath).size >= MODEL_MIN_BYTES) {
-  console.log(`[mediapipe] ${MODEL_NAME} 이미 있음`);
-} else {
-  console.log(`[mediapipe] ${MODEL_NAME} 내려받는 중…`);
-  const res = await fetch(MODEL_URL);
-  if (!res.ok) throw new Error(`모델 다운로드 실패 (${res.status} ${res.statusText}) — ${MODEL_URL}`);
+// 2) 모델들
+for (const { name, url, minBytes } of MODELS) {
+  const modelPath = join(outDir, name);
+  if (existsSync(modelPath) && statSync(modelPath).size >= minBytes) {
+    console.log(`[mediapipe] ${name} 이미 있음`);
+    continue;
+  }
+  console.log(`[mediapipe] ${name} 내려받는 중…`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`모델 다운로드 실패 (${res.status} ${res.statusText}) — ${url}`);
 
   const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length < MODEL_MIN_BYTES) {
-    throw new Error(`모델이 너무 작습니다 (${bytes.length}B). URL 이 바뀌었는지 확인하세요 — ${MODEL_URL}`);
+  if (bytes.length < minBytes) {
+    throw new Error(`모델이 너무 작습니다 (${bytes.length}B). URL 이 바뀌었는지 확인하세요 — ${url}`);
   }
   writeFileSync(modelPath, bytes);
-  console.log(`[mediapipe] ${MODEL_NAME} 완료 (${(bytes.length / 1024 / 1024).toFixed(1)}MB)`);
+  console.log(`[mediapipe] ${name} 완료 (${(bytes.length / 1024).toFixed(0)}KB)`);
 }
