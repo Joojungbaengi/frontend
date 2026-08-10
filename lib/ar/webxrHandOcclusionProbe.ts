@@ -2,39 +2,22 @@ import * as THREE from "three";
 
 import type { XRHandLandmarkSample } from "@/lib/ar/webxrHandLandmarkProbe";
 
-// All size values are ratios of palmWidth = distance(index MCP, pinky MCP).
-// Keeping them together makes on-device silhouette tuning straightforward.
-const MASK_TUNING = {
-  palmExpansion: 0.15,
-  thumbBaseRadius: 0.145,
-  thumbTipRadius: 0.105,
-  indexBaseRadius: 0.12,
-  indexTipRadius: 0.085,
-  middleBaseRadius: 0.13,
-  middleTipRadius: 0.095,
-  ringBaseRadius: 0.115,
-  ringTipRadius: 0.08,
-  pinkyBaseRadius: 0.1,
-  pinkyTipRadius: 0.07,
-  jointExpansion: 1.1,
-  fingertipExtension: 0.65,
-  wristWidthRatio: 0.56,
-  wristLengthRatio: 0.5,
-  smoothing: 0.3,
-  landmarkTimeout: 300,
-} as const;
-
+const LANDMARK_TIMEOUT_MS = 300;
+const LANDMARK_SMOOTHING = 0.3;
+const PALM_EXPANSION_RATIO = 0.1;
+const FINGER_RADIUS_RATIO = 0.075;
+const FINGER_MARGIN_PX = 1.5;
+const ARM_EXTENSION_RATIO = 0.55;
 const CIRCLE_SEGMENTS = 8;
 const MAX_VERTICES = 2048;
-const MAX_OUTLINE_VERTICES = 512;
 
 const PALM_INDICES = [0, 5, 9, 13, 17] as const;
-const FINGERS = [
-  { chain: [1, 2, 3, 4], baseRadius: MASK_TUNING.thumbBaseRadius, tipRadius: MASK_TUNING.thumbTipRadius },
-  { chain: [5, 6, 7, 8], baseRadius: MASK_TUNING.indexBaseRadius, tipRadius: MASK_TUNING.indexTipRadius },
-  { chain: [9, 10, 11, 12], baseRadius: MASK_TUNING.middleBaseRadius, tipRadius: MASK_TUNING.middleTipRadius },
-  { chain: [13, 14, 15, 16], baseRadius: MASK_TUNING.ringBaseRadius, tipRadius: MASK_TUNING.ringTipRadius },
-  { chain: [17, 18, 19, 20], baseRadius: MASK_TUNING.pinkyBaseRadius, tipRadius: MASK_TUNING.pinkyTipRadius },
+const FINGER_CHAINS = [
+  [0, 1, 2, 3, 4],
+  [0, 5, 6, 7, 8],
+  [0, 9, 10, 11, 12],
+  [0, 13, 14, 15, 16],
+  [0, 17, 18, 19, 20],
 ] as const;
 
 interface ProbeOptions {
@@ -114,26 +97,27 @@ export function createWebXRHandOcclusionProbe({
   const maskScene = new THREE.Scene();
   maskScene.add(eraserMesh);
 
-  const outlineGeometry = new THREE.BufferGeometry();
-  const outlinePositions = new Float32Array(MAX_OUTLINE_VERTICES * 3);
-  const outlinePositionAttribute = new THREE.BufferAttribute(outlinePositions, 3);
-  outlinePositionAttribute.setUsage(THREE.DynamicDrawUsage);
-  outlineGeometry.setAttribute("position", outlinePositionAttribute);
-  outlineGeometry.setDrawRange(0, 0);
-
-  let outlineMaterial: THREE.LineBasicMaterial | null = null;
+  let outlineMaterial: THREE.RawShaderMaterial | null = null;
   if (showOutline) {
-    outlineMaterial = new THREE.LineBasicMaterial({
-      color: 0xff1acc,
+    outlineMaterial = new THREE.RawShaderMaterial({
+      vertexShader: eraserMaterial.vertexShader,
+      fragmentShader: `
+        precision highp float;
+        void main() {
+          gl_FragColor = vec4(1.0, 0.1, 0.8, 1.0);
+        }
+      `,
+      wireframe: true,
+      blending: THREE.NoBlending,
       depthTest: false,
       depthWrite: false,
-      transparent: false,
+      side: THREE.DoubleSide,
       toneMapped: false,
     });
-    const outline = new THREE.LineSegments(outlineGeometry, outlineMaterial);
-    outline.frustumCulled = false;
-    outline.renderOrder = 1;
-    maskScene.add(outline);
+    const outlineMesh = new THREE.Mesh(geometry, outlineMaterial);
+    outlineMesh.frustumCulled = false;
+    outlineMesh.renderOrder = 1;
+    maskScene.add(outlineMesh);
   }
 
   const maskCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -157,7 +141,6 @@ export function createWebXRHandOcclusionProbe({
 
   function setInactive() {
     geometry.setDrawRange(0, 0);
-    outlineGeometry.setDrawRange(0, 0);
     setText(maskEl, "INACTIVE");
     setText(passEl, "INACTIVE");
   }
@@ -191,114 +174,19 @@ export function createWebXRHandOcclusionProbe({
     }
   }
 
-  function addTaperedCapsule(
-    a: Point2,
-    b: Point2,
-    startRadius: number,
-    endRadius: number,
-    width: number,
-    height: number,
-  ) {
+  function addCapsule(a: Point2, b: Point2, radius: number, width: number, height: number) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const length = Math.hypot(dx, dy);
     if (length < 0.001) return;
-    const normalX = -dy / length;
-    const normalY = dx / length;
-    const aLeft = { x: a.x + normalX * startRadius, y: a.y + normalY * startRadius };
-    const aRight = { x: a.x - normalX * startRadius, y: a.y - normalY * startRadius };
-    const bLeft = { x: b.x + normalX * endRadius, y: b.y + normalY * endRadius };
-    const bRight = { x: b.x - normalX * endRadius, y: b.y - normalY * endRadius };
+    const nx = (-dy / length) * radius;
+    const ny = (dx / length) * radius;
+    const aLeft = { x: a.x + nx, y: a.y + ny };
+    const aRight = { x: a.x - nx, y: a.y - ny };
+    const bLeft = { x: b.x + nx, y: b.y + ny };
+    const bRight = { x: b.x - nx, y: b.y - ny };
     addTriangle(aLeft, aRight, bLeft, width, height);
     addTriangle(aRight, bRight, bLeft, width, height);
-  }
-
-  let outlineVertexCount = 0;
-
-  function addOutlineVertex(point: Point2, viewportWidth: number, viewportHeight: number) {
-    if (!showOutline || outlineVertexCount >= MAX_OUTLINE_VERTICES) return;
-    const offset = outlineVertexCount * 3;
-    outlinePositions[offset] = (point.x / viewportWidth) * 2 - 1;
-    outlinePositions[offset + 1] = 1 - (point.y / viewportHeight) * 2;
-    outlinePositions[offset + 2] = 0;
-    outlineVertexCount++;
-  }
-
-  function addOutlineSegment(
-    a: Point2,
-    b: Point2,
-    viewportWidth: number,
-    viewportHeight: number,
-  ) {
-    addOutlineVertex(a, viewportWidth, viewportHeight);
-    addOutlineVertex(b, viewportWidth, viewportHeight);
-  }
-
-  function addOutlineCircle(
-    center: Point2,
-    radius: number,
-    viewportWidth: number,
-    viewportHeight: number,
-  ) {
-    if (!showOutline) return;
-    for (let index = 0; index < CIRCLE_SEGMENTS; index++) {
-      const angleA = (index / CIRCLE_SEGMENTS) * Math.PI * 2;
-      const angleB = ((index + 1) / CIRCLE_SEGMENTS) * Math.PI * 2;
-      addOutlineSegment(
-        { x: center.x + Math.cos(angleA) * radius, y: center.y + Math.sin(angleA) * radius },
-        { x: center.x + Math.cos(angleB) * radius, y: center.y + Math.sin(angleB) * radius },
-        viewportWidth,
-        viewportHeight,
-      );
-    }
-  }
-
-  function addFingerOutline(
-    chain: readonly number[],
-    points: Point2[],
-    baseRadius: number,
-    tipRadius: number,
-    viewportWidth: number,
-    viewportHeight: number,
-  ) {
-    if (!showOutline) return;
-
-    const left: Point2[] = [];
-    const right: Point2[] = [];
-    const radii: number[] = [];
-    for (let index = 0; index < chain.length; index++) {
-      const ratio = index / (chain.length - 1);
-      const radius = THREE.MathUtils.lerp(baseRadius, tipRadius, ratio);
-      const point = points[chain[index]];
-      const previous = points[chain[Math.max(0, index - 1)]];
-      const next = points[chain[Math.min(chain.length - 1, index + 1)]];
-      const dx = next.x - previous.x;
-      const dy = next.y - previous.y;
-      const length = Math.max(0.001, Math.hypot(dx, dy));
-      const normalX = -dy / length;
-      const normalY = dx / length;
-      left.push({ x: point.x + normalX * radius, y: point.y + normalY * radius });
-      right.push({ x: point.x - normalX * radius, y: point.y - normalY * radius });
-      radii.push(radius);
-    }
-
-    for (let index = 0; index < left.length - 1; index++) {
-      addOutlineSegment(left[index], left[index + 1], viewportWidth, viewportHeight);
-      addOutlineSegment(right[index], right[index + 1], viewportWidth, viewportHeight);
-    }
-
-    const tip = points[chain[chain.length - 1]];
-    const previousTip = points[chain[chain.length - 2]];
-    const directionX = tip.x - previousTip.x;
-    const directionY = tip.y - previousTip.y;
-    const directionLength = Math.max(0.001, Math.hypot(directionX, directionY));
-    const extendedTip = {
-      x: tip.x + (directionX / directionLength) * tipRadius * MASK_TUNING.fingertipExtension,
-      y: tip.y + (directionY / directionLength) * tipRadius * MASK_TUNING.fingertipExtension,
-    };
-    addOutlineSegment(left[left.length - 1], extendedTip, viewportWidth, viewportHeight);
-    addOutlineSegment(right[right.length - 1], extendedTip, viewportWidth, viewportHeight);
-    addOutlineCircle(extendedTip, radii[radii.length - 1], viewportWidth, viewportHeight);
   }
 
   function buildGeometry(viewportWidth: number, viewportHeight: number) {
@@ -308,7 +196,7 @@ export function createWebXRHandOcclusionProbe({
     }
 
     for (let index = 0; index < 21; index++) {
-      currentLandmarks[index].lerp(targetLandmarks[index], MASK_TUNING.smoothing);
+      currentLandmarks[index].lerp(targetLandmarks[index], LANDMARK_SMOOTHING);
     }
 
     const cameraAspect = cameraWidth / cameraHeight;
@@ -334,9 +222,13 @@ export function createWebXRHandOcclusionProbe({
       y: offsetY + landmark.y * drawHeight,
     }));
     const palmWidth = Math.max(1, distance(points[5], points[17]));
+    const fingerRadius = THREE.MathUtils.clamp(
+      palmWidth * FINGER_RADIUS_RATIO + FINGER_MARGIN_PX,
+      4,
+      18,
+    );
 
     vertexCount = 0;
-    outlineVertexCount = 0;
 
     const palmCenter = PALM_INDICES.reduce(
       (center, index) => {
@@ -347,8 +239,8 @@ export function createWebXRHandOcclusionProbe({
       { x: 0, y: 0 },
     );
     const expandedPalm = PALM_INDICES.map((index) => ({
-      x: palmCenter.x + (points[index].x - palmCenter.x) * (1 + MASK_TUNING.palmExpansion),
-      y: palmCenter.y + (points[index].y - palmCenter.y) * (1 + MASK_TUNING.palmExpansion),
+      x: palmCenter.x + (points[index].x - palmCenter.x) * (1 + PALM_EXPANSION_RATIO),
+      y: palmCenter.y + (points[index].y - palmCenter.y) * (1 + PALM_EXPANSION_RATIO),
     }));
     for (let index = 0; index < expandedPalm.length; index++) {
       addTriangle(
@@ -360,66 +252,26 @@ export function createWebXRHandOcclusionProbe({
       );
     }
 
-    for (const finger of FINGERS) {
-      const baseRadius = Math.max(2, palmWidth * finger.baseRadius);
-      const tipRadius = Math.max(2, palmWidth * finger.tipRadius);
-      const chain = finger.chain;
-      const jointRadii: number[] = [];
+    for (const chain of FINGER_CHAINS) {
       for (let index = 0; index < chain.length - 1; index++) {
-        const startRadius = THREE.MathUtils.lerp(
-          baseRadius,
-          tipRadius,
-          index / (chain.length - 1),
-        );
-        const endRadius = THREE.MathUtils.lerp(
-          baseRadius,
-          tipRadius,
-          (index + 1) / (chain.length - 1),
-        );
-        jointRadii[index] = startRadius;
-        if (index === chain.length - 2) jointRadii[index + 1] = endRadius;
-        addTaperedCapsule(
+        addCapsule(
           points[chain[index]],
           points[chain[index + 1]],
-          startRadius,
-          endRadius,
+          fingerRadius,
           viewportWidth,
           viewportHeight,
         );
       }
-      for (let index = 0; index < chain.length; index++) {
-        addCircle(
-          points[chain[index]],
-          jointRadii[index] * MASK_TUNING.jointExpansion,
-          viewportWidth,
-          viewportHeight,
-        );
-      }
-
-      const tip = points[chain[chain.length - 1]];
-      const previousTip = points[chain[chain.length - 2]];
-      const tipDirectionX = tip.x - previousTip.x;
-      const tipDirectionY = tip.y - previousTip.y;
-      const tipDirectionLength = Math.max(0.001, Math.hypot(tipDirectionX, tipDirectionY));
-      const extendedTip = {
-        x: tip.x + (tipDirectionX / tipDirectionLength) * tipRadius * MASK_TUNING.fingertipExtension,
-        y: tip.y + (tipDirectionY / tipDirectionLength) * tipRadius * MASK_TUNING.fingertipExtension,
-      };
-      addTaperedCapsule(tip, extendedTip, tipRadius, tipRadius, viewportWidth, viewportHeight);
-      addCircle(extendedTip, tipRadius, viewportWidth, viewportHeight);
-      addFingerOutline(chain, points, baseRadius, tipRadius, viewportWidth, viewportHeight);
     }
-
-    // The thumb CMC is intentionally joined to the palm separately: it is wider and
-    // angled differently from the four fingers, so this prevents a visible gap at its base.
-    addTaperedCapsule(
-      points[0],
-      points[1],
-      palmWidth * MASK_TUNING.thumbBaseRadius * 0.8,
-      palmWidth * MASK_TUNING.thumbBaseRadius,
-      viewportWidth,
-      viewportHeight,
-    );
+    for (let index = 0; index < points.length; index++) {
+      const isTip = index === 4 || index === 8 || index === 12 || index === 16 || index === 20;
+      addCircle(
+        points[index],
+        fingerRadius * (isTip ? 0.8 : 1),
+        viewportWidth,
+        viewportHeight,
+      );
+    }
 
     const knuckleCenter = [5, 9, 13, 17].reduce(
       (center, index) => {
@@ -438,11 +290,11 @@ export function createWebXRHandOcclusionProbe({
     const perpendicularX = -directionY;
     const perpendicularY = directionX;
     const farCenter = {
-      x: wrist.x + directionX * palmWidth * MASK_TUNING.wristLengthRatio,
-      y: wrist.y + directionY * palmWidth * MASK_TUNING.wristLengthRatio,
+      x: wrist.x + directionX * armLength * ARM_EXTENSION_RATIO,
+      y: wrist.y + directionY * armLength * ARM_EXTENSION_RATIO,
     };
-    const nearHalfWidth = palmWidth * MASK_TUNING.wristWidthRatio * 0.5;
-    const farHalfWidth = nearHalfWidth * 0.86;
+    const nearHalfWidth = palmWidth * 0.19;
+    const farHalfWidth = palmWidth * 0.15;
     const nearLeft = {
       x: wrist.x + perpendicularX * nearHalfWidth,
       y: wrist.y + perpendicularY * nearHalfWidth,
@@ -461,21 +313,9 @@ export function createWebXRHandOcclusionProbe({
     };
     addTriangle(nearLeft, nearRight, farLeft, viewportWidth, viewportHeight);
     addTriangle(nearRight, farRight, farLeft, viewportWidth, viewportHeight);
-    addCircle(wrist, nearHalfWidth, viewportWidth, viewportHeight);
-    addCircle(farCenter, farHalfWidth, viewportWidth, viewportHeight);
-
-    // Debug contour deliberately omits triangle edges and bone boundaries. It traces
-    // the palm sides and the short wrist cap, while each finger helper traces its outline.
-    addOutlineSegment(expandedPalm[0], expandedPalm[1], viewportWidth, viewportHeight);
-    addOutlineSegment(expandedPalm[3], expandedPalm[4], viewportWidth, viewportHeight);
-    addOutlineSegment(nearLeft, farLeft, viewportWidth, viewportHeight);
-    addOutlineSegment(farLeft, farRight, viewportWidth, viewportHeight);
-    addOutlineSegment(farRight, nearRight, viewportWidth, viewportHeight);
 
     geometry.setDrawRange(0, vertexCount);
     positionAttribute.needsUpdate = true;
-    outlineGeometry.setDrawRange(0, outlineVertexCount);
-    outlinePositionAttribute.needsUpdate = true;
     setText(maskEl, vertexCount > 0 ? "ACTIVE" : "INACTIVE");
     return vertexCount > 0;
   }
@@ -529,7 +369,7 @@ export function createWebXRHandOcclusionProbe({
         ? Math.max(0, frameTime - lastLandmarkAt)
         : 0;
       setText(ageEl, `${Math.round(landmarkAge)} ms`);
-      if (!hasTarget || landmarkAge > MASK_TUNING.landmarkTimeout) {
+      if (!hasTarget || landmarkAge > LANDMARK_TIMEOUT_MS) {
         hasTarget = false;
         currentInitialized = false;
         setText(handEl, "NOT DETECTED");
@@ -592,7 +432,6 @@ export function createWebXRHandOcclusionProbe({
       hasTarget = false;
       currentInitialized = false;
       geometry.dispose();
-      outlineGeometry.dispose();
       eraserMaterial.dispose();
       outlineMaterial?.dispose();
       maskScene.clear();
