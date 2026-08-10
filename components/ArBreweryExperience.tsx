@@ -29,6 +29,10 @@ import {
   type WebXRHandLandmarkProbe,
 } from "@/lib/ar/webxrHandLandmarkProbe";
 import {
+  createWebXRHandOcclusionProbe,
+  type WebXRHandOcclusionProbe,
+} from "@/lib/ar/webxrHandOcclusionProbe";
+import {
   createWebXRDepthOcclusionProbe,
   type WebXRDepthOcclusionProbe,
 } from "@/lib/ar/webxrDepthOcclusionProbe";
@@ -54,6 +58,13 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
   const segmentDebug =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("segmentDebug") === "1";
+  const handOcclusionDebug =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("handOcclusionDebug") === "1";
+  const showHandOcclusionOutline =
+    handOcclusionDebug &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("maskOutline") === "1";
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -913,6 +924,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let localSpace: XRReferenceSpace | null = null;
     let cameraAccessProbe: WebXRCameraAccessProbe | null = null;
     let handLandmarkProbe: WebXRHandLandmarkProbe | null = null;
+    let handOcclusionProbe: WebXRHandOcclusionProbe | null = null;
     let depthOcclusionProbe: WebXRDepthOcclusionProbe | null = null;
     let foregroundSegmentationProbe: WebXRForegroundSegmentationProbe | null = null;
     let arSupported = false;
@@ -932,7 +944,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     async function enterAR() {
       const xr = (navigator as any).xr;
       try {
-        const optionalFeatures = handDebug || segmentDebug
+        const optionalFeatures = handDebug || segmentDebug || handOcclusionDebug
           ? ["dom-overlay", "camera-access"]
           : ["dom-overlay"];
         if (depthDebug) optionalFeatures.push("depth-sensing");
@@ -971,14 +983,34 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       hitTestSource = await (xrSession as any).requestHitTestSource({ space: viewerSpace });
 
       const handDebugOverlay = $("#hand-debug");
-      if (handDebug && handDebugOverlay) {
+      const handOcclusionDebugOverlay = $("#hand-occlusion-debug");
+      if (handOcclusionDebug && handOcclusionDebugOverlay) {
+        try {
+          handOcclusionProbe = createWebXRHandOcclusionProbe({
+            renderer,
+            session: xrSession!,
+            debugOverlay: handOcclusionDebugOverlay,
+            showOutline: showHandOcclusionOutline,
+          });
+        } catch (error) {
+          const passStatus = handOcclusionDebugOverlay.querySelector<HTMLElement>(
+            "[data-occlusion-pass]",
+          );
+          if (passStatus) passStatus.textContent = "INACTIVE";
+          console.warn("[hand-occlusion-debug] Hand occlusion probe setup failed", error);
+        }
+      }
+
+      const handLandmarkOverlay = handDebugOverlay ?? handOcclusionDebugOverlay;
+      if ((handDebug || handOcclusionDebug) && handLandmarkOverlay) {
         try {
           handLandmarkProbe = createWebXRHandLandmarkProbe({
             renderer,
-            overlay: handDebugOverlay,
+            overlay: handLandmarkOverlay,
+            onLandmarks: (sample) => handOcclusionProbe?.onLandmarks(sample),
           });
         } catch (error) {
-          const modelStatus = handDebugOverlay.querySelector<HTMLElement>("[data-hand-model]");
+          const modelStatus = handLandmarkOverlay.querySelector<HTMLElement>("[data-hand-model]");
           if (modelStatus) modelStatus.textContent = "ERROR";
           console.warn("[hand-debug] Hand Landmarker probe setup failed", error);
         }
@@ -1001,8 +1033,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         }
       }
 
-      const cameraDebugOverlay = handDebugOverlay ?? segmentDebugOverlay;
-      if ((handDebug || segmentDebug) && cameraDebugOverlay) {
+      const cameraDebugOverlay = handDebugOverlay ?? segmentDebugOverlay ?? handOcclusionDebugOverlay;
+      if ((handDebug || segmentDebug || handOcclusionDebug) && cameraDebugOverlay) {
         cameraAccessProbe = createWebXRCameraAccessProbe({
           session: xrSession!,
           renderer,
@@ -1039,6 +1071,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         cameraAccessProbe = null;
         handLandmarkProbe?.dispose();
         handLandmarkProbe = null;
+        handOcclusionProbe?.dispose();
+        handOcclusionProbe = null;
         depthOcclusionProbe?.dispose();
         depthOcclusionProbe = null;
         foregroundSegmentationProbe?.dispose();
@@ -1116,6 +1150,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.particles.forEach((p) => updateParticles(p, dt));
       if (!S.xr) controls.update();
       renderer.render(scene, camera);
+      if (frame) handOcclusionProbe?.renderAfterScene(performance.now());
     });
 
     /* =====================================================================
@@ -1606,6 +1641,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       cameraAccessProbe = null;
       handLandmarkProbe?.dispose();
       handLandmarkProbe = null;
+      handOcclusionProbe?.dispose();
+      handOcclusionProbe = null;
       depthOcclusionProbe?.dispose();
       depthOcclusionProbe = null;
       foregroundSegmentationProbe?.dispose();
@@ -1621,7 +1658,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       delete document.documentElement.dataset.arStep;
     };
     // recipe 가 바뀌면 씬·UI를 새 술로 다시 초기화한다.
-  }, [recipe, handDebug, depthDebug, segmentDebug]);
+  }, [recipe, handDebug, depthDebug, segmentDebug, handOcclusionDebug, showHandOcclusionOutline]);
 
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
@@ -1640,6 +1677,21 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <span>HAND: <b data-hand>NOT DETECTED</b></span>
           <span>WRIST X: <b data-wrist-x>0.000</b></span>
           <span>WRIST Y: <b data-wrist-y>0.000</b></span>
+        </div>
+      )}
+
+      {handOcclusionDebug && (
+        <div className="hand-occlusion-debug" id="hand-occlusion-debug" role="status" aria-live="polite">
+          <strong>HAND OCCLUSION DEBUG</strong>
+          <span>XR BLEND MODE: <b data-xr-blend-mode>UNKNOWN</b></span>
+          <span>HAND MODEL: <b data-hand-model>LOADING</b></span>
+          <span>HAND: <b data-hand>NOT DETECTED</b></span>
+          <span>LANDMARKS: <b data-occlusion-landmarks>0</b></span>
+          <span>LANDMARK FPS: <b data-occlusion-fps>0.0</b></span>
+          <span>LANDMARK AGE: <b data-occlusion-age>0 ms</b></span>
+          <span>MASK: <b data-occlusion-mask>INACTIVE</b></span>
+          <span>ERASE PASS: <b data-occlusion-pass>INACTIVE</b></span>
+          <span>XR VIEWPORT: <b data-occlusion-viewport>0x0</b></span>
         </div>
       )}
 

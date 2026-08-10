@@ -13,6 +13,19 @@ export interface XRCameraTextureSample {
   timestamp: number;
 }
 
+export interface XRHandLandmarkPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface XRHandLandmarkSample {
+  landmarks: XRHandLandmarkPoint[];
+  cameraWidth: number;
+  cameraHeight: number;
+  timestamp: number;
+}
+
 export interface WebXRHandLandmarkProbe {
   onCameraTexture(sample: XRCameraTextureSample): void;
   dispose(): void;
@@ -21,6 +34,7 @@ export interface WebXRHandLandmarkProbe {
 interface ProbeOptions {
   renderer: THREE.WebGLRenderer;
   overlay: HTMLElement;
+  onLandmarks?: (sample: XRHandLandmarkSample) => void;
 }
 
 /**
@@ -30,6 +44,7 @@ interface ProbeOptions {
 export function createWebXRHandLandmarkProbe({
   renderer,
   overlay,
+  onLandmarks,
 }: ProbeOptions): WebXRHandLandmarkProbe {
   const modelEl = overlay.querySelector<HTMLElement>("[data-hand-model]");
   const handEl = overlay.querySelector<HTMLElement>("[data-hand]");
@@ -208,8 +223,20 @@ export function createWebXRHandLandmarkProbe({
             setText(handEl, "DETECTED");
             setText(wristXEl, wrist.x.toFixed(3));
             setText(wristYEl, wrist.y.toFixed(3));
+            onLandmarks?.({
+              landmarks: result.landmarks[0].map(({ x, y, z }) => ({ x, y, z })),
+              cameraWidth: sample.cameraWidth,
+              cameraHeight: sample.cameraHeight,
+              timestamp: sample.timestamp,
+            });
           } else {
             resetHandResult();
+            onLandmarks?.({
+              landmarks: [],
+              cameraWidth: sample.cameraWidth,
+              cameraHeight: sample.cameraHeight,
+              timestamp: sample.timestamp,
+            });
           }
         })
         .catch(fail)

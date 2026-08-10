@@ -22,7 +22,7 @@ export const styles = `
 .ar-ui.ar-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 .ar-ui.ar-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 
-.ar-ui .hand-debug,.ar-ui .depth-debug,.ar-ui .segment-debug{position:absolute; top:calc(10px + env(safe-area-inset-top,0px));
+.ar-ui .hand-debug,.ar-ui .depth-debug,.ar-ui .segment-debug,.ar-ui .hand-occlusion-debug{position:absolute; top:calc(10px + env(safe-area-inset-top,0px));
   z-index:40; pointer-events:none; display:flex; flex-direction:column; gap:3px;
   padding:9px 11px; border:1px solid rgba(255,255,255,.28); border-radius:8px;
   background:rgba(0,0,0,.72); color:#fff; font:11px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;
@@ -30,9 +30,10 @@ export const styles = `
 .ar-ui .hand-debug{left:10px}
 .ar-ui .depth-debug{right:10px}
 .ar-ui .segment-debug{left:50%; transform:translateX(-50%)}
-.ar-ui .hand-debug strong,.ar-ui .depth-debug strong,.ar-ui .segment-debug strong{font-size:12px; letter-spacing:.08em; color:#ffe08a}
-.ar-ui .hand-debug span,.ar-ui .depth-debug span,.ar-ui .segment-debug span{display:block}
-.ar-ui .hand-debug b,.ar-ui .depth-debug b,.ar-ui .segment-debug b{font-weight:700}
+.ar-ui .hand-occlusion-debug{left:50%; transform:translateX(-50%)}
+.ar-ui .hand-debug strong,.ar-ui .depth-debug strong,.ar-ui .segment-debug strong,.ar-ui .hand-occlusion-debug strong{font-size:12px; letter-spacing:.08em; color:#ffe08a}
+.ar-ui .hand-debug span,.ar-ui .depth-debug span,.ar-ui .segment-debug span,.ar-ui .hand-occlusion-debug span{display:block}
+.ar-ui .hand-debug b,.ar-ui .depth-debug b,.ar-ui .segment-debug b,.ar-ui .hand-occlusion-debug b{font-weight:700}
 .ar-ui .segment-mask-preview{width:72px; height:72px; margin-top:4px; align-self:center;
   border:1px solid rgba(255,255,255,.24); border-radius:4px; background:#000}
 .ar-ui .segment-foreground-overlay{position:absolute; inset:0; width:100%; height:100%; z-index:0;
