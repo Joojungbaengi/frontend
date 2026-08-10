@@ -28,6 +28,10 @@ import {
   createWebXRHandLandmarkProbe,
   type WebXRHandLandmarkProbe,
 } from "@/lib/ar/webxrHandLandmarkProbe";
+import {
+  createWebXRDepthOcclusionProbe,
+  type WebXRDepthOcclusionProbe,
+} from "@/lib/ar/webxrDepthOcclusionProbe";
 import { styles } from "@/components/arBreweryStyles";
 
 /**
@@ -40,6 +44,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
   const handDebug =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("handDebug") === "1";
+  const depthDebug =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("depthDebug") === "1";
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -899,6 +906,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let localSpace: XRReferenceSpace | null = null;
     let cameraAccessProbe: WebXRCameraAccessProbe | null = null;
     let handLandmarkProbe: WebXRHandLandmarkProbe | null = null;
+    let depthOcclusionProbe: WebXRDepthOcclusionProbe | null = null;
     let arSupported = false;
     let surfaceReady = false;
 
@@ -916,10 +924,23 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     async function enterAR() {
       const xr = (navigator as any).xr;
       try {
+        const optionalFeatures = handDebug
+          ? ["dom-overlay", "camera-access"]
+          : ["dom-overlay"];
+        if (depthDebug) optionalFeatures.push("depth-sensing");
+
         xrSession = await xr.requestSession("immersive-ar", {
           requiredFeatures: ["hit-test", "local"],
-          optionalFeatures: handDebug ? ["dom-overlay", "camera-access"] : ["dom-overlay"],
+          optionalFeatures,
           domOverlay: { root: uiRoot },
+          ...(depthDebug
+            ? {
+                depthSensing: {
+                  usagePreference: ["gpu-optimized"],
+                  dataFormatPreference: ["float32", "luminance-alpha"],
+                },
+              }
+            : {}),
         });
       } catch (e: any) {
         arSupported = false;
@@ -962,11 +983,32 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         });
       }
 
+      const depthDebugOverlay = $("#depth-debug");
+      if (depthDebug && depthDebugOverlay) {
+        try {
+          depthOcclusionProbe = createWebXRDepthOcclusionProbe({
+            session: xrSession!,
+            renderer,
+            scene,
+            referenceSpace: localSpace,
+            overlay: depthDebugOverlay,
+          });
+        } catch (error) {
+          const featureStatus = depthDebugOverlay.querySelector<HTMLElement>(
+            "[data-depth-feature]",
+          );
+          if (featureStatus) featureStatus.textContent = "UNAVAILABLE";
+          console.warn("[depth-debug] Depth occlusion probe setup failed", error);
+        }
+      }
+
       xrSession!.addEventListener("end", () => {
         cameraAccessProbe?.dispose();
         cameraAccessProbe = null;
         handLandmarkProbe?.dispose();
         handLandmarkProbe = null;
+        depthOcclusionProbe?.dispose();
+        depthOcclusionProbe = null;
         S.xr = false;
         xrSession = null;
         hitTestSource = null;
@@ -998,7 +1040,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       const dt = Math.min(clock.getDelta(), 0.05);
       const t = clock.elapsedTime;
 
-      if (frame) cameraAccessProbe?.onXRFrame(frame);
+      if (frame) {
+        cameraAccessProbe?.onXRFrame(frame);
+        depthOcclusionProbe?.onXRFrame(frame);
+      }
 
       if (S.step === "place" && !S.placed) {
         let found = false;
@@ -1527,6 +1572,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       cameraAccessProbe = null;
       handLandmarkProbe?.dispose();
       handLandmarkProbe = null;
+      depthOcclusionProbe?.dispose();
+      depthOcclusionProbe = null;
       if (xrSession) {
         try {
           xrSession.end();
@@ -1538,7 +1585,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       delete document.documentElement.dataset.arStep;
     };
     // recipe 가 바뀌면 씬·UI를 새 술로 다시 초기화한다.
-  }, [recipe, handDebug]);
+  }, [recipe, handDebug, depthDebug]);
 
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
@@ -1557,6 +1604,20 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <span>HAND: <b data-hand>NOT DETECTED</b></span>
           <span>WRIST X: <b data-wrist-x>0.000</b></span>
           <span>WRIST Y: <b data-wrist-y>0.000</b></span>
+        </div>
+      )}
+
+      {depthDebug && (
+        <div className="depth-debug" id="depth-debug" role="status" aria-live="polite">
+          <strong>DEPTH DEBUG</strong>
+          <span>DEPTH FEATURE: <b data-depth-feature>UNAVAILABLE</b></span>
+          <span>DEPTH SENSING: <b data-depth-sensing>UNAVAILABLE</b></span>
+          <span>DEPTH TEXTURE: <b data-depth-texture>NULL</b></span>
+          <span>OCCLUSION TEST: <b data-occlusion-test>INACTIVE</b></span>
+          <br />
+          <span>DEPTH USAGE: <b data-depth-usage>UNAVAILABLE</b></span>
+          <span>DEPTH FORMAT: <b data-depth-format>UNAVAILABLE</b></span>
+          <span>DEPTH TYPE: <b data-depth-type>UNAVAILABLE</b></span>
         </div>
       )}
 
