@@ -23,15 +23,15 @@ import { HandTracker } from "@/lib/hand/handTracker";
 import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
+import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
-import { getRecipe } from "@/lib/brewery/recipes";
 import { styles } from "@/components/arBreweryStyles";
 
 /**
  * 공통 엔진 — 술 종류별 데이터는 recipe(Recipe) 하나로만 받는다.
  * recipe 를 넘기지 않으면 기본 레시피(냥이탁주)로 동작한다.
  */
-export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?: Recipe }) {
+export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -1760,6 +1760,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         uiRoot!.classList.add("shipped");
         // 축하 화면은 한지 배경 — 이때만 헤더를 밝은 톤으로 바꾼다.
         document.documentElement.dataset.arStep = "done";
+        // 여기까지 왔으면 양조를 끝낸 것 — 이 술을 도감에 담는다
+        markObtained(recipe.drinkId);
       };
 
     /* --- 리포트 --- */

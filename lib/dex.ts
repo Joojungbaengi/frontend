@@ -1,29 +1,45 @@
-/**
- * 도감 획득 상태 — AR 양조 체험을 완료한 술 id 목록.
- * 실제로는 localStorage("dex_obtained")에 쌓이지만, AR 미완성 단계에서는
- * '이미 체험한 것처럼' 보이도록 아래 시드 목록을 기본값으로 사용한다.
- * (용인 동림청주 · 평택 천비향 약주는 AR 인식 대상이라 반드시 포함)
- */
-export const SEED_OBTAINED = [
-  "cheongju_yongin_dongnim", // 용인시 · 동림청주
-  "yakju_pyeongtaek_cheonbihyang", // 평택시 · 천비향 약주
-  "yakju_gapyeong_jatjinju", // 가평군 · 잣진주
-  "soju_gimpo_munbaesul", // 김포시 · 문배술
-  "takju_pocheon_gujeolcho", // 포천시 · 구절초 꽃 막걸리
-];
+"use client";
 
-/** 획득한 술 id 목록 — 저장된 값이 있으면 그걸, 없으면 시드를 사용 */
+/**
+ * 경기술 도감 획득 상태 — **AR 양조 체험을 끝까지 마친 술만** 담긴다.
+ *
+ * 예전에는 AR 이 없던 시절이라 몇 개를 미리 채워 둔 시드 목록을 기본값으로 썼는데,
+ * 이제 체험이 실제로 돌아가므로 그건 없앴다. 도감은 처음에 비어 있고,
+ * 양조를 마칠 때마다 한 칸씩 채워진다.
+ */
+
+const KEY = "dex_obtained";
+
+/** 저장된 목록을 읽는다. 아직 아무것도 못 마쳤으면 빈 배열. */
 export function readObtained(): string[] {
-  if (typeof window !== "undefined") {
-    try {
-      const raw = localStorage.getItem("dex_obtained");
-      if (raw) {
-        const arr = JSON.parse(raw) as unknown;
-        if (Array.isArray(arr) && arr.length > 0) return arr as string[];
-      }
-    } catch {
-      /* 파싱 실패 시 시드 사용 */
-    }
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? (arr as string[]).filter((x) => typeof x === "string") : [];
+  } catch {
+    return []; // 저장값이 깨졌으면 없는 셈 친다
   }
-  return SEED_OBTAINED;
+}
+
+/**
+ * 체험을 마친 술을 도감에 담는다.
+ * @returns 이번에 새로 담겼으면 true (이미 있던 술이면 false)
+ */
+export function markObtained(drinkId?: string | null): boolean {
+  if (typeof window === "undefined" || !drinkId) return false;
+  const list = readObtained();
+  if (list.includes(drinkId)) return false;
+  try {
+    localStorage.setItem(KEY, JSON.stringify([...list, drinkId]));
+    return true;
+  } catch {
+    return false; // 저장 공간이 막혀 있어도 체험 자체는 계속된다
+  }
+}
+
+/** 이 술을 이미 도감에 담았나 */
+export function hasObtained(drinkId: string): boolean {
+  return readObtained().includes(drinkId);
 }

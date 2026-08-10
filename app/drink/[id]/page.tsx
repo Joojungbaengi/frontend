@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AppImage from "@/components/AppImage";
 import ScreenHeader from "@/components/ScreenHeader";
+import ArEntryButton from "@/components/ArEntryButton";
 import db from "@/data/drinks.json";
 import type { Drink } from "@/lib/types";
 
@@ -385,9 +386,7 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
 
         {/* ── CTA ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 11, marginTop: 4 }}>
-          <Link href={`/ar?drink=${drink.id}`} className="btn-seal">
-            AR 양조 체험 시작
-          </Link>
+          <ArEntryButton drinkId={drink.id} />
           <Link href={`/drink/${drink.id}/similar`} className="btn-outline" style={{ textAlign: "center", padding: 15, fontSize: 15 }}>
             이 술과 비슷한 술 보기
           </Link>

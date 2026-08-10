@@ -6,7 +6,7 @@ import AppImage from "@/components/AppImage";
 import GyeonggiMap from "@/components/GyeonggiMap";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
-import { readObtained, SEED_OBTAINED } from "@/lib/dex";
+import { readObtained } from "@/lib/dex";
 import type { Drink } from "@/lib/types";
 
 /**
@@ -38,7 +38,8 @@ function regionsOf(ids: string[]): string[] {
 
 export default function MapPage() {
   const [selected, setSelected] = useState<string | null>(null);
-  const [stamped, setStamped] = useState<string[]>(() => regionsOf(SEED_OBTAINED));
+  // 서버 렌더와 어긋나지 않게 빈 상태로 시작하고, 아래 effect 가 저장값으로 채운다
+  const [stamped, setStamped] = useState<string[]>([]);
   const selectedDrinks = selected ? byRegion.get(selected) ?? [] : [];
 
   // 체험 완료한 술의 지역 → 지도에 스탬프 (localStorage 반영)

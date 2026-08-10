@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import AppImage from "@/components/AppImage";
 import HangingScroll from "@/components/HangingScroll";
+import ArEntryButton from "@/components/ArEntryButton";
 import ScreenHeader from "@/components/ScreenHeader";
 import { pickSinseon, SINSEON, type Sinseon } from "@/lib/sinseon";
 import type { RecommendResponse, SurveyAnswers } from "@/lib/types";
@@ -342,13 +343,14 @@ export default function ResultPage() {
         </section>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-          <Link
-            href={recs[0] ? `/ar?drink=${recs[0].id}` : "/ar"}
-            className="btn-primary"
-            style={{ textAlign: "center", color: "#fff" }}
-          >
-            1위 술로 AR 양조 체험하기
-          </Link>
+          {recs[0] && (
+            <ArEntryButton
+              drinkId={recs[0].id}
+              className="btn-primary"
+              label="1위 술로 AR 양조 체험하기"
+              style={{ textAlign: "center", color: "#fff" }}
+            />
+          )}
           <Link href="/sulbti" className="btn-outline" style={{ textAlign: "center", color: "var(--ink)" }}>
             술BTI 다시 하기
           </Link>

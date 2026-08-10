@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { SEED_OBTAINED } from "@/lib/dex";
+import { readObtained } from "@/lib/dex";
 
 /**
  * 홈 — 확정 디자인.
@@ -20,12 +20,18 @@ function Chevron({ color }: { color: string }) {
 
 export default function HomePage() {
   const [ready, setReady] = useState(false);
+  // 도감에 담긴 장수 — AR 양조를 마친 술만 센다
+  const [obtainedCount, setObtainedCount] = useState(0);
 
   // 배경 이미지가 다 로드된 뒤에 화면을 보여준다 (지직거리며 그려지는 것 방지)
   useEffect(() => {
     const img = new window.Image();
     img.src = "/home-bg.webp";
-    const done = () => setReady(true);
+    const done = () => {
+      // 저장값은 브라우저에만 있으므로 첫 화면을 띄우는 이 시점에 함께 읽는다
+      setObtainedCount(readObtained().length);
+      setReady(true);
+    };
     if (img.complete) done();
     else {
       img.onload = done;
@@ -256,7 +262,7 @@ export default function HomePage() {
             <rect x="4" y="3" width="16" height="18" rx="2" stroke="#b5482f" strokeWidth="1.8" />
             <path d="M8 3v18" stroke="#b5482f" strokeWidth="1.8" />
           </svg>
-          내 경기술 도감 <b style={{ color: "#b5482f" }}>{SEED_OBTAINED.length}장</b>
+          내 경기술 도감 <b style={{ color: "#b5482f" }}>{obtainedCount}장</b>
         </Link>
       </div>
     </div>

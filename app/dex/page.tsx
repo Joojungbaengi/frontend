@@ -5,12 +5,12 @@ import { useEffect, useState } from "react";
 import AppImage from "@/components/AppImage";
 import ScreenHeader from "@/components/ScreenHeader";
 import db from "@/data/drinks.json";
-import { readObtained, SEED_OBTAINED } from "@/lib/dex";
+import { readObtained } from "@/lib/dex";
 import type { Drink } from "@/lib/types";
 
 /**
  * 경기술 도감 — AR 양조 체험을 마친 술의 소장 카드가 모이는 화면 (확정 디자인).
- * 획득 목록은 localStorage("dex_obtained")에서 읽는다 (AR 완료 시 추가 예정).
+ * 획득 목록은 localStorage("dex_obtained")에서 읽는다 — AR 체험을 마칠 때 채워진다.
  */
 
 const drinks = db.drinks as unknown as Drink[];
@@ -114,7 +114,8 @@ function SoulCard({ drink, flipping, onActivate }: { drink: Drink; flipping: boo
 export default function DexPage() {
   const router = useRouter();
   const total = drinks.length;
-  const [obtainedIds, setObtainedIds] = useState<string[]>(SEED_OBTAINED);
+  // 첫 렌더는 서버와 같아야 하므로 비워 두고, 브라우저에서 저장값을 읽어 채운다
+  const [obtainedIds, setObtainedIds] = useState<string[]>([]);
   const [leaving, setLeaving] = useState<string | null>(null);
 
   useEffect(() => {

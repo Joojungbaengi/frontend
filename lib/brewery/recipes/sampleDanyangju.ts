@@ -9,10 +9,14 @@ import type { Recipe } from "@/lib/brewery/types";
  * 실제 브랜드가 정해지면 값만 바꾸면 된다.
  */
 
-const MODEL_BASE = "/models/Dongrim_Cheongju";
+/** 3D 모델은 술끼리 공유한다 (받침대·바구니·솥 등) */
+const MODEL_BASE = "/ar/3d-assets";
 
 export const sampleDanyangju: Recipe = {
   id: "sample",
+  // 실제 술과 이어지지 않은 본보기다. 새 술을 만들 때 이 파일을 복사해
+  // drinkId 를 data/drinks.json 의 id 로 바꾸고 레지스트리(index.ts)에 등록하면 된다.
+  drinkId: "_template",
   name: "예시 단양주(템플릿)",
 
   intro:
@@ -20,10 +24,10 @@ export const sampleDanyangju: Recipe = {
   ingredientsReady: "이제 고두밥을 지어 한 번에 담가보세.",
 
   ingredients: [
-    { id: "rice",  name: "쌀",     texture: "/models/rice.png",  essential: true },
-    { id: "water", name: "정제수", texture: "/models/water.png", essential: true },
-    { id: "nuruk", name: "누룩",   texture: "/models/nuruk.png", essential: true },
-    { id: "honey", name: "벌꿀",   texture: "/models/honey.png", essential: false, flavorNote: "벌꿀을 더하면 둥근 단맛이 살짝 감돌지." },
+    { id: "rice",  name: "쌀",     texture: "/ar/images/rice.png",  essential: true },
+    { id: "water", name: "정제수", texture: "/ar/images/water.png", essential: true },
+    { id: "nuruk", name: "누룩",   texture: "/ar/images/nuruk.png", essential: true },
+    { id: "honey", name: "벌꿀",   texture: "/ar/images/honey.png", essential: false, flavorNote: "벌꿀을 더하면 둥근 단맛이 살짝 감돌지." },
   ],
 
   models: [

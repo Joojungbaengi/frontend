@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { getRecipe } from "@/lib/brewery/recipes";
+import type { Recipe } from "@/lib/brewery/types";
 
 const ArBreweryExperience = dynamic(
   () => import("@/components/ArBreweryExperience"),
@@ -11,9 +11,9 @@ const ArBreweryExperience = dynamic(
 );
 
 /**
- * recipeId 로 어떤 술을 체험할지 고른다. 없으면 기본 레시피(냥이탁주).
- * (AR 페이지가 /ar?type=<id> 쿼리로 넘겨준다.)
+ * 어떤 술을 체험할지는 AR 페이지가 이미 정해서 넘겨준다.
+ * (WebGL·WebXR 은 브라우저 전용이라 이 경계에서 클라이언트 전용으로 갈아탄다)
  */
-export default function ArBreweryClient({ recipeId }: { recipeId?: string }) {
-  return <ArBreweryExperience recipe={getRecipe(recipeId)} />;
+export default function ArBreweryClient({ recipe }: { recipe: Recipe }) {
+  return <ArBreweryExperience recipe={recipe} />;
 }

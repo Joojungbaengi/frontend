@@ -5,10 +5,12 @@ import type { Recipe } from "@/lib/brewery/types";
  * 이 파일 하나가 '냥이탁주'의 바뀌는 데이터 전부다. 다른 술은 이걸 복사해 값만 바꾸면 된다.
  */
 
-const MODEL_BASE = "/models/Dongrim_Cheongju";
+/** 3D 모델은 술끼리 공유한다 (받침대·바구니·솥 등) */
+const MODEL_BASE = "/ar/3d-assets";
 
 export const nyangiTakju: Recipe = {
   id: "nyangi",
+  drinkId: "takju_goyang_nyangi9",
   name: "냥이탁주 9",
 
   intro:
@@ -17,12 +19,12 @@ export const nyangiTakju: Recipe = {
 
   // 주원료 4종(essential) + 부재료(선택). 개수가 달라져도 엔진이 essential 개수를 세어 맞춘다.
   ingredients: [
-    { id: "rice",   name: "가와지쌀", texture: "/models/rice.png",   essential: true },
-    { id: "water",  name: "정제수",   texture: "/models/water.png",  essential: true },
-    { id: "nuruk",  name: "누룩",     texture: "/models/nuruk.png",  essential: true },
-    { id: "mil",    name: "밀함유",   texture: "/models/mil.png",    essential: true },
-    { id: "flower", name: "국화",     texture: "/models/flower.png", essential: false, flavorNote: "국화를 넣으면 은은한 국화 향이 감돈다네." },
-    { id: "honey",  name: "벌꿀",     texture: "/models/honey.png",  essential: false, flavorNote: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지." },
+    { id: "rice",   name: "가와지쌀", texture: "/ar/images/rice.png",   essential: true },
+    { id: "water",  name: "정제수",   texture: "/ar/images/water.png",  essential: true },
+    { id: "nuruk",  name: "누룩",     texture: "/ar/images/nuruk.png",  essential: true },
+    { id: "mil",    name: "밀함유",   texture: "/ar/images/mil.png",    essential: true },
+    { id: "flower", name: "국화",     texture: "/ar/images/flower.png", essential: false, flavorNote: "국화를 넣으면 은은한 국화 향이 감돈다네." },
+    { id: "honey",  name: "벌꿀",     texture: "/ar/images/honey.png",  essential: false, flavorNote: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지." },
   ],
 
   // 3D 모델 — low_wooden_bench(받침), 단계별로 water_jar / bamboo_basket.
@@ -46,7 +48,7 @@ export const nyangiTakju: Recipe = {
   ],
   // 냉각/혼합 때 채반 위에 까는 고두밥 평면. 채반 크기에 맞춰 자동으로 덮되,
   // 채반이 없을 때 쓸 기본 크기는 3:5(직사각). texture 에 '고두밥' 이미지를 넣는다.
-  godubapRicePlane: { texture: "/models/godubap.png", width: 0.18, depth: 0.30, y: 0.055 },
+  godubapRicePlane: { texture: "/ar/images/godubap.png", width: 0.18, depth: 0.30, y: 0.055 },
 
   // 완성 공정 '출고' 단계에서 나타나는 완성 제품 병 (Nyangi.glb 를 아래 경로에 넣어야 보인다)
   finishModel: { id: "nyangi", file: `${MODEL_BASE}/Nyangi.glb`, step: "done", height: 0.28, y: 0.03 },

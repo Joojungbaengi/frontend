@@ -11,7 +11,7 @@ export type ArStep = "ingredient" | "godubap" | "ferment" | "done" | "common";
 
 export interface ModelDef {
   id: string;
-  /** public/ 기준 절대경로 (예: "/models/xxx/water_jar.glb") */
+  /** public/ 기준 절대경로 (예: "/ar/3d-assets/water_jar.glb") */
   file: string;
   /** 어느 단계에 놓을지. "common"은 모든 단계 공통(받침대 등) */
   step: ArStep;
@@ -62,6 +62,11 @@ export interface Quiz {
 
 export interface Recipe {
   id: string;
+  /**
+   * data/drinks.json 의 술 id.
+   * 상세 화면의 AR 버튼이 어디로 갈지, 체험을 마쳤을 때 도감에 무엇이 담길지가 이 값으로 정해진다.
+   */
+  drinkId: string;
   /** 완성 제품명 (예: "냥이탁주 9") */
   name: string;
 
