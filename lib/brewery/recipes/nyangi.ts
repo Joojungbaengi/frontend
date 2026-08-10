@@ -55,9 +55,10 @@ export const nyangiTakju: Recipe = {
 
   // 고두밥 만들기 (세미 → 냉각). 마지막 단계에서 장인 퀴즈가 뜬다.
   godubapSteps: [
-    { id: "semi",     name: "세미", caption: "가와지쌀을 열 번 넘게 깨끗이 씻고 헹궈요", models: ["rice_bowl"] },
-    { id: "chimsu",   name: "침수", caption: "세 시간 동안 물에 충분히 불려요", models: ["rice_bowl"], water: 1 },
-    { id: "talsu",    name: "탈수", caption: "한 시간 동안 물을 빼줘요", models: ["rice_bowl"] },
+    // 세미부터 물을 받아 둔다 — 손으로 휘저어 쌀을 헹구는 단계라서.
+    { id: "semi",     name: "세미", caption: "물을 받아 가와지쌀을 손으로 헹궈요", models: ["rice_bowl", "bowl_rice"], water: 1 },
+    { id: "chimsu",   name: "침수", caption: "세 시간 동안 물에 충분히 불려요", models: ["rice_bowl", "bowl_rice"], water: 1 },
+    { id: "talsu",    name: "탈수", caption: "한 시간 동안 물을 빼줘요", models: ["rice_bowl", "bowl_rice"] },
     { id: "jeungja",  name: "증자", caption: "강한 증기로 쪄 고두밥을 지어요", models: ["kitchen_pot"], steam: true },
     { id: "naenggak", name: "냉각", caption: "다단식 채반에 펼쳐 차게 식혀요", models: ["metal_food_tray", "rice_plane"], dark: true },
   ],

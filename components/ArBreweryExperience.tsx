@@ -23,6 +23,7 @@ import { HandTracker } from "@/lib/hand/handTracker";
 import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
+import { StirGesture } from "@/lib/hand/stirGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
@@ -70,6 +71,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
     /** 고두밥을 다 식히는 데 필요한 부채질 횟수 */
     const REQUIRED_FANS = 5;
+    /** 쌀을 다 헹구는 데 필요한 휘젓기 바퀴 수 */
+    const REQUIRED_RINSE_TURNS = 3;
+    /** 침수 — 이만큼 가만히 두면 다 불었다고 본다 */
+    const SOAK_MS = 4500;
 
     const S = {
       step: "place" as "place" | ArStep,
@@ -78,6 +83,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       placed: false,
       selected: new Set<string>(),
       godubap: 0,
+      /** 세미 단계에서 지금까지 헹군 바퀴 수 */
+      rinseTurns: 0,
+      /** 지금 돌고 있는 바퀴의 진행분(0~1) — 막대가 뚝뚝 끊기지 않게 */
+      rinsePartial: 0,
+      /** 침수를 시작한 시각 (0이면 아직 안 담갔다) */
+      soakAt: 0,
       /** 냉각 단계에서 지금까지 부친 횟수 */
       coolFans: 0,
       /** 다 식혔나 — 이게 참이 돼야 장인 퀴즈가 열린다 */
@@ -119,6 +130,19 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * 손 인식이 돌고 있을 때만 해당한다 — 안 그러면 손을 못 쓰는 기기에서
      * 영영 못 넘어가는 화면이 된다.
      */
+    /**
+     * 지금이 손으로 헹궈야 하는 국면인가 (세미).
+     * 손을 못 쓰는 기기에서는 예전처럼 탭으로 넘어간다.
+     */
+    function rinseActive() {
+      return S.hand && S.godubap === 0 && S.rinseTurns < REQUIRED_RINSE_TURNS;
+    }
+
+    /** 지금이 물에 불리는 중인가 (침수) — 손은 필요 없고 시간만 흐르면 된다 */
+    function soakActive() {
+      return S.hand && S.godubap === 1;
+    }
+
     function coolingActive() {
       return S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone;
     }
@@ -877,6 +901,26 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(drip);
       live.particles.push(drip);
 
+      // 그릇 속 쌀 — 물에 잠겨 있다가 휘저으면 물살을 따라 돈다.
+      // 낱알 모델을 뿌리는 대신 쌀 텍스처를 입힌 원판 하나로 둔다. 물 밑에서
+      // 살짝 비쳐 보이기만 하면 되는 자리라 낱알을 세는 비용이 아깝다.
+      const bowlRice = (() => {
+        const rp = recipe.godubapRicePlane;
+        if (!rp) return null;
+        const tex = new THREE.TextureLoader().load(rp.texture, undefined, undefined,
+          (err) => console.warn("쌀 텍스처 로드 실패:", rp.texture, err));
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const mesh = new THREE.Mesh(
+          new THREE.CircleGeometry(WATER_R * 0.72, 40).rotateX(-Math.PI / 2),
+          new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, transparent: true })
+        );
+        mesh.position.y = platformTop + 0.055;
+        mesh.visible = false;
+        stageGroup.add(mesh);
+        return mesh;
+      })();
+      if (bowlRice) stage["bowl_rice"] = [bowlRice];
+
       let coolT = 0; // 냉각 연출 진행 시간
       /** 한 번 부칠 때마다 1로 튀었다가 잦아든다 — 김이 훅 흩어지는 연출에 쓴다 */
       let fanPulse = 0;
@@ -897,6 +941,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       live.tick = (t, dt) => {
         const cur = GODUBAP_STEPS[S.godubap];
+
+        // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
+        if (soakActive()) {
+          if (!S.soakAt) S.soakAt = performance.now();
+          const soaked = performance.now() - S.soakAt;
+          syncGodubapGame();
+          if (soaked >= SOAK_MS) {
+            S.godubap = 2; // 탈수 — 아래 water 값이 0이라 물이 빠지는 연출로 이어진다
+            syncGodubap();
+          }
+        }
 
         // 김 — steam:true 단계에서만
         const steaming = cur?.steam === true;
@@ -922,9 +977,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         water.visible = waterLevel > 0.01;
         water.position.y = THREE.MathUtils.lerp(waterLowY, waterHighY, waterLevel);
         (water.material as THREE.MeshBasicMaterial).opacity = 0.72 * waterLevel;
-        water.rotation.y = t * 0.25;
-        const ripple = 1 + Math.sin(t * 2.2) * 0.012 * waterLevel;
-        water.scale.set(ripple, DOME_FLATTEN, ripple);
+        // 휘저으면 물이 더 크게 출렁이고 쌀도 물살을 따라 돈다
+        const swirl = stir.speed;
+        water.rotation.y += (0.25 + swirl * 6) * dt;
+        const wobble = (0.012 + swirl * 0.05) * waterLevel;
+        const ripple = 1 + Math.sin(t * (2.2 + swirl * 6)) * wobble;
+        water.scale.set(ripple, DOME_FLATTEN * (1 + swirl * 0.12), ripple);
+        if (bowlRice) {
+          bowlRice.rotation.y += (0.1 + swirl * 7) * dt;
+          // 찰박이는 느낌 — 물살이 셀수록 쌀도 위아래로 조금 들썩인다
+          bowlRice.position.y =
+            platformTop + 0.055 + Math.sin(t * (3 + swirl * 8)) * swirl * 0.006;
+        }
 
         // 물빠짐 물방울 — 물이 있는데 목표가 0(=탈수)일 때만 떨어진다
         const draining = targetWater < 0.1 && waterLevel > 0.06;
@@ -951,8 +1015,36 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        * 판정은 lib/hand/fanGesture.ts 가 하고, 여기서는 결과만 받아 쓴다.
        */
       const fan = new FanGesture();
+      const stir = new StirGesture();
 
       live.onHand = (f) => {
+        // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
+        if (rinseActive()) {
+          const turns = stir.update(f);
+          S.rinsePartial = stir.partial;
+          if (turns) {
+            S.rinseTurns = Math.min(REQUIRED_RINSE_TURNS, S.rinseTurns + turns);
+            if (S.rinseTurns >= REQUIRED_RINSE_TURNS) {
+              // 다 헹궜으면 그대로 물에 담가 둔다 (침수)
+              stir.reset();
+              S.rinsePartial = 0;
+              S.godubap = 1;
+              S.soakAt = performance.now();
+              syncGodubap();
+              return;
+            }
+          }
+          // 막대는 매 프레임 갱신한다 — 한 바퀴 돌 때만 움직이면 멈춘 것처럼 보인다
+          syncGodubapGame();
+          if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+          else
+            setHandHud(
+              "tracking",
+              `그릇 안에서 손을 둥글게 돌려 주세요 · ${S.rinseTurns}/${REQUIRED_RINSE_TURNS}바퀴`
+            );
+          return;
+        }
+
         if (!coolingActive()) {
           if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
           return;
@@ -962,7 +1054,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (gained) {
           S.coolFans = Math.min(REQUIRED_FANS, S.coolFans + gained);
           fanPulse = 1;
-          syncCooling();
+          syncGodubapGame();
           // 다 식히면 그때 장인이 질문을 던진다
           if (S.coolFans >= REQUIRED_FANS && !S.coolDone) {
             S.coolDone = true;
@@ -1483,24 +1575,47 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         pills.appendChild(b);
       });
     }
-    /** 냉각 진행 막대·문구 — 부칠 때마다 부른다 */
-    function syncCooling() {
-      const on = S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone;
-      $("#cooling-game")?.classList.toggle("hidden", !on);
+    /**
+     * 고두밥 단계 진행 막대 — 헹구기·불리기·식히기가 같은 자리를 나눠 쓴다.
+     * 손으로 할 일이 있는 국면에서만 나타난다.
+     */
+    function syncGodubapGame() {
+      let pct = 0;
+      let text = "";
+      let done = false;
 
-      const pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
-      const bar = $("#bar-cooling") as HTMLElement | null;
-      if (bar) bar.style.width = `${pct}%`;
-      const pctEl = $("#cooling-pct");
-      if (pctEl) pctEl.textContent = `${pct}%`;
-      const label = $("#cooling-label");
-      if (label) {
-        label.textContent = S.coolDone
-          ? "다 식었어요"
-          : S.coolFans === 0
+      if (rinseActive()) {
+        const prog = (S.rinseTurns + S.rinsePartial) / REQUIRED_RINSE_TURNS;
+        pct = Math.round(Math.min(1, prog) * 100);
+        text =
+          S.rinseTurns === 0
+            ? "그릇 안에서 손을 둥글게 돌려 쌀을 헹구세요"
+            : `헹구는 중 · ${S.rinseTurns}/${REQUIRED_RINSE_TURNS}바퀴`;
+      } else if (soakActive()) {
+        const soaked = S.soakAt ? performance.now() - S.soakAt : 0;
+        pct = Math.round(Math.min(1, soaked / SOAK_MS) * 100);
+        done = pct >= 100;
+        text = done ? "쌀이 다 불었어요" : "물에 담근 채로 잠시 기다려요";
+      } else if (S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone) {
+        pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
+        text =
+          S.coolFans === 0
             ? "손을 좌우로 흔들어 부채질하세요"
             : `식히는 중 · ${S.coolFans}/${REQUIRED_FANS}번`;
-        (label as HTMLElement).dataset.state = S.coolDone ? "ok" : "warn";
+      } else {
+        $("#godubap-game")?.classList.add("hidden");
+        return;
+      }
+
+      $("#godubap-game")?.classList.remove("hidden");
+      const bar = $("#bar-godubap") as HTMLElement | null;
+      if (bar) bar.style.width = `${pct}%`;
+      const pctEl = $("#godubap-pct");
+      if (pctEl) pctEl.textContent = `${pct}%`;
+      const label = $("#godubap-game-label");
+      if (label) {
+        label.textContent = text;
+        (label as HTMLElement).dataset.state = done ? "ok" : "warn";
       }
     }
 
@@ -1520,7 +1635,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               ? !S.quizDone
                 ? "장인의 질문에 먼저 답해주세요"
                 : "손을 좌우로 흔들어 고두밥을 식혀주세요"
-              : "";
+              : rinseActive()
+                ? "손을 둥글게 돌려 쌀을 헹궈주세요"
+                : soakActive()
+                  ? "쌀이 물을 머금는 동안 잠시 기다려요"
+                  : "";
       }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
       const cap = $("#cap-godubap");
@@ -1533,7 +1652,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               : cur.caption;
       // 냉각에 들어오면 장인이 먼저 묻는다
       if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
-      syncCooling();
+      syncGodubapGame();
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
         // 아직 이를 때도 눌리게 두고, 대신 눌렀을 때 무엇을 해야 하는지 알려준다
@@ -1793,6 +1912,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       (btnRestart as HTMLElement).onclick = () => {
         S.selected.clear();
         S.godubap = 0;
+        S.rinseTurns = 0;
+        S.rinsePartial = 0;
+        S.soakAt = 0;
         S.coolFans = 0;
         S.coolDone = false;
         S.quizDone = false;
@@ -1926,12 +2048,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             <i className="lamp" />
             <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
           </div>
-          <div id="cooling-game" className="hidden">
+          {/* 헹구기·불리기·식히기가 나눠 쓰는 진행 막대 */}
+          <div id="godubap-game" className="hidden">
             <div className="ferment-row">
-              <span className="ferment-rate" id="cooling-label" data-state="warn">손을 좌우로 흔들어 부채질하세요</span>
-              <span className="ferment-pct" id="cooling-pct">0%</span>
+              <span className="ferment-rate" id="godubap-game-label" data-state="warn">
+                그릇 안에서 손을 둥글게 돌려 쌀을 헹구세요
+              </span>
+              <span className="ferment-pct" id="godubap-pct">0%</span>
             </div>
-            <div className="bar"><i id="bar-cooling" /></div>
+            <div className="bar"><i id="bar-godubap" /></div>
           </div>
           <div id="quiz" className="hidden">
             <div className="coach">
