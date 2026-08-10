@@ -15,7 +15,6 @@ export default async function ArPage({
 
   return (
     <div
-      className="ar-page-shell"
       style={{
         position: "relative",
         zIndex: 5,

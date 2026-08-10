@@ -19,7 +19,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
-import { HandTracker, describeHandError } from "@/lib/hand/handTracker";
+import { HandTracker } from "@/lib/hand/handTracker";
 import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
 import type { HandFrame } from "@/lib/hand/types";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
@@ -33,13 +33,11 @@ import { styles } from "@/components/arBreweryStyles";
 export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?: Recipe }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const uiRoot = rootRef.current;
-    const video = videoRef.current;
-    if (!canvas || !uiRoot || !video) return;
+    if (!canvas || !uiRoot) return;
 
     const $ = <T extends Element = HTMLElement>(s: string) =>
       uiRoot.querySelector(s) as T | null;
@@ -85,8 +83,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       xr: false,
       /** 손 인식이 돌고 있는가 (AR·카메라 모드 공통) */
       hand: false,
-      /** getUserMedia 영상을 배경으로 까는 폴백 경로인가 (AR 이 안 되는 기기) */
-      handVideo: false,
       isInitializing: true,
     };
     /**
@@ -600,10 +596,24 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       let hovered: THREE.Group | null = null;
       let held: THREE.Group | null = null;
       /**
-       * 들고 있는 원료는 손보다 **살짝 앞**에 둔다. 손 오클루더가 깊이를 쓰기 때문에
-       * 손과 같은 깊이에 두면 집어 든 원료가 제 손에 가려 보이지 않는다.
+       * 집은 순간의 카메라~원료 거리. 들고 다니는 동안 이 거리를 유지해야
+       * 손 거리 추정이 흔들려도 원료 크기가 커졌다 작아졌다 하지 않는다.
        */
-      const HELD_LIFT = 0.92;
+      let heldDepth = 1;
+
+      /**
+       * 손 오클루더는 무대보다 앞에서 깊이를 채우므로, 그냥 두면 집어 든 원료가
+       * 제 손에 가려 사라진다. 들고 있는 동안만 깊이 검사를 꺼서 손 위에 얹는다.
+       * (손가락 사이에 쥔 것처럼 보이는 게 맞다)
+       */
+      const setHeldLook = (node: THREE.Group, heldNow: boolean) => {
+        const mesh = (node.userData as any).mesh as THREE.Mesh | undefined;
+        const mat = mesh?.material as THREE.Material | undefined;
+        if (mat) {
+          mat.depthTest = !heldNow;
+          mesh!.renderOrder = heldNow ? 5 : 0;
+        }
+      };
 
       const nameOf = (id: string) => INGREDIENTS.find((i) => i.id === id)?.name ?? "원료";
       const cardOf = (id: string) => $(`#grid .card[data-id="${id}"]`);
@@ -619,6 +629,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       const dropHeld = () => {
         if (!held) return;
         (held.userData as any).grabbed = false;
+        setHeldLook(held, false);
         held = null;
       };
 
@@ -646,8 +657,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         // 1) 들고 있는 중 — 손끝을 따라오게 하고, 펴면 놓는다
         if (held) {
           const ud = held.userData as any;
-          // 화면상 손끝을 따라가되, 손보다 조금 앞에 둬서 손에 가려지지 않게 한다
-          screenToWorld(pinch.x, pinch.y, hand.depth * HELD_LIFT, camera, grabTarget);
+          // 화면상 손끝을 따라간다. 거리는 집었을 때 그대로 — 크기가 들쭉날쭉하지 않게.
+          screenToWorld(pinch.x, pinch.y, heldDepth, camera, grabTarget);
           stageGroup.worldToLocal(grabTarget);
           held.position.lerp(grabTarget, 0.5);
 
@@ -703,6 +714,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           const ud = best.userData as any;
           ud.grabbed = true;
           held = best;
+          best.getWorldPosition(nodeWorld);
+          heldDepth = camera.getWorldPosition(handOrigin).distanceTo(nodeWorld);
+          setHeldLook(best, true);
           // 바구니에 담겨 있던 걸 다시 집었다면 선택에서 빼 준다 (손에 들려 있으니까)
           if (S.selected.has(id)) {
             S.selected.delete(id);
@@ -1161,9 +1175,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     /** 실제 AR 세션 안에서 손 인식을 켠다 (camera-access 를 받은 기기) */
     async function startHandsInAr() {
       if (handTracker) return;
-      const tracker = new HandTracker(null); // 영상은 XR 이 준다 — <video> 를 쓰지 않는다
+      const tracker = new HandTracker(); // 영상은 XR 이 준다 — 카메라를 직접 열지 않는다
       try {
-        await tracker.start();
+        await tracker.load();
       } catch (e) {
         tracker.dispose();
         console.warn("[ar] 손 인식을 켜지 못했습니다 —", e);
@@ -1176,54 +1190,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       handTracker.setPaused(S.step !== "ingredient");
       setHandHud("idle", "손을 카메라에 비춰 주세요");
     }
-
-    /** AR 이 안 되는 기기용 — getUserMedia 영상을 배경에 깔고 손만 쓴다 */
-    async function enterHandMode() {
-      // 뒤로 갔다가 다시 눌렀을 때 카메라 스트림이 두 개 열리는 것을 막는다
-      if (S.hand || handTracker) return;
-
-      const btn = $("#btn-hand") as HTMLButtonElement | null;
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = "카메라와 손 인식 준비 중…";
-      }
-
-      handTracker = new HandTracker(video!);
-      try {
-        await handTracker.start();
-      } catch (e) {
-        handTracker.dispose();
-        handTracker = null;
-        // place-note 는 평면 탐지 상태가 계속 덮어쓰므로 안내창으로 띄운다.
-        // 손이 안 되더라도 기존 AR·3D 로 끝까지 체험할 수 있다는 걸 함께 알린다.
-        showNotice(`${describeHandError(e)} 손 없이도 아래 버튼으로 체험을 이어갈 수 있어요.`);
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = "AR 없이 손으로만 체험하기";
-        }
-        return;
-      }
-
-      S.hand = true;
-      S.handVideo = true;
-      uiRoot!.classList.add("hand-mode", "hands-on");
-      // 헤더와 페이지 배경을 비워 카메라가 화면 전체를 채우게 한다
-      document.documentElement.dataset.arHand = "1";
-      resize(); // 캔버스가 전체화면으로 커졌으니 해상도·화각을 다시 잡는다
-      // 손으로 조작하는 동안 화면 드래그로 시점이 돌아가면 손과 물건의 위치 감각이 어긋난다
-      controls.enabled = false;
-
-      // 평면 인식이 없으므로 무대를 원점에 놓고 카메라가 그 앞을 보게 한다
-      anchor.position.set(0, 0, 0);
-      anchor.visible = true;
-      applySurfaceScale();
-      S.placed = true;
-      setStep("ingredient");
-      setHandHud("idle", "손을 카메라에 비춰 주세요");
-    }
-
-    const handBtn = $("#btn-hand") as HTMLButtonElement | null;
-    if (handBtn) handBtn.onclick = () => void enterHandMode();
 
     /* =====================================================================
      * 4. 렌더 루프
@@ -1266,38 +1232,30 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       }
 
       // 손 갱신은 3D 갱신보다 먼저 — 이번 프레임의 손 위치를 보고 물건이 따라와야 한다
-      if (S.hand && handTracker) {
-        let srcW = video!.videoWidth;
-        let srcH = video!.videoHeight;
-
-        // AR 모드는 스스로 도는 검출 루프가 없다. XR 카메라 이미지를 떠서 직접 넣어 준다.
-        if (S.xr && xrFeed && frame) {
-          const xrCam = (frame as any).getViewerPose?.(localSpace)?.views?.[0]?.camera;
-          if (xrCam) {
-            srcW = xrCam.width;
-            srcH = xrCam.height;
-            const now = performance.now();
-            if (now - lastDetectAt >= AR_DETECT_MS) {
-              lastDetectAt = now;
-              const tex = renderer.xr.getCameraTexture(xrCam);
-              if (tex) {
-                const shot = xrFeed.capture(renderer, tex as any, srcW, srcH);
-                if (shot) handTracker.detect(shot, now);
-              }
+      if (S.hand && handTracker && xrFeed && frame) {
+        const xrCam = (frame as any).getViewerPose?.(localSpace)?.views?.[0]?.camera;
+        if (xrCam) {
+          const now = performance.now();
+          if (now - lastDetectAt >= AR_DETECT_MS) {
+            lastDetectAt = now;
+            const tex = renderer.xr.getCameraTexture(xrCam);
+            if (tex) {
+              const shot = xrFeed.capture(renderer, tex as any, xrCam.width, xrCam.height);
+              if (shot) handTracker.detect(shot, now);
             }
           }
+          handFit = coverFit(xrCam.width, xrCam.height, canvas!.clientWidth, canvas!.clientHeight);
         }
 
         const f = handTracker.latest;
-        handFit = coverFit(srcW, srcH, canvas!.clientWidth, canvas!.clientHeight);
-        // 무대까지의 거리 — 손 크기로 앞뒤를 가늠하는 기준. AR 은 실제 기기 위치를 쓴다.
-        const stageAt = S.xr
-          ? camera.getWorldPosition(handOrigin).distanceTo(anchor.position)
-          : camera.position.distanceTo(controls.target);
+        // 무대까지의 거리 — 오클루더를 그 앞에 놓고, 집어 든 물건 거리의 기준으로도 쓴다
+        const stageAt = camera.getWorldPosition(handOrigin).distanceTo(anchor.position);
         handVisual.update(f, camera, handFit, Math.max(stageAt, 0.2));
         // 손이 사라진 프레임도 그대로 넘긴다 — 잡고 있던 물건을 놓아야 하기 때문
         live.onHand?.(f, handVisual);
         handTracker.consumeEdges();
+      } else if (!S.hand) {
+        handVisual.hide();
       }
 
       live.mixers.forEach((m) => m.update(dt));
@@ -1305,13 +1263,18 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.particles.forEach((p) => updateParticles(p, dt));
       if (!S.xr) controls.update();
 
-      // 무대를 먼저 그리고, 깊이 버퍼만 비운 뒤 손을 덧그린다.
-      // 이래야 손이 항상 에셋 위에 오면서도 손가락끼리는 정상적으로 서로 가린다.
+      // 세 번에 나눠 그린다.
+      //  1) 손 오클루더 — 색은 안 쓰고 깊이만. 손 자리를 미리 막아 둔다.
+      //  2) 무대 — 손 자리에서는 깊이 검사에 걸려 그려지지 않는다.
+      //     캔버스가 투명하니 그 자리에 카메라 영상(=진짜 손)이 그대로 보인다.
+      //  3) 골격선·집는 지점 — 깊이를 비우고 맨 위에 얇게.
+      const showHand = S.hand && handVisual.visible;
       renderer.clear();
+      if (showHand) renderer.render(handVisual.occluderScene, camera);
       renderer.render(scene, camera);
-      if (S.hand && handVisual.visible) {
+      if (showHand) {
         renderer.clearDepth();
-        renderer.render(handVisual.scene, camera);
+        renderer.render(handVisual.overlayScene, camera);
       }
     });
 
@@ -1330,10 +1293,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       const say = (text: string) => {
         if (note) note.textContent = text;
       };
-
-      // 손 모드 버튼도 준비가 끝나야 눌리게 한다 (모델·카메라를 그때 받기 시작한다)
-      const hb = $("#btn-hand") as HTMLButtonElement | null;
-      if (hb && !S.hand) hb.disabled = S.isInitializing;
 
       // 초기 로딩 중일 때는 무조건 준비 중 상태로 표시
       if (S.isInitializing) {
@@ -1810,7 +1769,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         } catch {}
       }
       clearStage();
-      delete document.documentElement.dataset.arHand;
       handTracker?.dispose();
       xrFeed?.dispose();
       handVisual.dispose();
@@ -1824,8 +1782,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
-      {/* 손 모드 배경 — 후면 카메라. 캔버스보다 먼저 와야 3D가 그 위에 겹쳐진다. */}
-      <video ref={videoRef} id="camfeed" muted playsInline autoPlay />
       <canvas ref={canvasRef} id="gl" />
       {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
       <div className="vignette" />
@@ -1844,7 +1800,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
             <button data-surface="table" aria-pressed="false">책상에 작게</button>
           </div>
           <button className="cta" id="btn-place" disabled>평면을 찾는 중…</button>
-          <button className="cta hand-cta" id="btn-hand" disabled>AR 없이 손으로만 체험하기</button>
         </div>
       </div>
 

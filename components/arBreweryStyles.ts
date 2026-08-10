@@ -22,23 +22,6 @@ export const styles = `
 .ar-ui.ar-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 .ar-ui.ar-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 
-/* 손 모드 — 후면 카메라 영상을 배경에 깔고 그 위에 3D 캔버스를 겹친다.
-   비디오가 캔버스보다 먼저(DOM 순서) 오고 둘 다 z-index:0 이라 캔버스가 위에 그려진다.
-   캔버스는 alpha:true 라, 손 오클루더가 원료를 가린 자리에는 이 영상이 그대로 비친다. */
-.ar-ui video#camfeed{position:absolute; inset:0; width:100%; height:100%;
-  object-fit:cover; display:none; z-index:0; pointer-events:none}
-/* 손 모드에서는 영상과 3D 캔버스를 화면 전체로 띄운다.
-   .ar-ui 는 헤더 아래 영역만 차지하므로 fixed 로 빼내야 카메라가 헤더 뒤까지 채운다.
-   (position:fixed 는 조상의 overflow:hidden 에 잘리지 않는다) */
-.ar-ui.hand-mode{background:transparent}
-.ar-ui.hand-mode canvas#gl,
-.ar-ui.hand-mode video#camfeed{position:fixed; inset:0; width:100vw; height:100dvh}
-.ar-ui.hand-mode canvas#gl{background:transparent}
-.ar-ui.hand-mode video#camfeed{display:block}
-.ar-ui.hand-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
-.ar-ui.hand-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
-.ar-ui.hand-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
-
 /* 손 상태 표시 — 지금 손이 무엇을 하고 있는지 한 줄로 알려준다.
    (인식됨 / 원료 위 / 잡음 / 담음) 이 바뀔 때마다 문구와 색이 함께 바뀐다. */
 .ar-ui .hand-hud{display:none; align-items:center; gap:9px; align-self:center;
@@ -57,10 +40,6 @@ export const styles = `
 .ar-ui .hand-hud[data-state="dropped"] .lamp{background:var(--sage); box-shadow:0 0 10px var(--sage)}
 .ar-ui .hand-hud[data-state="dropped"]{color:var(--sage)}
 
-/* 손 모드 진입 버튼 — 기본 CTA 아래에 부수적으로 놓는다 */
-.ar-ui .cta.hand-cta{background:transparent; color:var(--gold-bright);
-  border:1px solid rgba(232,201,138,.45)}
-.ar-ui .cta.hand-cta:disabled{opacity:.5}
 
 .ar-ui .fill{flex:1; position:relative}
 /* 하단 여백은 헤더 위 여백과 비슷하게 — 버튼이 화면 끝에 붙지 않도록 */
