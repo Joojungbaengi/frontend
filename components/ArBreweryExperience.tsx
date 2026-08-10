@@ -111,16 +111,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let fermentShowStage: (() => void) | null = null;
     /**
      * 지금이 부채질로 식혀야 하는 국면인가.
+     *
+     * 냉각 단계에 들어오면 장인이 먼저 묻는다 — "지금 누룩을 섞으면 어떻게 되겠나".
+     * 답을 하고 나서야 식히기 시작한다. 뜨거우면 안 된다는 걸 알고 손을 부치는 편이
+     * 그냥 부치고 나서 질문을 받는 것보다 앞뒤가 맞는다.
+     *
      * 손 인식이 돌고 있을 때만 해당한다 — 안 그러면 손을 못 쓰는 기기에서
      * 영영 못 넘어가는 화면이 된다.
      */
     function coolingActive() {
-      return S.hand && S.godubap === GB_LAST && !S.quizDone && !S.coolDone;
-    }
-
-    /** 냉각 관문을 통과했나. 손을 못 쓰는 기기에서는 통과한 것으로 본다. */
-    function coolingCleared() {
-      return !S.hand || S.coolDone;
+      return S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone;
     }
 
     function resetIngredientSelection() {
@@ -967,6 +967,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (S.coolFans >= REQUIRED_FANS && !S.coolDone) {
             S.coolDone = true;
             fan.reset();
+            S.godubap = GB_N; // 다 식었으니 고두밥 완성
             syncGodubap();
           }
           return;
@@ -1471,9 +1472,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         b.textContent = st.name;
         b.onclick = () => {
           if (i !== S.godubap) return;
-          if (i === GB_LAST && !S.quizDone) {
-            // 아직 안 식었으면 부채질이 먼저다
-            if (coolingCleared()) $("#quiz")?.classList.remove("hidden");
+          if (i === GB_LAST) {
+            // 질문에 답하기 전이면 다시 띄워 주고, 답했으면 부채질이 남았다
+            if (!S.quizDone) $("#quiz")?.classList.remove("hidden");
             return;
           }
           S.godubap = i + 1;
@@ -1484,7 +1485,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
     /** 냉각 진행 막대·문구 — 부칠 때마다 부른다 */
     function syncCooling() {
-      const on = S.hand && S.godubap === GB_LAST && !S.quizDone;
+      const on = S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone;
       $("#cooling-game")?.classList.toggle("hidden", !on);
 
       const pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
@@ -1515,8 +1516,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         hint.textContent =
           S.godubap >= GB_N
             ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
-            : S.godubap === GB_LAST && !S.quizDone
-              ? coolingCleared()
+            : S.godubap === GB_LAST
+              ? !S.quizDone
                 ? "장인의 질문에 먼저 답해주세요"
                 : "손을 좌우로 흔들어 고두밥을 식혀주세요"
               : "";
@@ -1527,21 +1528,20 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         cap.textContent =
           S.godubap >= GB_N
             ? "고두밥 완성 · 채반에서 차게 식었어요"
-            : S.godubap === GB_LAST && !S.quizDone && S.coolDone
-              ? "고두밥이 충분히 식었어요"
+            : S.godubap === GB_LAST && S.quizDone
+              ? "아직 뜨거워요 · 손으로 부쳐 식혀 주세요"
               : cur.caption;
-      // 퀴즈는 다 식힌 뒤에 열린다
-      if (S.godubap === GB_LAST && !S.quizDone && coolingCleared()) $("#quiz")?.classList.remove("hidden");
+      // 냉각에 들어오면 장인이 먼저 묻는다
+      if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
       syncCooling();
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
         // 아직 이를 때도 눌리게 두고, 대신 눌렀을 때 무엇을 해야 하는지 알려준다
         const ready = S.godubap >= GB_N;
-        const coolStep = S.godubap === GB_LAST && !S.quizDone;
         b.classList.toggle("waiting", !ready);
         b.textContent = ready
           ? "누룩 섞고 항아리에 담기"
-          : coolStep && !coolingCleared()
+          : S.godubap === GB_LAST && S.quizDone
             ? "손을 좌우로 흔들어 식혀 주세요"
             : "공정을 순서대로 진행하세요";
       }
@@ -1562,7 +1562,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             S.quizDone = true;
             setTimeout(() => {
               $("#quiz")?.classList.add("hidden");
-              S.godubap = GB_N;
+              // 답을 했으니 이제 식힐 차례다. 손을 못 쓰는 기기에서는 바로 완성으로 넘긴다.
+              if (!S.hand) S.godubap = GB_N;
               syncGodubap();
             }, 900);
           } else {
@@ -1587,8 +1588,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       (btnGodubap as HTMLElement).onclick = () => {
         if (btnGodubap.classList.contains("waiting")) {
           showNotice(
-            S.godubap === GB_LAST && !S.quizDone
-              ? coolingCleared()
+            S.godubap === GB_LAST
+              ? !S.quizDone
                 ? "장인의 질문에 먼저 답해 주세요."
                 : "고두밥이 아직 뜨겁습니다. 손을 좌우로 흔들어 식혀 주세요."
               : "위쪽 타임라인에서 단계를 차례로 눌러 고두밥을 지어 주세요.",
