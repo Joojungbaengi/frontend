@@ -19,6 +19,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
+import { HandTracker } from "@/lib/hand/handTracker";
+import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
+import type { HandFrame } from "@/lib/hand/types";
+import { FanGesture } from "@/lib/hand/fanGesture";
+import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { getRecipe } from "@/lib/brewery/recipes";
 import { styles } from "@/components/arBreweryStyles";
 
@@ -63,6 +68,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     // 완성 공정 타임라인 — 발효가 끝난 뒤 손으로 마무리하는 단계들(클릭해 진행).
     const PRESS_STEPS = recipe.pressSteps;
 
+    /** 고두밥을 다 식히는 데 필요한 부채질 횟수 */
+    const REQUIRED_FANS = 5;
+
     const S = {
       step: "place" as "place" | ArStep,
       /** 배치 크기 — "floor"는 실제 크기, "table"은 책상용 미니어처(55%) */
@@ -70,6 +78,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       placed: false,
       selected: new Set<string>(),
       godubap: 0,
+      /** 냉각 단계에서 지금까지 부친 횟수 */
+      coolFans: 0,
+      /** 다 식혔나 — 이게 참이 돼야 장인 퀴즈가 열린다 */
+      coolDone: false,
       quizDone: false,
       temp: 27,
       ferment: 0,
@@ -77,6 +89,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       press: 0,
       tempLog: [] as number[],
       xr: false,
+      /** 손 인식이 돌고 있는가 (AR·카메라 모드 공통) */
+      hand: false,
       isInitializing: true,
     };
     /**
@@ -95,6 +109,20 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let finishShowShip: (() => void) | null = null;
     // 발효 하위 단계가 바뀔 때 채반고두밥/항아리를 갈아 끼우는 함수(buildFerment 가 채운다)
     let fermentShowStage: (() => void) | null = null;
+    /**
+     * 지금이 부채질로 식혀야 하는 국면인가.
+     * 손 인식이 돌고 있을 때만 해당한다 — 안 그러면 손을 못 쓰는 기기에서
+     * 영영 못 넘어가는 화면이 된다.
+     */
+    function coolingActive() {
+      return S.hand && S.godubap === GB_LAST && !S.quizDone && !S.coolDone;
+    }
+
+    /** 냉각 관문을 통과했나. 손을 못 쓰는 기기에서는 통과한 것으로 본다. */
+    function coolingCleared() {
+      return !S.hand || S.coolDone;
+    }
+
     function resetIngredientSelection() {
       enteredIngredientAt = performance.now();
       S.selected.clear();
@@ -104,9 +132,15 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       syncIngredient(); // 버튼 "주원료 0/N" 로 초기화 (interacted=false → 멘트는 인트로 유지)
     }
 
+    /** 손으로 조작하는 단계 — 원료(집기)와 고두밥(부채질) */
+    const HAND_STEPS = new Set<typeof S.step>(["ingredient", "godubap"]);
+
     function setStep(next: typeof S.step) {
       S.step = next;
       uiRoot!.dataset.step = next;
+      // 손을 쓰는 단계에서만 검출을 돌린다. 나머지 단계까지 MediaPipe 를 계속 굴리면
+      // GPU 를 나눠 쓰느라 발효·완성 연출이 버벅인다.
+      handTracker?.setPaused(!HAND_STEPS.has(next));
       // 완료 화면은 한지 배경이라 헤더도 함께 밝아져야 한다.
       // 다만 'done'의 앞 국면(압착~출고 완성 공정 walkthrough)은 AR 카메라를 그대로 두므로,
       // 헤더도 카메라 톤을 유지한다. 한지 축하 화면(.shipped)일 때만 밝은 헤더로 바꾼다.
@@ -127,6 +161,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.xr.enabled = true;
+    // 손을 두 번째 패스로 덧그리므로 자동 클리어를 끄고 직접 관리한다
+    renderer.autoClear = false;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 40);
@@ -363,7 +399,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       mixers: THREE.AnimationMixer[];
       models: THREE.Object3D[];
       tick: ((t: number, dt: number) => void) | null;
-    } = { particles: [], mixers: [], models: [], tick: null };
+      /** 손 모드에서 매 프레임 손 상태를 받는 훅. 단계별 build 함수가 채운다. */
+      onHand: ((frame: HandFrame, hand: HandVisual) => void) | null;
+    } = { particles: [], mixers: [], models: [], tick: null, onHand: null };
 
     function clearStage() {
       stageGroup.traverse((o: any) => {
@@ -380,6 +418,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.mixers.length = 0;
       live.models.length = 0;
       live.tick = null;
+      live.onHand = null;
       godubapShowStage = null;
       finishShowShip = null;
       fermentShowStage = null;
@@ -532,6 +571,13 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           ud.t = THREE.MathUtils.lerp(ud.t, on ? 1 : 0, 0.09);
           const p: number = ud.t;
 
+          // 손에 들려 있으면 위치는 onHand 가 정한다. 크기만 키워 "들고 있다"를 보인다.
+          if (ud.grabbed) {
+            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.3, 0.22);
+            n.scale.setScalar(ud.vis);
+            return;
+          }
+
           // 수평으로 먼저 바구니 입구 위까지 옮겨간 뒤에 아래로 내려앉는다.
           // 한 번에 직선으로 보내면 바구니 옆면을 뚫고 지나간다.
           const ph = THREE.MathUtils.smoothstep(p, 0, 0.62); // 수평 이동
@@ -546,10 +592,151 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           );
           n.position.copy(seat);
 
-          // 담기면 바구니에 들어앉은 것처럼 살짝 작아진다
-          const s = THREE.MathUtils.lerp(1, 0.72, p);
-          n.scale.setScalar(s);
+          // 담기면 바구니에 들어앉은 것처럼 살짝 작아진다.
+          // 손을 갖다 대면(호버) 커져서 "이걸 집을 수 있다"가 바로 보인다.
+          const base = THREE.MathUtils.lerp(1, 0.72, p);
+          const want = ud.hover ? base * 1.22 : base;
+          ud.vis = THREE.MathUtils.lerp(ud.vis ?? base, want, 0.2);
+          n.scale.setScalar(ud.vis);
         });
+      };
+
+      /* ── 손으로 집어 담기 ──────────────────────────────────────────────
+       * 무엇을 집었는지는 **화면 좌표**로 고른다. 손까지의 거리 추정은 흔들리는데,
+       * 3D 거리로 고르면 화면에서는 원료 위에 손이 있는데도 안 집히는 일이 생긴다.
+       * 화면 기준으로 고르면 사용자가 보는 것과 판정이 항상 일치한다.
+       */
+      const basketLocal = new THREE.Vector3(0, basketY, 0);
+      const basketWorld = new THREE.Vector3();
+      const basketScreen = { x: 0.5, y: 0.5 };
+      const nodeWorld = new THREE.Vector3();
+      const nodeScreen = { x: 0.5, y: 0.5 };
+      const grabTarget = new THREE.Vector3();
+
+      /** 화면에서 이 반경(0~1) 안에 있으면 집을 수 있다 */
+      const PICK_R = 0.13;
+      /** 바구니 위로 인정하는 반경 — 놓기는 넉넉하게 봐준다 */
+      const DROP_R = 0.18;
+
+      let hovered: THREE.Group | null = null;
+      let held: THREE.Group | null = null;
+      /**
+       * 집은 순간의 카메라~원료 거리. 들고 다니는 동안 이 거리를 유지해야
+       * 손 거리 추정이 흔들려도 원료 크기가 커졌다 작아졌다 하지 않는다.
+       */
+      let heldDepth = 1;
+
+      const nameOf = (id: string) => INGREDIENTS.find((i) => i.id === id)?.name ?? "원료";
+      const cardOf = (id: string) => $(`#grid .card[data-id="${id}"]`);
+
+      const setHover = (n: THREE.Group | null) => {
+        if (hovered === n) return;
+        if (hovered) (hovered.userData as any).hover = false;
+        hovered = n;
+        if (hovered) (hovered.userData as any).hover = true;
+      };
+
+      /** 손을 놓쳤거나 단계를 벗어날 때 — 들고 있던 것을 제자리로 돌린다 */
+      const dropHeld = () => {
+        if (!held) return;
+        (held.userData as any).grabbed = false;
+        held = null;
+      };
+
+      // 조명이 어둡거나 손이 화면 밖이면 인식이 안 잡힌다. 한참 못 잡으면
+      // 아래 카드로도 담을 수 있다는 걸 알려 체험이 막히지 않게 한다.
+      let lastSeenAt = performance.now();
+      const LOST_HINT_MS = 6000;
+
+      live.onHand = (f, hand) => {
+        if (!f.present) {
+          dropHeld();
+          setHover(null);
+          setHandHud(
+            "idle",
+            performance.now() - lastSeenAt > LOST_HINT_MS
+              ? "손이 안 보여요 · 아래 카드를 눌러 담아도 돼요"
+              : "손을 카메라에 비춰 주세요"
+          );
+          return;
+        }
+        lastSeenAt = performance.now();
+
+        const pinch = hand.pinchScreen;
+
+        // 1) 들고 있는 중 — 손끝을 따라오게 하고, 펴면 놓는다
+        if (held) {
+          const ud = held.userData as any;
+          // 화면상 손끝을 따라간다. 거리는 집었을 때 그대로 — 크기가 들쭉날쭉하지 않게.
+          screenToWorld(pinch.x, pinch.y, heldDepth, camera, grabTarget);
+          stageGroup.worldToLocal(grabTarget);
+          held.position.lerp(grabTarget, 0.5);
+
+          stageGroup.localToWorld(basketWorld.copy(basketLocal));
+          worldToScreen(basketWorld, camera, basketScreen);
+          const overBasket = screenDist(pinch, basketScreen) < DROP_R;
+
+          if (f.justReleased) {
+            const id: string = ud.id;
+            if (overBasket) {
+              // 기존 담기 애니메이션(ud.t 0→1)이 이어받아 바구니 안으로 내려앉는다
+              S.selected.add(id);
+              cardOf(id)?.setAttribute("aria-pressed", "true");
+              syncIngredient(INGREDIENTS.find((i) => i.id === id), true);
+              setHandHud("dropped", `${nameOf(id)}을(를) 바구니에 담았어요`);
+            } else {
+              setHandHud("tracking", `${nameOf(id)}을(를) 놓쳤어요 · 다시 집어 보세요`);
+            }
+            dropHeld();
+            return;
+          }
+
+          setHandHud(
+            "holding",
+            overBasket ? `${nameOf(ud.id)} · 손을 펴서 바구니에 놓으세요` : `${nameOf(ud.id)}을(를) 집었어요`
+          );
+          return;
+        }
+
+        // 2) 빈손 — 화면에서 가장 가까운 원료를 고른다
+        let best: THREE.Group | null = null;
+        let bestD = PICK_R;
+        for (const n of ingredientNodes) {
+          n.getWorldPosition(nodeWorld);
+          worldToScreen(nodeWorld, camera, nodeScreen);
+          const d = screenDist(pinch, nodeScreen);
+          if (d < bestD) {
+            bestD = d;
+            best = n;
+          }
+        }
+        setHover(best);
+
+        if (!best) {
+          setHandHud("tracking", "원료 위로 손을 옮겨 보세요");
+          return;
+        }
+
+        const id: string = (best.userData as any).id;
+
+        // 3) 원료 위에서 쥐면 집어 든다
+        if (f.justPinched) {
+          const ud = best.userData as any;
+          ud.grabbed = true;
+          held = best;
+          best.getWorldPosition(nodeWorld);
+          heldDepth = camera.getWorldPosition(handOrigin).distanceTo(nodeWorld);
+          // 바구니에 담겨 있던 걸 다시 집었다면 선택에서 빼 준다 (손에 들려 있으니까)
+          if (S.selected.has(id)) {
+            S.selected.delete(id);
+            cardOf(id)?.setAttribute("aria-pressed", "false");
+            syncIngredient(undefined, true);
+          }
+          setHandHud("holding", `${nameOf(id)}을(를) 집었어요`);
+          return;
+        }
+
+        setHandHud("hover", `${nameOf(id)} · 엄지와 검지를 붙여 집으세요`);
       };
     }
 
@@ -691,6 +878,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.particles.push(drip);
 
       let coolT = 0; // 냉각 연출 진행 시간
+      /** 한 번 부칠 때마다 1로 튀었다가 잦아든다 — 김이 훅 흩어지는 연출에 쓴다 */
+      let fanPulse = 0;
 
       // 현재 하위 단계에 맞춰 무대 모델을 보이거나 숨긴다.
       godubapShowStage = () => {
@@ -711,9 +900,21 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
         // 김 — steam:true 단계에서만
         const steaming = cur?.steam === true;
-        glow.intensity += ((steaming ? 1.6 : 0.05) - glow.intensity) * 0.05;
-        steam.material.opacity += ((steaming ? 0.55 : 0) - steam.material.opacity) * 0.06;
-        (steam.userData as any).opt.speed = steaming ? 0.35 : 0.15;
+
+        // 냉각 단계에서는 김이 남아 있다가 부칠수록 걷힌다 — 진행도가 눈에 보이게.
+        const cooling = cur?.dark === true && coolingActive();
+        const coolLeft = Math.max(0, 1 - S.coolFans / REQUIRED_FANS);
+        fanPulse = Math.max(0, fanPulse - dt * 1.6);
+
+        const glowTarget = steaming ? 1.6 : cooling ? 0.5 * coolLeft : 0.05;
+        glow.intensity += (glowTarget - glow.intensity) * 0.05;
+
+        const steamTarget = steaming ? 0.55 : cooling ? 0.5 * coolLeft : 0;
+        steam.material.opacity += (steamTarget - steam.material.opacity) * 0.06;
+        const opt = (steam.userData as any).opt;
+        // 부친 순간에는 김이 빠르게 옆으로 퍼진다
+        opt.speed = steaming ? 0.35 : cooling ? 0.2 + fanPulse * 0.9 : 0.15;
+        opt.radius = 0.1 + fanPulse * 0.12;
 
         // 물 — 현재 단계 water 값으로 채워지고 빠진다
         const targetWater = cur?.water ?? 0;
@@ -743,6 +944,36 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
             g.scale.setScalar(THREE.MathUtils.smoothstep(pp, 0, 1));
           });
         }
+      };
+
+      /* ── 손으로 부채질하기 ──────────────────────────────────────────
+       * 좌우로 흔든 왕복을 세어 REQUIRED_FANS 번이면 다 식은 것으로 본다.
+       * 판정은 lib/hand/fanGesture.ts 가 하고, 여기서는 결과만 받아 쓴다.
+       */
+      const fan = new FanGesture();
+
+      live.onHand = (f) => {
+        if (!coolingActive()) {
+          if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+          return;
+        }
+
+        const gained = fan.update(f);
+        if (gained) {
+          S.coolFans = Math.min(REQUIRED_FANS, S.coolFans + gained);
+          fanPulse = 1;
+          syncCooling();
+          // 다 식히면 그때 장인이 질문을 던진다
+          if (S.coolFans >= REQUIRED_FANS && !S.coolDone) {
+            S.coolDone = true;
+            fan.reset();
+            syncGodubap();
+          }
+          return;
+        }
+
+        if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+        else setHandHud("tracking", `손을 좌우로 흔들어 식혀 주세요 · ${S.coolFans}/${REQUIRED_FANS}`);
       };
     }
 
@@ -905,7 +1136,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       try {
         xrSession = await xr.requestSession("immersive-ar", {
           requiredFeatures: ["hit-test", "local"],
-          optionalFeatures: ["dom-overlay"],
+          // camera-access 가 있으면 ARCore 가 쓰는 카메라 이미지를 그대로 받아 손을 인식한다.
+          // 이게 평면 인식(hit-test)과 손 인식을 한 세션에서 같이 하는 유일한 길이다.
+          optionalFeatures: ["dom-overlay", "camera-access"],
           domOverlay: { root: uiRoot },
         });
       } catch (e: any) {
@@ -928,8 +1161,18 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       localSpace = await xrSession!.requestReferenceSpace("local");
       hitTestSource = await (xrSession as any).requestHitTestSource({ space: viewerSpace });
 
+      // 기기가 camera-access 를 내줬다면 실제 AR 안에서 손까지 쓸 수 있다.
+      // (안 내주면 평면 인식만 되는 기존 AR 그대로 — 손은 아래 카메라 모드로 따로 쓴다)
+      if (xrSession!.enabledFeatures?.includes("camera-access")) {
+        void startHandsInAr();
+      }
+
       xrSession!.addEventListener("end", () => {
         S.xr = false;
+        S.hand = false;
+        uiRoot!.classList.remove("hands-on");
+        handTracker?.dispose();
+        handTracker = null;
         xrSession = null;
         hitTestSource = null;
         uiRoot!.classList.remove("ar-mode");
@@ -945,11 +1188,57 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     }
 
     const raycaster = new THREE.Raycaster();
+    const handOrigin = new THREE.Vector3(); // 손까지의 거리 계산용 임시 벡터
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     function fallbackHit() {
       raycaster.setFromCamera(new THREE.Vector2(0, -0.15), camera);
       const p = new THREE.Vector3();
       return raycaster.ray.intersectPlane(groundPlane, p) ? p : null;
+    }
+
+    /* =====================================================================
+     * 3.5 손 모드 — 카메라 영상 + MediaPipe 손 인식
+     *
+     * WebXR 세션 중에는 ARCore 가 카메라를 독점해 getUserMedia 를 함께 쓸 수 없다.
+     * 그래서 손 모드는 WebXR 대신 쓰는 별도 경로다 — 평면 인식은 없고,
+     * 무대를 카메라 앞 고정 위치에 자동으로 놓는다.
+     * ===================================================================*/
+    let handTracker: HandTracker | null = null;
+    const handVisual = new HandVisual();
+    // 영상이 화면에 cover 로 잘리는 것을 보정하는 값 — 매 프레임 화면 크기로 다시 잰다
+    let handFit: CoverFit = { scaleX: 1, scaleY: 1, offX: 0, offY: 0 };
+    // AR 모드에서 XR 카메라 이미지를 내려받는 도구 (camera-access 를 받았을 때만 만든다)
+    let xrFeed: XrCameraFeed | null = null;
+    let lastDetectAt = 0;
+    /**
+     * AR 모드 손 검출 간격(ms). 카메라 이미지를 GPU 에서 내려받는 비용이 있어
+     * 매 프레임 하면 3D 가 눈에 띄게 느려진다. 이 정도면 집는 조작에 충분하다.
+     */
+    const AR_DETECT_MS = 60;
+
+    // 손 상태 표시는 단계마다 하나씩 있다 (원료·고두밥). 전부 같이 갱신한다.
+    function setHandHud(state: "idle" | "tracking" | "hover" | "holding" | "dropped", text: string) {
+      $$(".hand-hud").forEach((hud) => ((hud as HTMLElement).dataset.state = state));
+      $$(".hand-hud .hand-hud-msg").forEach((msg) => (msg.textContent = text));
+    }
+
+    /** 실제 AR 세션 안에서 손 인식을 켠다 (camera-access 를 받은 기기) */
+    async function startHandsInAr() {
+      if (handTracker) return;
+      const tracker = new HandTracker(); // 영상은 XR 이 준다 — 카메라를 직접 열지 않는다
+      try {
+        await tracker.load();
+      } catch (e) {
+        tracker.dispose();
+        console.warn("[ar] 손 인식을 켜지 못했습니다 —", e);
+        return; // 평면 인식만 되는 기존 AR 로 계속 간다
+      }
+      handTracker = tracker;
+      xrFeed = new XrCameraFeed();
+      S.hand = true;
+      uiRoot!.classList.add("hands-on");
+      handTracker.setPaused(S.step !== "ingredient");
+      setHandHud("idle", "손을 카메라에 비춰 주세요");
     }
 
     /* =====================================================================
@@ -992,11 +1281,46 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         onFermentTick();
       }
 
+      // 손 갱신은 3D 갱신보다 먼저 — 이번 프레임의 손 위치를 보고 물건이 따라와야 한다
+      if (S.hand && handTracker && xrFeed && frame) {
+        const xrCam = (frame as any).getViewerPose?.(localSpace)?.views?.[0]?.camera;
+        if (xrCam) {
+          const now = performance.now();
+
+          if (now - lastDetectAt >= AR_DETECT_MS) {
+            lastDetectAt = now;
+            const tex = renderer.xr.getCameraTexture(xrCam);
+            if (tex) {
+              const shot = xrFeed.capture(renderer, tex as any, xrCam.width, xrCam.height);
+              if (shot) handTracker.detect(shot, now);
+            }
+          }
+          handFit = coverFit(xrCam.width, xrCam.height, canvas!.clientWidth, canvas!.clientHeight);
+        }
+
+        const f = handTracker.latest;
+        // 무대까지의 거리 — 오클루더를 그 앞에 놓고, 집어 든 물건 거리의 기준으로도 쓴다
+        const stageAt = camera.getWorldPosition(handOrigin).distanceTo(anchor.position);
+        handVisual.update(f, camera, handFit, Math.max(stageAt, 0.2));
+        // 손이 사라진 프레임도 그대로 넘긴다 — 잡고 있던 물건을 놓아야 하기 때문
+        live.onHand?.(f, handVisual);
+        handTracker.consumeEdges();
+      } else if (!S.hand) {
+        handVisual.hide();
+      }
+
       live.mixers.forEach((m) => m.update(dt));
       if (live.tick) live.tick(t, dt);
       live.particles.forEach((p) => updateParticles(p, dt));
       if (!S.xr) controls.update();
+
+      // 레이어 순서대로 쌓아 올린다.
+      //   L0  카메라 영상 — WebXR 이 캔버스 뒤에 깔아 준다 (바닥·책상)
+      //   L1  AR 에셋     — 아래 scene
+      //   L2+ 손          — 그림자 → 장갑 손 → 집는 고리 (handVisual.render 안에서)
+      renderer.clear();
       renderer.render(scene, camera);
+      if (S.hand) handVisual.render(renderer, camera);
     });
 
     /* =====================================================================
@@ -1026,7 +1350,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       if (arSupported && !S.xr) {
         b.disabled = false;
         b.textContent = "카메라 켜고 AR 시작";
-        say("카메라를 켜면 바닥을 인식해 양조장을 놓을 수 있어요.");
+        say("카메라를 켜면 바닥을 인식해 양조장을 놓고, 손으로 재료를 집을 수 있어요.");
       } else if (surfaceReady) {
         b.disabled = false;
         b.textContent = "여기에 양조장 배치";
@@ -1078,6 +1402,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       INGREDIENTS.forEach((ing) => {
         const b = document.createElement("button");
         b.className = "card";
+        b.dataset.id = ing.id; // 손으로 담았을 때 이 카드를 찾아 눌린 상태로 맞춘다
         b.setAttribute("aria-pressed", "false");
         // 배경 크기·정렬은 CSS에서 잡는다. 여기서 cover 를 주면 투명 PNG가 잘리고
         // .chip 의 배경색이 테두리처럼 비쳐 보인다.
@@ -1147,7 +1472,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         b.onclick = () => {
           if (i !== S.godubap) return;
           if (i === GB_LAST && !S.quizDone) {
-            $("#quiz")?.classList.remove("hidden");
+            // 아직 안 식었으면 부채질이 먼저다
+            if (coolingCleared()) $("#quiz")?.classList.remove("hidden");
             return;
           }
           S.godubap = i + 1;
@@ -1156,6 +1482,27 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         pills.appendChild(b);
       });
     }
+    /** 냉각 진행 막대·문구 — 부칠 때마다 부른다 */
+    function syncCooling() {
+      const on = S.hand && S.godubap === GB_LAST && !S.quizDone;
+      $("#cooling-game")?.classList.toggle("hidden", !on);
+
+      const pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
+      const bar = $("#bar-cooling") as HTMLElement | null;
+      if (bar) bar.style.width = `${pct}%`;
+      const pctEl = $("#cooling-pct");
+      if (pctEl) pctEl.textContent = `${pct}%`;
+      const label = $("#cooling-label");
+      if (label) {
+        label.textContent = S.coolDone
+          ? "다 식었어요"
+          : S.coolFans === 0
+            ? "손을 좌우로 흔들어 부채질하세요"
+            : `식히는 중 · ${S.coolFans}/${REQUIRED_FANS}번`;
+        (label as HTMLElement).dataset.state = S.coolDone ? "ok" : "warn";
+      }
+    }
+
     function syncGodubap() {
       godubapShowStage?.(); // 현재 하위 단계에 맞춰 무대 모델(그릇/솥/채반)을 갈아 끼운다
       $$("#pills .pill").forEach((p, i) => {
@@ -1169,19 +1516,34 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           S.godubap >= GB_N
             ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
             : S.godubap === GB_LAST && !S.quizDone
-              ? "장인의 질문에 먼저 답해주세요"
+              ? coolingCleared()
+                ? "장인의 질문에 먼저 답해주세요"
+                : "손을 좌우로 흔들어 고두밥을 식혀주세요"
               : "";
       }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
       const cap = $("#cap-godubap");
-      if (cap) cap.textContent = S.godubap >= GB_N ? "고두밥 완성 · 채반에서 차게 식었어요" : cur.caption;
-      if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
+      if (cap)
+        cap.textContent =
+          S.godubap >= GB_N
+            ? "고두밥 완성 · 채반에서 차게 식었어요"
+            : S.godubap === GB_LAST && !S.quizDone && S.coolDone
+              ? "고두밥이 충분히 식었어요"
+              : cur.caption;
+      // 퀴즈는 다 식힌 뒤에 열린다
+      if (S.godubap === GB_LAST && !S.quizDone && coolingCleared()) $("#quiz")?.classList.remove("hidden");
+      syncCooling();
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
         // 아직 이를 때도 눌리게 두고, 대신 눌렀을 때 무엇을 해야 하는지 알려준다
         const ready = S.godubap >= GB_N;
+        const coolStep = S.godubap === GB_LAST && !S.quizDone;
         b.classList.toggle("waiting", !ready);
-        b.textContent = ready ? "누룩 섞고 항아리에 담기" : "공정을 순서대로 진행하세요";
+        b.textContent = ready
+          ? "누룩 섞고 항아리에 담기"
+          : coolStep && !coolingCleared()
+            ? "손을 좌우로 흔들어 식혀 주세요"
+            : "공정을 순서대로 진행하세요";
       }
     }
     // 퀴즈 문항·선택지는 레시피에서 온다. (술마다 문구가 달라져도 그대로 동작)
@@ -1226,7 +1588,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         if (btnGodubap.classList.contains("waiting")) {
           showNotice(
             S.godubap === GB_LAST && !S.quizDone
-              ? "장인의 질문에 먼저 답해 주세요."
+              ? coolingCleared()
+                ? "장인의 질문에 먼저 답해 주세요."
+                : "고두밥이 아직 뜨겁습니다. 손을 좌우로 흔들어 식혀 주세요."
               : "위쪽 타임라인에서 단계를 차례로 눌러 고두밥을 지어 주세요.",
           );
           return;
@@ -1426,6 +1790,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       (btnRestart as HTMLElement).onclick = () => {
         S.selected.clear();
         S.godubap = 0;
+        S.coolFans = 0;
+        S.coolDone = false;
         S.quizDone = false;
         S.temp = 27;
         S.ferment = 0;
@@ -1489,6 +1855,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         } catch {}
       }
       clearStage();
+      handTracker?.dispose();
+      xrFeed?.dispose();
+      handVisual.dispose();
       controls.dispose();
       renderer.dispose();
       delete document.documentElement.dataset.arStep;
@@ -1533,6 +1902,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         </div>
         <div className="fill" />
         <div className="dock">
+          <div className="hand-hud" data-state="idle">
+            <i className="lamp" />
+            <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+          </div>
           <div className="grid" id="grid" />
           <button className="cta" id="btn-ingredient" disabled>주원료 선택</button>
         </div>
@@ -1546,6 +1919,17 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <div className="caption" id="cap-godubap">{recipe.godubapSteps[0]?.caption}</div>
         </div>
         <div className="dock">
+          <div className="hand-hud" data-state="idle">
+            <i className="lamp" />
+            <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+          </div>
+          <div id="cooling-game" className="hidden">
+            <div className="ferment-row">
+              <span className="ferment-rate" id="cooling-label" data-state="warn">손을 좌우로 흔들어 부채질하세요</span>
+              <span className="ferment-pct" id="cooling-pct">0%</span>
+            </div>
+            <div className="bar"><i id="bar-cooling" /></div>
+          </div>
           <div id="quiz" className="hidden">
             <div className="coach">
               <div className="avatar" />
