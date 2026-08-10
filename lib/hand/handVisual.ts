@@ -14,6 +14,13 @@ import { HAND_CONNECTIONS, LM, type HandFrame } from "@/lib/hand/types";
 
 /** 화면에서 손이 이만큼 크게 보일 때를 기준 거리로 삼는다 (손목~중지뿌리, 화면 정규화) */
 const REF_SPAN = 0.16;
+/**
+ * 추정한 거리에 곱하는 보정. 1 보다 작아 손이 기본적으로 무대보다 **조금 앞**에 놓인다.
+ * 손 크기로 거리를 재는 방식은 손 크기·카메라 화각에 따라 오차가 있는데,
+ * 이 체험에서 중요한 건 "손이 원료 위로 보이는 것"이라 애매하면 앞쪽으로 기울인다.
+ * (뒤로 뻗으면 여전히 값이 커져 무대 뒤로 넘어간다)
+ */
+const FORWARD_BIAS = 0.88;
 /** 깊이 보정 한계 — 인식이 튀어도 손이 카메라를 뚫거나 무대 뒤로 날아가지 않게 */
 const DEPTH_MIN = 0.45;
 const DEPTH_MAX = 1.8;
@@ -63,6 +70,20 @@ export function screenToWorld(
   return out;
 }
 
+/** 월드 좌표 → 화면 정규화 좌표 (0~1, 좌상단 원점) */
+const _proj = new THREE.Vector3();
+export function worldToScreen(v: THREE.Vector3, camera: THREE.Camera, out = { x: 0, y: 0 }) {
+  _proj.copy(v).project(camera);
+  out.x = (_proj.x + 1) / 2;
+  out.y = (1 - _proj.y) / 2;
+  return out;
+}
+
+/** 화면 정규화 좌표 두 점 사이 거리 */
+export function screenDist(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
 export class HandVisual {
   readonly group = new THREE.Group();
 
@@ -76,6 +97,11 @@ export class HandVisual {
   readonly worldJoints: THREE.Vector3[] = Array.from({ length: 21 }, () => new THREE.Vector3());
   /** 이번 프레임의 집는 지점(엄지·검지 끝 중점) 월드 좌표 */
   readonly pinchWorld = new THREE.Vector3();
+  /**
+   * 같은 지점의 화면 좌표(0~1). 깊이 추정은 흔들리므로 무엇을 집었는지는
+   * 이 화면 좌표로 고른다 — 사용자가 보는 그대로("손가락이 쌀 위에 있다")와 일치한다.
+   */
+  readonly pinchScreen = { x: 0.5, y: 0.5 };
   /** 이번 프레임에 추정한 손까지의 거리(m) */
   depth = 1;
 
@@ -173,14 +199,20 @@ export class HandVisual {
 
     // 화면에서 손이 클수록 카메라에 가깝다 — 앞뒤로 뻗는 동작이 반영된다
     const span = Math.max(frame.screenSpan, 1e-4);
-    this.depth = THREE.MathUtils.clamp((baseDepth * REF_SPAN) / span, DEPTH_MIN, DEPTH_MAX);
+    this.depth = THREE.MathUtils.clamp(
+      (baseDepth * REF_SPAN * FORWARD_BIAS) / span,
+      DEPTH_MIN,
+      DEPTH_MAX
+    );
 
     for (let i = 0; i < 21; i++) {
       const s = toScreen(frame.landmarks[i], fit);
       screenToWorld(s.x, s.y, this.depth, camera, this.worldJoints[i]);
     }
-    const pinchScreen = toScreen(frame.pinchPoint, fit);
-    screenToWorld(pinchScreen.x, pinchScreen.y, this.depth, camera, this.pinchWorld);
+    const ps = toScreen(frame.pinchPoint, fit);
+    this.pinchScreen.x = ps.x;
+    this.pinchScreen.y = ps.y;
+    screenToWorld(ps.x, ps.y, this.depth, camera, this.pinchWorld);
 
     // 손 두께도 화면상 손 크기를 따라간다 — 멀어지면 같이 얇아진다
     const worldSpan = this.worldJoints[LM.WRIST].distanceTo(this.worldJoints[LM.MIDDLE_MCP]);

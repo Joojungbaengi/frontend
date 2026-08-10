@@ -20,7 +20,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
 import { HandTracker, describeHandError } from "@/lib/hand/handTracker";
-import { HandVisual, coverFit, type CoverFit } from "@/lib/hand/handVisual";
+import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
 import type { HandFrame } from "@/lib/hand/types";
 import { getRecipe } from "@/lib/brewery/recipes";
 import { styles } from "@/components/arBreweryStyles";
@@ -542,6 +542,13 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           ud.t = THREE.MathUtils.lerp(ud.t, on ? 1 : 0, 0.09);
           const p: number = ud.t;
 
+          // 손에 들려 있으면 위치는 onHand 가 정한다. 크기만 키워 "들고 있다"를 보인다.
+          if (ud.grabbed) {
+            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.3, 0.22);
+            n.scale.setScalar(ud.vis);
+            return;
+          }
+
           // 수평으로 먼저 바구니 입구 위까지 옮겨간 뒤에 아래로 내려앉는다.
           // 한 번에 직선으로 보내면 바구니 옆면을 뚫고 지나간다.
           const ph = THREE.MathUtils.smoothstep(p, 0, 0.62); // 수평 이동
@@ -556,10 +563,138 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           );
           n.position.copy(seat);
 
-          // 담기면 바구니에 들어앉은 것처럼 살짝 작아진다
-          const s = THREE.MathUtils.lerp(1, 0.72, p);
-          n.scale.setScalar(s);
+          // 담기면 바구니에 들어앉은 것처럼 살짝 작아진다.
+          // 손을 갖다 대면(호버) 커져서 "이걸 집을 수 있다"가 바로 보인다.
+          const base = THREE.MathUtils.lerp(1, 0.72, p);
+          const want = ud.hover ? base * 1.22 : base;
+          ud.vis = THREE.MathUtils.lerp(ud.vis ?? base, want, 0.2);
+          n.scale.setScalar(ud.vis);
         });
+      };
+
+      /* ── 손으로 집어 담기 ──────────────────────────────────────────────
+       * 무엇을 집었는지는 **화면 좌표**로 고른다. 손까지의 거리 추정은 흔들리는데,
+       * 3D 거리로 고르면 화면에서는 원료 위에 손이 있는데도 안 집히는 일이 생긴다.
+       * 화면 기준으로 고르면 사용자가 보는 것과 판정이 항상 일치한다.
+       */
+      const basketLocal = new THREE.Vector3(0, basketY, 0);
+      const basketWorld = new THREE.Vector3();
+      const basketScreen = { x: 0.5, y: 0.5 };
+      const nodeWorld = new THREE.Vector3();
+      const nodeScreen = { x: 0.5, y: 0.5 };
+      const grabTarget = new THREE.Vector3();
+
+      /** 화면에서 이 반경(0~1) 안에 있으면 집을 수 있다 */
+      const PICK_R = 0.13;
+      /** 바구니 위로 인정하는 반경 — 놓기는 넉넉하게 봐준다 */
+      const DROP_R = 0.18;
+
+      let hovered: THREE.Group | null = null;
+      let held: THREE.Group | null = null;
+      /**
+       * 들고 있는 원료는 손보다 **살짝 앞**에 둔다. 손 오클루더가 깊이를 쓰기 때문에
+       * 손과 같은 깊이에 두면 집어 든 원료가 제 손에 가려 보이지 않는다.
+       */
+      const HELD_LIFT = 0.92;
+
+      const nameOf = (id: string) => INGREDIENTS.find((i) => i.id === id)?.name ?? "원료";
+      const cardOf = (id: string) => $(`#grid .card[data-id="${id}"]`);
+
+      const setHover = (n: THREE.Group | null) => {
+        if (hovered === n) return;
+        if (hovered) (hovered.userData as any).hover = false;
+        hovered = n;
+        if (hovered) (hovered.userData as any).hover = true;
+      };
+
+      /** 손을 놓쳤거나 단계를 벗어날 때 — 들고 있던 것을 제자리로 돌린다 */
+      const dropHeld = () => {
+        if (!held) return;
+        (held.userData as any).grabbed = false;
+        held = null;
+      };
+
+      live.onHand = (f, hand) => {
+        if (!f.present) {
+          dropHeld();
+          setHover(null);
+          setHandHud("idle", "손을 카메라에 비춰 주세요");
+          return;
+        }
+
+        const pinch = hand.pinchScreen;
+
+        // 1) 들고 있는 중 — 손끝을 따라오게 하고, 펴면 놓는다
+        if (held) {
+          const ud = held.userData as any;
+          // 화면상 손끝을 따라가되, 손보다 조금 앞에 둬서 손에 가려지지 않게 한다
+          screenToWorld(pinch.x, pinch.y, hand.depth * HELD_LIFT, camera, grabTarget);
+          stageGroup.worldToLocal(grabTarget);
+          held.position.lerp(grabTarget, 0.5);
+
+          stageGroup.localToWorld(basketWorld.copy(basketLocal));
+          worldToScreen(basketWorld, camera, basketScreen);
+          const overBasket = screenDist(pinch, basketScreen) < DROP_R;
+
+          if (f.justReleased) {
+            const id: string = ud.id;
+            if (overBasket) {
+              // 기존 담기 애니메이션(ud.t 0→1)이 이어받아 바구니 안으로 내려앉는다
+              S.selected.add(id);
+              cardOf(id)?.setAttribute("aria-pressed", "true");
+              syncIngredient(INGREDIENTS.find((i) => i.id === id), true);
+              setHandHud("dropped", `${nameOf(id)}을(를) 바구니에 담았어요`);
+            } else {
+              setHandHud("tracking", `${nameOf(id)}을(를) 놓쳤어요 · 다시 집어 보세요`);
+            }
+            dropHeld();
+            return;
+          }
+
+          setHandHud(
+            "holding",
+            overBasket ? `${nameOf(ud.id)} · 손을 펴서 바구니에 놓으세요` : `${nameOf(ud.id)}을(를) 집었어요`
+          );
+          return;
+        }
+
+        // 2) 빈손 — 화면에서 가장 가까운 원료를 고른다
+        let best: THREE.Group | null = null;
+        let bestD = PICK_R;
+        for (const n of ingredientNodes) {
+          n.getWorldPosition(nodeWorld);
+          worldToScreen(nodeWorld, camera, nodeScreen);
+          const d = screenDist(pinch, nodeScreen);
+          if (d < bestD) {
+            bestD = d;
+            best = n;
+          }
+        }
+        setHover(best);
+
+        if (!best) {
+          setHandHud("tracking", "원료 위로 손을 옮겨 보세요");
+          return;
+        }
+
+        const id: string = (best.userData as any).id;
+
+        // 3) 원료 위에서 쥐면 집어 든다
+        if (f.justPinched) {
+          const ud = best.userData as any;
+          ud.grabbed = true;
+          held = best;
+          // 바구니에 담겨 있던 걸 다시 집었다면 선택에서 빼 준다 (손에 들려 있으니까)
+          if (S.selected.has(id)) {
+            S.selected.delete(id);
+            cardOf(id)?.setAttribute("aria-pressed", "false");
+            syncIngredient(undefined, true);
+          }
+          setHandHud("holding", `${nameOf(id)}을(를) 집었어요`);
+          return;
+        }
+
+        setHandHud("hover", `${nameOf(id)} · 엄지와 검지를 붙여 집으세요`);
       };
     }
 
@@ -1161,6 +1296,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       INGREDIENTS.forEach((ing) => {
         const b = document.createElement("button");
         b.className = "card";
+        b.dataset.id = ing.id; // 손으로 담았을 때 이 카드를 찾아 눌린 상태로 맞춘다
         b.setAttribute("aria-pressed", "false");
         // 배경 크기·정렬은 CSS에서 잡는다. 여기서 cover 를 주면 투명 PNG가 잘리고
         // .chip 의 배경색이 테두리처럼 비쳐 보인다.
