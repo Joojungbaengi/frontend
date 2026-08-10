@@ -33,6 +33,11 @@ import {
   type WebXRHandOcclusionProbe,
 } from "@/lib/ar/webxrHandOcclusionProbe";
 import {
+  createHandFanGestureDetector,
+  type HandFanGestureDetector,
+  type HandFanGestureState,
+} from "@/lib/ar/handFanGestureDetector";
+import {
   createWebXRDepthOcclusionProbe,
   type WebXRDepthOcclusionProbe,
 } from "@/lib/ar/webxrDepthOcclusionProbe";
@@ -65,6 +70,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     handOcclusionDebug &&
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("maskOutline") === "1";
+  const fanDebug =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("fanDebug") === "1";
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -74,6 +82,30 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     const $ = <T extends Element = HTMLElement>(s: string) =>
       uiRoot.querySelector(s) as T | null;
     const $$ = (s: string) => Array.from(uiRoot.querySelectorAll(s));
+
+    function syncFanDebug(state: HandFanGestureState, timestamp = performance.now()) {
+      const fanOverlay = $("#fan-debug");
+      if (!fanOverlay) return;
+      const setText = (selector: string, text: string) => {
+        const element = fanOverlay.querySelector<HTMLElement>(selector);
+        if (element && element.textContent !== text) element.textContent = text;
+      };
+      setText("[data-fan-hand]", state.handDetected ? "DETECTED" : "NOT DETECTED");
+      setText("[data-fan-palm-x]", state.palmX.toFixed(3));
+      setText("[data-fan-palm-y]", state.palmY.toFixed(3));
+      setText("[data-fan-motion]", state.motion);
+      setText("[data-fan-travel]", state.travel.toFixed(3));
+      setText(
+        "[data-fan-half-sweep]",
+        state.halfSweepMs === null ? "--" : `${Math.round(state.halfSweepMs)} ms`,
+      );
+      setText("[data-fan-count]", String(state.fanCount));
+      setText(
+        "[data-fan-last]",
+        state.lastFanAt === null ? "--" : `${Math.max(0, Math.round(timestamp - state.lastFanAt))} ms`,
+      );
+      setText("[data-fan-flash]", state.fanFlash ? "FAN!" : "");
+    }
 
     /* =====================================================================
      * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
@@ -925,6 +957,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let cameraAccessProbe: WebXRCameraAccessProbe | null = null;
     let handLandmarkProbe: WebXRHandLandmarkProbe | null = null;
     let handOcclusionProbe: WebXRHandOcclusionProbe | null = null;
+    let handFanGestureDetector: HandFanGestureDetector | null = null;
     let depthOcclusionProbe: WebXRDepthOcclusionProbe | null = null;
     let foregroundSegmentationProbe: WebXRForegroundSegmentationProbe | null = null;
     let arSupported = false;
@@ -944,7 +977,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     async function enterAR() {
       const xr = (navigator as any).xr;
       try {
-        const optionalFeatures = handDebug || segmentDebug || handOcclusionDebug
+        const optionalFeatures = handDebug || segmentDebug || handOcclusionDebug || fanDebug
           ? ["dom-overlay", "camera-access"]
           : ["dom-overlay"];
         if (depthDebug) optionalFeatures.push("depth-sensing");
@@ -984,6 +1017,11 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
       const handDebugOverlay = $("#hand-debug");
       const handOcclusionDebugOverlay = $("#hand-occlusion-debug");
+      const fanDebugOverlay = $("#fan-debug");
+      if (fanDebug && fanDebugOverlay) {
+        handFanGestureDetector = createHandFanGestureDetector();
+        syncFanDebug(handFanGestureDetector.getState());
+      }
       if (handOcclusionDebug && handOcclusionDebugOverlay) {
         try {
           handOcclusionProbe = createWebXRHandOcclusionProbe({
@@ -1001,13 +1039,18 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         }
       }
 
-      const handLandmarkOverlay = handDebugOverlay ?? handOcclusionDebugOverlay;
-      if ((handDebug || handOcclusionDebug) && handLandmarkOverlay) {
+      const handLandmarkOverlay = handDebugOverlay ?? handOcclusionDebugOverlay ?? fanDebugOverlay;
+      if ((handDebug || handOcclusionDebug || fanDebug) && handLandmarkOverlay) {
         try {
           handLandmarkProbe = createWebXRHandLandmarkProbe({
             renderer,
             overlay: handLandmarkOverlay,
-            onLandmarks: (sample) => handOcclusionProbe?.onLandmarks(sample),
+            onLandmarks: (sample) => {
+              handOcclusionProbe?.onLandmarks(sample);
+              if (handFanGestureDetector) {
+                syncFanDebug(handFanGestureDetector.onLandmarks(sample), sample.timestamp);
+              }
+            },
           });
         } catch (error) {
           const modelStatus = handLandmarkOverlay.querySelector<HTMLElement>("[data-hand-model]");
@@ -1033,8 +1076,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         }
       }
 
-      const cameraDebugOverlay = handDebugOverlay ?? segmentDebugOverlay ?? handOcclusionDebugOverlay;
-      if ((handDebug || segmentDebug || handOcclusionDebug) && cameraDebugOverlay) {
+      const cameraDebugOverlay = handDebugOverlay ?? segmentDebugOverlay ?? handOcclusionDebugOverlay ?? fanDebugOverlay;
+      if ((handDebug || segmentDebug || handOcclusionDebug || fanDebug) && cameraDebugOverlay) {
         cameraAccessProbe = createWebXRCameraAccessProbe({
           session: xrSession!,
           renderer,
@@ -1073,6 +1116,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         handLandmarkProbe = null;
         handOcclusionProbe?.dispose();
         handOcclusionProbe = null;
+        handFanGestureDetector = null;
         depthOcclusionProbe?.dispose();
         depthOcclusionProbe = null;
         foregroundSegmentationProbe?.dispose();
@@ -1111,6 +1155,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       if (frame) {
         cameraAccessProbe?.onXRFrame(frame);
         depthOcclusionProbe?.onXRFrame(frame);
+        if (handFanGestureDetector) {
+          syncFanDebug(handFanGestureDetector.tick(performance.now()));
+        }
       }
 
       if (S.step === "place" && !S.placed) {
@@ -1643,6 +1690,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       handLandmarkProbe = null;
       handOcclusionProbe?.dispose();
       handOcclusionProbe = null;
+      handFanGestureDetector = null;
       depthOcclusionProbe?.dispose();
       depthOcclusionProbe = null;
       foregroundSegmentationProbe?.dispose();
@@ -1658,7 +1706,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       delete document.documentElement.dataset.arStep;
     };
     // recipe 가 바뀌면 씬·UI를 새 술로 다시 초기화한다.
-  }, [recipe, handDebug, depthDebug, segmentDebug, handOcclusionDebug, showHandOcclusionOutline]);
+  }, [recipe, handDebug, depthDebug, segmentDebug, handOcclusionDebug, showHandOcclusionOutline, fanDebug]);
 
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
@@ -1692,6 +1740,23 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <span>MASK: <b data-occlusion-mask>INACTIVE</b></span>
           <span>ERASE PASS: <b data-occlusion-pass>INACTIVE</b></span>
           <span>XR VIEWPORT: <b data-occlusion-viewport>0x0</b></span>
+        </div>
+      )}
+
+      {fanDebug && (
+        <div className="fan-debug" id="fan-debug" role="status" aria-live="polite">
+          <strong>FAN DEBUG</strong>
+          <span>HAND: <b data-fan-hand>NOT DETECTED</b></span>
+          <span>PALM X: <b data-fan-palm-x>0.000</b></span>
+          <span>PALM Y: <b data-fan-palm-y>0.000</b></span>
+          <br />
+          <span>MOTION: <b data-fan-motion>NEUTRAL</b></span>
+          <span>TRAVEL: <b data-fan-travel>0.000</b></span>
+          <span>HALF SWEEP: <b data-fan-half-sweep>--</b></span>
+          <br />
+          <span>FAN COUNT: <b data-fan-count>0</b></span>
+          <span>LAST FAN: <b data-fan-last>--</b></span>
+          <strong className="fan-flash" data-fan-flash />
         </div>
       )}
 
