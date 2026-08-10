@@ -114,6 +114,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     function setStep(next: typeof S.step) {
       S.step = next;
       uiRoot!.dataset.step = next;
+      // 손을 쓰는 단계는 아직 원료뿐이다. 나머지 단계에서 MediaPipe 를 계속 돌리면
+      // GPU 를 나눠 쓰느라 발효·완성 연출이 버벅인다.
+      handTracker?.setPaused(next !== "ingredient");
       // 완료 화면은 한지 배경이라 헤더도 함께 밝아져야 한다.
       // 다만 'done'의 앞 국면(압착~출고 완성 공정 walkthrough)은 AR 카메라를 그대로 두므로,
       // 헤더도 카메라 톤을 유지한다. 한지 축하 화면(.shipped)일 때만 밝은 헤더로 바꾼다.
@@ -614,13 +617,24 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         held = null;
       };
 
+      // 조명이 어둡거나 손이 화면 밖이면 인식이 안 잡힌다. 한참 못 잡으면
+      // 아래 카드로도 담을 수 있다는 걸 알려 체험이 막히지 않게 한다.
+      let lastSeenAt = performance.now();
+      const LOST_HINT_MS = 6000;
+
       live.onHand = (f, hand) => {
         if (!f.present) {
           dropHeld();
           setHover(null);
-          setHandHud("idle", "손을 카메라에 비춰 주세요");
+          setHandHud(
+            "idle",
+            performance.now() - lastSeenAt > LOST_HINT_MS
+              ? "손이 안 보여요 · 아래 카드를 눌러 담아도 돼요"
+              : "손을 카메라에 비춰 주세요"
+          );
           return;
         }
+        lastSeenAt = performance.now();
 
         const pinch = hand.pinchScreen;
 
@@ -1118,6 +1132,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     }
 
     async function enterHandMode() {
+      // 뒤로 갔다가 다시 눌렀을 때 카메라 스트림이 두 개 열리는 것을 막는다
+      if (S.hand || handTracker) return;
+
       const btn = $("#btn-hand") as HTMLButtonElement | null;
       if (btn) {
         btn.disabled = true;
@@ -1130,8 +1147,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       } catch (e) {
         handTracker.dispose();
         handTracker = null;
-        const note = $("#place-note");
-        if (note) note.textContent = describeHandError(e);
+        // place-note 는 평면 탐지 상태가 계속 덮어쓰므로 안내창으로 띄운다.
+        // 손이 안 되더라도 기존 AR·3D 로 끝까지 체험할 수 있다는 걸 함께 알린다.
+        showNotice(`${describeHandError(e)} 손 없이도 아래 버튼으로 체험을 이어갈 수 있어요.`);
         if (btn) {
           btn.disabled = false;
           btn.textContent = "손으로 체험하기";

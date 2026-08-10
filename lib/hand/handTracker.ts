@@ -34,6 +34,7 @@ export class HandTracker {
   private gesture = new GestureState();
   private frame: HandFrame = emptyHandFrame();
   private running = false;
+  private paused = false;
   private lastVideoTime = -1;
   /** 손을 잠깐 놓쳐도 바로 사라지지 않게 버티는 프레임 수 */
   private missStreak = 0;
@@ -106,9 +107,28 @@ export class HandTracker {
     this.video.srcObject = null;
   }
 
+  /**
+   * 손을 쓰지 않는 단계에서는 검출을 쉬게 한다.
+   * 발효·완성 단계까지 MediaPipe 를 계속 돌리면 GPU 를 나눠 쓰느라 3D 가 버벅인다.
+   */
+  setPaused(paused: boolean) {
+    if (this.paused === paused) return;
+    this.paused = paused;
+    // 멈춘 사이의 손 상태를 그대로 들고 있다가 재개하면 엉뚱한 집기가 발생한다
+    if (paused) {
+      this.gesture.reset();
+      this.frame = emptyHandFrame();
+      this.lastVideoTime = -1;
+    }
+  }
+
   /** 검출 루프 — 렌더와 따로 돈다 */
   private async loop() {
     while (this.running && this.landmarker) {
+      if (this.paused) {
+        await new Promise((r) => setTimeout(r, 150));
+        continue;
+      }
       // 같은 프레임을 두 번 넣으면 MediaPipe 가 타임스탬프 오류를 낸다
       if (this.video.readyState >= 2 && this.video.currentTime !== this.lastVideoTime) {
         this.lastVideoTime = this.video.currentTime;
@@ -147,14 +167,19 @@ export class HandTracker {
     const thumb = landmarks[LM.THUMB_TIP];
     const index = landmarks[LM.INDEX_TIP];
 
+    // 검출이 렌더보다 빠른 순간에는 아직 읽어가지 않은 엣지가 덮여 사라질 수 있다.
+    // 소비될 때까지 붙들되, 반대 방향 엣지가 오면 그쪽이 최신이므로 밀어낸다.
+    const pendingPinch = justPinched || (this.frame.justPinched && !justReleased);
+    const pendingRelease = justReleased || (this.frame.justReleased && !justPinched);
+
     this.frame = {
       present: true,
       landmarks,
       pinchPoint: { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 },
       pinch: pinchAmount(ratio),
       pinching,
-      justPinched,
-      justReleased,
+      justPinched: pendingPinch,
+      justReleased: pendingRelease,
       screenSpan: screenSpan(landmarks),
     };
   }
