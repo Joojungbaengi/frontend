@@ -32,6 +32,10 @@ import {
   createWebXRDepthOcclusionProbe,
   type WebXRDepthOcclusionProbe,
 } from "@/lib/ar/webxrDepthOcclusionProbe";
+import {
+  createWebXRForegroundSegmentationProbe,
+  type WebXRForegroundSegmentationProbe,
+} from "@/lib/ar/webxrForegroundSegmentationProbe";
 import { styles } from "@/components/arBreweryStyles";
 
 /**
@@ -47,6 +51,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
   const depthDebug =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("depthDebug") === "1";
+  const segmentDebug =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("segmentDebug") === "1";
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -907,6 +914,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let cameraAccessProbe: WebXRCameraAccessProbe | null = null;
     let handLandmarkProbe: WebXRHandLandmarkProbe | null = null;
     let depthOcclusionProbe: WebXRDepthOcclusionProbe | null = null;
+    let foregroundSegmentationProbe: WebXRForegroundSegmentationProbe | null = null;
     let arSupported = false;
     let surfaceReady = false;
 
@@ -924,7 +932,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     async function enterAR() {
       const xr = (navigator as any).xr;
       try {
-        const optionalFeatures = handDebug
+        const optionalFeatures = handDebug || segmentDebug
           ? ["dom-overlay", "camera-access"]
           : ["dom-overlay"];
         if (depthDebug) optionalFeatures.push("depth-sensing");
@@ -974,12 +982,36 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           if (modelStatus) modelStatus.textContent = "ERROR";
           console.warn("[hand-debug] Hand Landmarker probe setup failed", error);
         }
+      }
+
+      const segmentDebugOverlay = $("#segment-debug");
+      if (segmentDebug && segmentDebugOverlay) {
+        try {
+          foregroundSegmentationProbe = createWebXRForegroundSegmentationProbe({
+            renderer,
+            overlayRoot: uiRoot!,
+            debugOverlay: segmentDebugOverlay,
+          });
+        } catch (error) {
+          const modelStatus = segmentDebugOverlay.querySelector<HTMLElement>(
+            "[data-segment-model]",
+          );
+          if (modelStatus) modelStatus.textContent = "ERROR";
+          console.warn("[segment-debug] Foreground segmentation probe setup failed", error);
+        }
+      }
+
+      const cameraDebugOverlay = handDebugOverlay ?? segmentDebugOverlay;
+      if ((handDebug || segmentDebug) && cameraDebugOverlay) {
         cameraAccessProbe = createWebXRCameraAccessProbe({
           session: xrSession!,
           renderer,
           referenceSpace: localSpace,
-          overlay: handDebugOverlay,
-          onCameraTexture: (sample) => handLandmarkProbe?.onCameraTexture(sample),
+          overlay: cameraDebugOverlay,
+          onCameraTexture: (sample) => {
+            handLandmarkProbe?.onCameraTexture(sample);
+            foregroundSegmentationProbe?.onCameraTexture(sample);
+          },
         });
       }
 
@@ -1009,6 +1041,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         handLandmarkProbe = null;
         depthOcclusionProbe?.dispose();
         depthOcclusionProbe = null;
+        foregroundSegmentationProbe?.dispose();
+        foregroundSegmentationProbe = null;
         S.xr = false;
         xrSession = null;
         hitTestSource = null;
@@ -1574,6 +1608,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       handLandmarkProbe = null;
       depthOcclusionProbe?.dispose();
       depthOcclusionProbe = null;
+      foregroundSegmentationProbe?.dispose();
+      foregroundSegmentationProbe = null;
       if (xrSession) {
         try {
           xrSession.end();
@@ -1585,7 +1621,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       delete document.documentElement.dataset.arStep;
     };
     // recipe 가 바뀌면 씬·UI를 새 술로 다시 초기화한다.
-  }, [recipe, handDebug, depthDebug]);
+  }, [recipe, handDebug, depthDebug, segmentDebug]);
 
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
@@ -1618,6 +1654,29 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <span>DEPTH USAGE: <b data-depth-usage>UNAVAILABLE</b></span>
           <span>DEPTH FORMAT: <b data-depth-format>UNAVAILABLE</b></span>
           <span>DEPTH TYPE: <b data-depth-type>UNAVAILABLE</b></span>
+        </div>
+      )}
+
+      {segmentDebug && (
+        <div className="segment-debug" id="segment-debug" role="status" aria-live="polite">
+          <strong>SEGMENT DEBUG</strong>
+          <span>CAMERA: <b data-segment-camera>UNAVAILABLE</b></span>
+          <span>SEGMENT MODEL: <b data-segment-model>LOADING</b></span>
+          <span>FOREGROUND: <b data-segment-foreground>NOT DETECTED</b></span>
+          <span>MASK: <b data-segment-mask>ERROR</b></span>
+          <span>OVERLAY: <b data-segment-overlay>INACTIVE</b></span>
+          <span>SEGMENT FPS: <b data-segment-fps>0.0</b></span>
+          <br />
+          <span>CAMERA SIZE: <b data-segment-camera-size>0x0</b></span>
+          <span>VIEWPORT SIZE: <b data-segment-viewport-size>0x0</b></span>
+          <span>OFFSET: <b data-segment-offset>0.0, 0.0</b></span>
+          <canvas
+            className="segment-mask-preview"
+            data-segment-mask-preview
+            width="72"
+            height="72"
+            aria-label="Segmentation mask preview"
+          />
         </div>
       )}
 

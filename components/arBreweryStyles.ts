@@ -22,16 +22,21 @@ export const styles = `
 .ar-ui.ar-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 .ar-ui.ar-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 
-.ar-ui .hand-debug,.ar-ui .depth-debug{position:absolute; top:calc(10px + env(safe-area-inset-top,0px));
+.ar-ui .hand-debug,.ar-ui .depth-debug,.ar-ui .segment-debug{position:absolute; top:calc(10px + env(safe-area-inset-top,0px));
   z-index:40; pointer-events:none; display:flex; flex-direction:column; gap:3px;
   padding:9px 11px; border:1px solid rgba(255,255,255,.28); border-radius:8px;
   background:rgba(0,0,0,.72); color:#fff; font:11px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;
   text-shadow:none; font-variant-numeric:tabular-nums}
 .ar-ui .hand-debug{left:10px}
 .ar-ui .depth-debug{right:10px}
-.ar-ui .hand-debug strong,.ar-ui .depth-debug strong{font-size:12px; letter-spacing:.08em; color:#ffe08a}
-.ar-ui .hand-debug span,.ar-ui .depth-debug span{display:block}
-.ar-ui .hand-debug b,.ar-ui .depth-debug b{font-weight:700}
+.ar-ui .segment-debug{left:50%; transform:translateX(-50%)}
+.ar-ui .hand-debug strong,.ar-ui .depth-debug strong,.ar-ui .segment-debug strong{font-size:12px; letter-spacing:.08em; color:#ffe08a}
+.ar-ui .hand-debug span,.ar-ui .depth-debug span,.ar-ui .segment-debug span{display:block}
+.ar-ui .hand-debug b,.ar-ui .depth-debug b,.ar-ui .segment-debug b{font-weight:700}
+.ar-ui .segment-mask-preview{width:72px; height:72px; margin-top:4px; align-self:center;
+  border:1px solid rgba(255,255,255,.24); border-radius:4px; background:#000}
+.ar-ui .segment-foreground-overlay{position:absolute; inset:0; width:100%; height:100%; z-index:0;
+  display:none; pointer-events:none; background:transparent}
 
 .ar-ui .fill{flex:1; position:relative}
 /* 하단 여백은 헤더 위 여백과 비슷하게 — 버튼이 화면 끝에 붙지 않도록 */
