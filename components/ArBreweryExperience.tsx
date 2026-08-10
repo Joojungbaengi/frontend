@@ -996,6 +996,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let cameraAccessProbe: WebXRCameraAccessProbe | null = null;
     let handLandmarkProbe: WebXRHandLandmarkProbe | null = null;
     let handOcclusionProbe: WebXRHandOcclusionProbe | null = null;
+    let coolingHandOcclusionProbe: WebXRHandOcclusionProbe | null = null;
     let handFanGestureDetector: HandFanGestureDetector | null = null;
     let coolingFanGestureDetector: HandFanGestureDetector | null = null;
     let handLandmarkOverlay: HTMLElement = uiRoot;
@@ -1011,6 +1012,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         syncFanDebug(handFanGestureDetector.onLandmarks(sample), sample.timestamp);
       }
       if (S.coolingActive && coolingFanGestureDetector) {
+        coolingHandOcclusionProbe?.onLandmarks(sample);
         const fanState = coolingFanGestureDetector.onLandmarks(sample);
         if (fanState.fanCount > S.coolingFanCount) {
           S.coolingFanCount = Math.min(REQUIRED_COOLING_FAN_COUNT, fanState.fanCount);
@@ -1031,6 +1033,27 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       } catch (error) {
         console.warn("[cooling] Hand Landmarker setup failed", error);
       }
+    }
+
+    function enableCoolingHandOcclusion() {
+      if (!S.xr || !xrSession || handOcclusionProbe || coolingHandOcclusionProbe) return;
+      try {
+        // uiRoot has no occlusion debug data attributes, so this production instance emits
+        // no panel or outline while retaining the existing thin eraser-mask implementation.
+        coolingHandOcclusionProbe = createWebXRHandOcclusionProbe({
+          renderer,
+          session: xrSession,
+          debugOverlay: uiRoot!,
+          showOutline: false,
+        });
+      } catch (error) {
+        console.warn("[cooling] Hand occlusion probe setup failed", error);
+      }
+    }
+
+    function disableCoolingHandOcclusion() {
+      coolingHandOcclusionProbe?.dispose();
+      coolingHandOcclusionProbe = null;
     }
 
     async function checkAR() {
@@ -1175,6 +1198,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         handLandmarkProbeForDebug = false;
         handOcclusionProbe?.dispose();
         handOcclusionProbe = null;
+        disableCoolingHandOcclusion();
         handFanGestureDetector = null;
         coolingFanGestureDetector = null;
         resetCoolingInteraction();
@@ -1261,7 +1285,11 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.particles.forEach((p) => updateParticles(p, dt));
       if (!S.xr) controls.update();
       renderer.render(scene, camera);
-      if (frame) handOcclusionProbe?.renderAfterScene(performance.now());
+      if (frame) {
+        const frameTime = performance.now();
+        handOcclusionProbe?.renderAfterScene(frameTime);
+        coolingHandOcclusionProbe?.renderAfterScene(frameTime);
+      }
     });
 
     /* =====================================================================
@@ -1406,6 +1434,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         S.coolingActive = false;
         S.coolingComplete = true;
         coolingFanGestureDetector = null;
+        disableCoolingHandOcclusion();
         if (!handLandmarkProbeForDebug) {
           handLandmarkProbe?.dispose();
           handLandmarkProbe = null;
@@ -1433,6 +1462,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     function resetCoolingInteraction() {
       coolingFanGestureDetector?.reset();
       coolingFanGestureDetector = null;
+      disableCoolingHandOcclusion();
       if (!handLandmarkProbeForDebug) {
         handLandmarkProbe?.dispose();
         handLandmarkProbe = null;
@@ -1450,6 +1480,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       S.coolingFanCount = 0;
       coolingFanGestureDetector = createHandFanGestureDetector();
       ensureHandLandmarkTracking();
+      enableCoolingHandOcclusion();
       syncGodubap();
     }
 
@@ -1835,6 +1866,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       handLandmarkProbeForDebug = false;
       handOcclusionProbe?.dispose();
       handOcclusionProbe = null;
+      disableCoolingHandOcclusion();
       handFanGestureDetector = null;
       coolingFanGestureDetector = null;
       depthOcclusionProbe?.dispose();
