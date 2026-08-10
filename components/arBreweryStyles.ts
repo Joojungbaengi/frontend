@@ -105,6 +105,15 @@ export const styles = `
 
 .ar-ui .caption{position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:12px; color:var(--cream-dim)}
 
+.ar-ui .cooling-game{position:absolute; left:50%; top:28px; transform:translateX(-50%); width:min(280px,calc(100% - 44px));
+  display:flex; flex-direction:column; gap:9px; padding:13px 14px; box-sizing:border-box;
+  border:1px solid rgba(232,201,138,.44); border-radius:14px; background:rgba(26,18,11,.72);
+  color:#fff7df; text-align:center; text-shadow:0 1px 7px rgba(0,0,0,.8)}
+.ar-ui .cooling-game strong{font-size:13px; line-height:1.45}
+.ar-ui .cooling-game .bar{height:9px; background:rgba(255,255,255,.2)}
+.ar-ui .cooling-game .bar i{background:linear-gradient(90deg,#efb85b,#76c7bb)}
+.ar-ui .cooling-game span{font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; color:#ffe08a}
+
 .ar-ui .meter{background:var(--cream); color:var(--ink-strong); border:1px solid rgba(198,165,104,.4);
   border-radius:var(--r-md); padding:14px 15px}
 .ar-ui .meter .row{display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px; font-weight:600}

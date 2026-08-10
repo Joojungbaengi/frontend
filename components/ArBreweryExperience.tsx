@@ -27,6 +27,7 @@ import {
 import {
   createWebXRHandLandmarkProbe,
   type WebXRHandLandmarkProbe,
+  type XRHandLandmarkSample,
 } from "@/lib/ar/webxrHandLandmarkProbe";
 import {
   createWebXRHandOcclusionProbe,
@@ -124,6 +125,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     // 핀 개수가 바뀌어도 로직이 따라오도록 하드코딩 대신 길이를 쓴다.
     const GB_N = GODUBAP_STEPS.length;      // 전체 단계 수
     const GB_LAST = GB_N - 1;               // 마지막 단계 인덱스 — 여기서 장인 퀴즈가 뜬다
+    const REQUIRED_COOLING_FAN_COUNT = 5;
 
     // 담금·발효 타임라인 — 탭을 눌러 진행, 마지막 단계에서만 항아리+자동 발효.
     const FERMENT_STEPS = recipe.fermentSteps;
@@ -139,6 +141,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       selected: new Set<string>(),
       godubap: 0,
       quizDone: false,
+      coolingActive: false,
+      coolingComplete: false,
+      coolingFanCount: 0,
       temp: 27,
       ferment: 0,
       fstage: 0,
@@ -173,6 +178,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     }
 
     function setStep(next: typeof S.step) {
+      if (next !== "godubap" && (S.coolingActive || S.coolingComplete)) {
+        resetCoolingInteraction();
+      }
       S.step = next;
       uiRoot!.dataset.step = next;
       // 완료 화면은 한지 배경이라 헤더도 함께 밝아져야 한다.
@@ -667,7 +675,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
     /* --- 13 · 고두밥 --- */
     function buildGodubap() {
+      const stageChildCount = stageGroup.children.length;
       const platformTop = addPlatform();
+      const godubapPlatform = stageGroup.children[stageChildCount] ?? null;
       placeCommonModels(stageGroup, platformTop);
       frame3D(platformTop, 0.58, 0.52);
 
@@ -770,6 +780,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         });
         const dark = cur?.dark === true;
         if (!dark) coolT = 0;
+        if (godubapPlatform) godubapPlatform.visible = !(dark && S.coolingActive);
         uiRoot!.classList.toggle("cooling", dark); // 가장자리 비네트
       };
       godubapShowStage();
@@ -777,11 +788,15 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.tick = (t, dt) => {
         const cur = GODUBAP_STEPS[S.godubap];
 
-        // 김 — steam:true 단계에서만
+        // 김 — 증자 단계에서는 강하게, 손 부채질 냉각 중에는 진행률에 따라 줄인다.
         const steaming = cur?.steam === true;
-        glow.intensity += ((steaming ? 1.6 : 0.05) - glow.intensity) * 0.05;
-        steam.material.opacity += ((steaming ? 0.55 : 0) - steam.material.opacity) * 0.06;
-        (steam.userData as any).opt.speed = steaming ? 0.35 : 0.15;
+        const coolingSteam = cur?.dark === true && S.coolingActive;
+        const coolingRatio = S.coolingFanCount / REQUIRED_COOLING_FAN_COUNT;
+        const steamTarget = steaming ? 0.55 : coolingSteam ? 0.48 * (1 - coolingRatio) : 0;
+        const glowTarget = steaming ? 1.6 : coolingSteam ? 0.45 * (1 - coolingRatio) : 0.05;
+        glow.intensity += (glowTarget - glow.intensity) * 0.05;
+        steam.material.opacity += (steamTarget - steam.material.opacity) * 0.06;
+        (steam.userData as any).opt.speed = steaming ? 0.35 : coolingSteam ? 0.24 : 0.15;
 
         // 물 — 현재 단계 water 값으로 채워지고 빠진다
         const targetWater = cur?.water ?? 0;
@@ -958,10 +973,41 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let handLandmarkProbe: WebXRHandLandmarkProbe | null = null;
     let handOcclusionProbe: WebXRHandOcclusionProbe | null = null;
     let handFanGestureDetector: HandFanGestureDetector | null = null;
+    let coolingFanGestureDetector: HandFanGestureDetector | null = null;
+    let handLandmarkOverlay: HTMLElement = uiRoot;
+    let handLandmarkProbeForDebug = false;
     let depthOcclusionProbe: WebXRDepthOcclusionProbe | null = null;
     let foregroundSegmentationProbe: WebXRForegroundSegmentationProbe | null = null;
     let arSupported = false;
     let surfaceReady = false;
+
+    function handleHandLandmarks(sample: XRHandLandmarkSample) {
+      handOcclusionProbe?.onLandmarks(sample);
+      if (handFanGestureDetector) {
+        syncFanDebug(handFanGestureDetector.onLandmarks(sample), sample.timestamp);
+      }
+      if (S.coolingActive && coolingFanGestureDetector) {
+        const fanState = coolingFanGestureDetector.onLandmarks(sample);
+        if (fanState.fanCount > S.coolingFanCount) {
+          S.coolingFanCount = Math.min(REQUIRED_COOLING_FAN_COUNT, fanState.fanCount);
+          syncCoolingInteraction();
+        }
+      }
+    }
+
+    function ensureHandLandmarkTracking(forDebug = false) {
+      if (!S.xr || handLandmarkProbe) return;
+      try {
+        handLandmarkProbe = createWebXRHandLandmarkProbe({
+          renderer,
+          overlay: handLandmarkOverlay,
+          onLandmarks: handleHandLandmarks,
+        });
+        handLandmarkProbeForDebug = forDebug;
+      } catch (error) {
+        console.warn("[cooling] Hand Landmarker setup failed", error);
+      }
+    }
 
     async function checkAR() {
       const xr = (navigator as any).xr;
@@ -977,9 +1023,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     async function enterAR() {
       const xr = (navigator as any).xr;
       try {
-        const optionalFeatures = handDebug || segmentDebug || handOcclusionDebug || fanDebug
-          ? ["dom-overlay", "camera-access"]
-          : ["dom-overlay"];
+        // Cooling interaction needs camera frames later in the same AR session. This stays
+        // optional so unsupported devices continue with the existing AR experience.
+        const optionalFeatures = ["dom-overlay", "camera-access"];
         if (depthDebug) optionalFeatures.push("depth-sensing");
 
         xrSession = await xr.requestSession("immersive-ar", {
@@ -1039,23 +1085,13 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         }
       }
 
-      const handLandmarkOverlay = handDebugOverlay ?? handOcclusionDebugOverlay ?? fanDebugOverlay;
-      if ((handDebug || handOcclusionDebug || fanDebug) && handLandmarkOverlay) {
-        try {
-          handLandmarkProbe = createWebXRHandLandmarkProbe({
-            renderer,
-            overlay: handLandmarkOverlay,
-            onLandmarks: (sample) => {
-              handOcclusionProbe?.onLandmarks(sample);
-              if (handFanGestureDetector) {
-                syncFanDebug(handFanGestureDetector.onLandmarks(sample), sample.timestamp);
-              }
-            },
-          });
-        } catch (error) {
-          const modelStatus = handLandmarkOverlay.querySelector<HTMLElement>("[data-hand-model]");
+      const landmarkDebugOverlay = handDebugOverlay ?? handOcclusionDebugOverlay ?? fanDebugOverlay;
+      handLandmarkOverlay = landmarkDebugOverlay ?? uiRoot!;
+      if ((handDebug || handOcclusionDebug || fanDebug) && landmarkDebugOverlay) {
+        ensureHandLandmarkTracking(true);
+        if (!handLandmarkProbe) {
+          const modelStatus = landmarkDebugOverlay.querySelector<HTMLElement>("[data-hand-model]");
           if (modelStatus) modelStatus.textContent = "ERROR";
-          console.warn("[hand-debug] Hand Landmarker probe setup failed", error);
         }
       }
 
@@ -1076,19 +1112,17 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         }
       }
 
-      const cameraDebugOverlay = handDebugOverlay ?? segmentDebugOverlay ?? handOcclusionDebugOverlay ?? fanDebugOverlay;
-      if ((handDebug || segmentDebug || handOcclusionDebug || fanDebug) && cameraDebugOverlay) {
-        cameraAccessProbe = createWebXRCameraAccessProbe({
-          session: xrSession!,
-          renderer,
-          referenceSpace: localSpace,
-          overlay: cameraDebugOverlay,
-          onCameraTexture: (sample) => {
-            handLandmarkProbe?.onCameraTexture(sample);
-            foregroundSegmentationProbe?.onCameraTexture(sample);
-          },
-        });
-      }
+      const cameraDebugOverlay = handDebugOverlay ?? segmentDebugOverlay ?? handOcclusionDebugOverlay ?? fanDebugOverlay ?? uiRoot!;
+      cameraAccessProbe = createWebXRCameraAccessProbe({
+        session: xrSession!,
+        renderer,
+        referenceSpace: localSpace,
+        overlay: cameraDebugOverlay,
+        onCameraTexture: (sample) => {
+          handLandmarkProbe?.onCameraTexture(sample);
+          foregroundSegmentationProbe?.onCameraTexture(sample);
+        },
+      });
 
       const depthDebugOverlay = $("#depth-debug");
       if (depthDebug && depthDebugOverlay) {
@@ -1114,9 +1148,12 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         cameraAccessProbe = null;
         handLandmarkProbe?.dispose();
         handLandmarkProbe = null;
+        handLandmarkProbeForDebug = false;
         handOcclusionProbe?.dispose();
         handOcclusionProbe = null;
         handFanGestureDetector = null;
+        coolingFanGestureDetector = null;
+        resetCoolingInteraction();
         depthOcclusionProbe?.dispose();
         depthOcclusionProbe = null;
         foregroundSegmentationProbe?.dispose();
@@ -1157,6 +1194,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         depthOcclusionProbe?.onXRFrame(frame);
         if (handFanGestureDetector) {
           syncFanDebug(handFanGestureDetector.tick(performance.now()));
+        }
+        if (S.coolingActive && coolingFanGestureDetector) {
+          coolingFanGestureDetector.tick(performance.now());
         }
       }
 
@@ -1335,6 +1375,58 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     if (btnIngredient) (btnIngredient as HTMLElement).onclick = () => setStep("godubap");
 
     /* --- 13 · 고두밥 --- */
+    function syncCoolingInteraction() {
+      const coolingStep = S.godubap === GB_LAST && !S.quizDone;
+      if (S.coolingActive && S.coolingFanCount >= REQUIRED_COOLING_FAN_COUNT) {
+        S.coolingFanCount = REQUIRED_COOLING_FAN_COUNT;
+        S.coolingActive = false;
+        S.coolingComplete = true;
+        coolingFanGestureDetector = null;
+        if (!handLandmarkProbeForDebug) {
+          handLandmarkProbe?.dispose();
+          handLandmarkProbe = null;
+        }
+        godubapShowStage?.();
+      }
+
+      const coolingGame = $("#cooling-game");
+      coolingGame?.classList.toggle("hidden", !coolingStep || (!S.coolingActive && !S.coolingComplete));
+      const progress = Math.round((S.coolingFanCount / REQUIRED_COOLING_FAN_COUNT) * 100);
+      const bar = $("#bar-cooling") as HTMLElement | null;
+      if (bar) bar.style.width = `${progress}%`;
+      const pct = $("#cooling-pct");
+      if (pct) pct.textContent = `${progress}%`;
+      const status = $("#cooling-status");
+      if (status) {
+        status.textContent = S.coolingComplete
+          ? "고두밥이 충분히 식었어요!"
+          : `식히는 중 · ${progress}% · 손을 좌우로 움직여 부채질하세요`;
+      }
+    }
+
+    function resetCoolingInteraction() {
+      coolingFanGestureDetector?.reset();
+      coolingFanGestureDetector = null;
+      if (!handLandmarkProbeForDebug) {
+        handLandmarkProbe?.dispose();
+        handLandmarkProbe = null;
+      }
+      S.coolingActive = false;
+      S.coolingComplete = false;
+      S.coolingFanCount = 0;
+      syncCoolingInteraction();
+      godubapShowStage?.();
+    }
+
+    function startCoolingInteraction() {
+      if (S.godubap !== GB_LAST || S.quizDone || S.coolingComplete) return;
+      S.coolingActive = true;
+      S.coolingFanCount = 0;
+      coolingFanGestureDetector = createHandFanGestureDetector();
+      ensureHandLandmarkTracking();
+      syncGodubap();
+    }
+
     const pills = $("#pills");
     if (pills) {
       // 개발 모드(StrictMode)에서 이 effect가 두 번 실행돼도 pill이 쌓이지 않도록 비우고 시작한다.
@@ -1348,11 +1440,12 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         b.onclick = () => {
           if (i !== S.godubap) return;
           if (i === GB_LAST && !S.quizDone) {
-            $("#quiz")?.classList.remove("hidden");
+            if (!S.coolingActive && !S.coolingComplete) startCoolingInteraction();
             return;
           }
           S.godubap = i + 1;
-          syncGodubap();
+          if (S.godubap === GB_LAST) startCoolingInteraction();
+          else syncGodubap();
         };
         pills.appendChild(b);
       });
@@ -1370,19 +1463,35 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           S.godubap >= GB_N
             ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
             : S.godubap === GB_LAST && !S.quizDone
-              ? "장인의 질문에 먼저 답해주세요"
+              ? S.coolingComplete
+                ? "고두밥이 식었어요. 장인의 질문을 확인하세요."
+                : "손을 좌우로 움직여 고두밥을 식혀주세요"
               : "";
       }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
       const cap = $("#cap-godubap");
-      if (cap) cap.textContent = S.godubap >= GB_N ? "고두밥 완성 · 채반에서 차게 식었어요" : cur.caption;
-      if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
+      if (cap) {
+        cap.textContent = S.godubap >= GB_N
+          ? "고두밥 완성 · 채반에서 차게 식었어요"
+          : S.godubap === GB_LAST && !S.quizDone
+            ? S.coolingComplete
+              ? "고두밥이 충분히 식었어요!"
+              : "고두밥의 열기를 식혀주세요"
+            : cur.caption;
+      }
+      syncCoolingInteraction();
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
-        // 아직 이를 때도 눌리게 두고, 대신 눌렀을 때 무엇을 해야 하는지 알려준다
         const ready = S.godubap >= GB_N;
-        b.classList.toggle("waiting", !ready);
-        b.textContent = ready ? "누룩 섞고 항아리에 담기" : "공정을 순서대로 진행하세요";
+        const coolingStep = S.godubap === GB_LAST && !S.quizDone;
+        b.classList.toggle("waiting", !ready && !(coolingStep && S.coolingComplete));
+        b.textContent = ready
+          ? "누룩 섞고 항아리에 담기"
+          : coolingStep
+            ? S.coolingComplete
+              ? "장인의 질문 확인하기"
+              : "손을 좌우로 움직여 부채질하세요"
+            : "공정을 순서대로 진행하세요";
       }
     }
     // 퀴즈 문항·선택지는 레시피에서 온다. (술마다 문구가 달라져도 그대로 동작)
@@ -1424,11 +1533,19 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     const btnGodubap = $("#btn-godubap");
     if (btnGodubap)
       (btnGodubap as HTMLElement).onclick = () => {
+        if (S.godubap === GB_LAST && !S.quizDone) {
+          if (S.coolingComplete) {
+            $("#quiz")?.classList.remove("hidden");
+          } else if (!S.coolingActive) {
+            startCoolingInteraction();
+          } else {
+            showNotice("고두밥의 열기를 식혀주세요. 손을 좌우로 움직여 부채질하세요.");
+          }
+          return;
+        }
         if (btnGodubap.classList.contains("waiting")) {
           showNotice(
-            S.godubap === GB_LAST && !S.quizDone
-              ? "장인의 질문에 먼저 답해 주세요."
-              : "위쪽 타임라인에서 단계를 차례로 눌러 고두밥을 지어 주세요.",
+            "위쪽 타임라인에서 단계를 차례로 눌러 고두밥을 지어 주세요.",
           );
           return;
         }
@@ -1628,6 +1745,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         S.selected.clear();
         S.godubap = 0;
         S.quizDone = false;
+        resetCoolingInteraction();
         S.temp = 27;
         S.ferment = 0;
         S.fstage = 0;
@@ -1688,9 +1806,11 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       cameraAccessProbe = null;
       handLandmarkProbe?.dispose();
       handLandmarkProbe = null;
+      handLandmarkProbeForDebug = false;
       handOcclusionProbe?.dispose();
       handOcclusionProbe = null;
       handFanGestureDetector = null;
+      coolingFanGestureDetector = null;
       depthOcclusionProbe?.dispose();
       depthOcclusionProbe = null;
       foregroundSegmentationProbe?.dispose();
@@ -1837,6 +1957,11 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         <div className="steps" id="pills" />
         <div className="steps-hint" id="godubap-hint"></div>
         <div className="fill">
+          <div id="cooling-game" className="cooling-game hidden" aria-live="polite">
+            <strong id="cooling-status">고두밥의 열기를 식혀주세요</strong>
+            <div className="bar"><i id="bar-cooling" /></div>
+            <span id="cooling-pct">0%</span>
+          </div>
           <div className="caption" id="cap-godubap">{recipe.godubapSteps[0]?.caption}</div>
         </div>
         <div className="dock">
