@@ -27,7 +27,12 @@ export const styles = `
    캔버스는 alpha:true 라, 손 오클루더가 원료를 가린 자리에는 이 영상이 그대로 비친다. */
 .ar-ui video#camfeed{position:absolute; inset:0; width:100%; height:100%;
   object-fit:cover; display:none; z-index:0; pointer-events:none}
+/* 손 모드에서는 영상과 3D 캔버스를 화면 전체로 띄운다.
+   .ar-ui 는 헤더 아래 영역만 차지하므로 fixed 로 빼내야 카메라가 헤더 뒤까지 채운다.
+   (position:fixed 는 조상의 overflow:hidden 에 잘리지 않는다) */
 .ar-ui.hand-mode{background:transparent}
+.ar-ui.hand-mode canvas#gl,
+.ar-ui.hand-mode video#camfeed{position:fixed; inset:0; width:100vw; height:100dvh}
 .ar-ui.hand-mode canvas#gl{background:transparent}
 .ar-ui.hand-mode video#camfeed{display:block}
 .ar-ui.hand-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
@@ -41,7 +46,7 @@ export const styles = `
   background:rgba(28,21,12,.82); border:1px solid var(--line);
   backdrop-filter:blur(6px); font-size:12.5px; color:var(--cream-dim);
   box-shadow:0 10px 24px rgba(0,0,0,.4)}
-.ar-ui.hand-mode .hand-hud{display:flex}
+.ar-ui.hands-on .hand-hud{display:flex}
 .ar-ui .hand-hud .lamp{width:8px; height:8px; border-radius:50%; flex:none;
   background:rgba(243,230,204,.35); transition:background .18s ease, box-shadow .18s ease}
 .ar-ui .hand-hud[data-state="tracking"] .lamp{background:var(--sage); box-shadow:0 0 8px var(--sage)}

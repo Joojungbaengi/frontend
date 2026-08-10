@@ -2,11 +2,13 @@
  * 손 인식기 — 후면 카메라 영상을 MediaPipe HandLandmarker 로 훑어 HandFrame 을 만든다.
  *
  * 설계 요점
- *  · 검출 루프와 렌더 루프를 **분리**한다. 검출은 자기 속도로 돌면서 최신 결과만 남기고,
- *    렌더(60fps)는 매 프레임 그 최신값을 읽어간다. 같이 묶으면 검출이 느린 기기에서
- *    3D 화면이 통째로 버벅인다.
- *  · WebXR 은 ARCore 가 카메라를 독점해 getUserMedia 와 함께 쓸 수 없다.
- *    그래서 이 모드는 WebXR 세션 대신 쓰는 별도 경로다.
+ *  · 영상을 어디서 받는지는 두 가지다.
+ *      - 카메라 모드 : getUserMedia 로 직접 연 <video>. 자기 속도로 도는 루프를 스스로 굴린다.
+ *      - AR 모드     : WebXR 이 ARCore 로 카메라를 독점하므로 getUserMedia 를 못 쓴다.
+ *                      대신 camera-access 로 받은 XR 카메라 이미지를 밖에서 detect() 로 밀어 넣는다.
+ *    어느 쪽이든 만들어 내는 HandFrame 은 똑같아서 상호작용 코드는 하나로 간다.
+ *  · 검출과 렌더는 **분리**한다. 검출은 최신 결과만 남기고 렌더(60fps)는 그 최신값을 읽어간다.
+ *    같이 묶으면 검출이 느린 기기에서 3D 화면이 통째로 버벅인다.
  *  · wasm·모델은 scripts/fetch-mediapipe.mjs 가 public/mediapipe/ 에 준비해 둔다.
  */
 import type { HandLandmarker } from "@mediapipe/tasks-vision";
@@ -30,7 +32,8 @@ const VIDEO_H = 480;
 export class HandTracker {
   private landmarker: HandLandmarker | null = null;
   private stream: MediaStream | null = null;
-  private video: HTMLVideoElement;
+  /** 카메라 모드에서만 쓴다. AR 모드에서는 null 이고 detect() 로 이미지를 받는다. */
+  private video: HTMLVideoElement | null;
   private gesture = new GestureState();
   private frame: HandFrame = emptyHandFrame();
   private running = false;
@@ -39,7 +42,7 @@ export class HandTracker {
   /** 손을 잠깐 놓쳐도 바로 사라지지 않게 버티는 프레임 수 */
   private missStreak = 0;
 
-  constructor(video: HTMLVideoElement) {
+  constructor(video: HTMLVideoElement | null = null) {
     this.video = video;
   }
 
@@ -57,7 +60,7 @@ export class HandTracker {
     const { FilesetResolver, HandLandmarker } = await import("@mediapipe/tasks-vision");
 
     const [camera, model] = await Promise.allSettled([
-      this.startCamera(),
+      this.video ? this.startCamera() : Promise.resolve(),
       (async () => {
         const fileset = await FilesetResolver.forVisionTasks(MEDIAPIPE_BASE);
         return HandLandmarker.createFromOptions(fileset, {
@@ -83,10 +86,25 @@ export class HandTracker {
 
     this.landmarker = model.value;
     this.running = true;
-    void this.loop();
+    // 카메라 모드만 스스로 루프를 돈다. AR 모드는 렌더 루프가 detect() 를 불러 준다.
+    if (this.video) void this.loop();
+  }
+
+  /**
+   * 밖에서 준 이미지 한 장으로 검출한다 (AR 모드 — XR 카메라 이미지).
+   * 렌더 루프가 부르므로 호출 간격은 부르는 쪽이 조절한다.
+   */
+  detect(source: CanvasImageSource, timestampMs: number) {
+    if (!this.landmarker || this.paused) return;
+    try {
+      this.ingest(this.landmarker.detectForVideo(source as HTMLCanvasElement, timestampMs));
+    } catch {
+      // 한 프레임 실패는 넘어간다 (다음 프레임에서 회복)
+    }
   }
 
   private async startCamera() {
+    const video = this.video!;
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("mediaDevices-unavailable");
     // 후면 카메라 고정. 웹캠만 있는 PC 에서는 브라우저가 알아서 전면으로 준다(ideal).
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -97,14 +115,14 @@ export class HandTracker {
       },
       audio: false,
     });
-    this.video.srcObject = this.stream;
-    await this.video.play();
+    video.srcObject = this.stream;
+    await video.play();
   }
 
   private stopCamera() {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
-    this.video.srcObject = null;
+    if (this.video) this.video.srcObject = null;
   }
 
   /**
@@ -124,17 +142,17 @@ export class HandTracker {
 
   /** 검출 루프 — 렌더와 따로 돈다 */
   private async loop() {
+    const video = this.video!;
     while (this.running && this.landmarker) {
       if (this.paused) {
         await new Promise((r) => setTimeout(r, 150));
         continue;
       }
       // 같은 프레임을 두 번 넣으면 MediaPipe 가 타임스탬프 오류를 낸다
-      if (this.video.readyState >= 2 && this.video.currentTime !== this.lastVideoTime) {
-        this.lastVideoTime = this.video.currentTime;
+      if (video.readyState >= 2 && video.currentTime !== this.lastVideoTime) {
+        this.lastVideoTime = video.currentTime;
         try {
-          const res = this.landmarker.detectForVideo(this.video, performance.now());
-          this.ingest(res);
+          this.ingest(this.landmarker.detectForVideo(video, performance.now()));
         } catch {
           // 한 프레임 실패는 넘어간다 (다음 프레임에서 회복)
         }

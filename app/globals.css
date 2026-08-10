@@ -343,6 +343,12 @@ html[data-ar-step="done"] .btn-back svg path {
   stroke: var(--ink-strong);
 }
 
+/* 손 모드 AR — 카메라가 화면 전체를 채우므로 헤더는 그 위에 떠 있기만 한다.
+   페이지 래퍼의 어두운 배경이 카메라를 가리지 않게 함께 비운다. */
+html[data-ar-hand="1"] .ar-page-shell {
+  background: transparent !important;
+}
+
 /* 화면 상단 헤더 — 뒤로가기 + 가운데 페이지명(명조 19px) 한 줄 */
 .screen-header {
   position: relative;
