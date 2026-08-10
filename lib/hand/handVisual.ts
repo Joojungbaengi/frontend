@@ -1,15 +1,19 @@
 "use client";
 
 /**
- * 손 좌표 계산 + 집는 지점 표시.
+ * 손 좌표 계산 + 장갑 손 그리기.
  *
- * 손 자체를 그리는 일은 여기서 하지 않는다 — 그건 lib/hand/handLayer.ts 가
- * 카메라 영상에서 손 픽셀을 오려 에셋 위에 얹는 방식으로 처리한다.
- * 여기 남은 몫은 두 가지다.
- *   · 랜드마크를 화면 좌표·월드 좌표로 옮긴다 (무엇을 집었는지 판정하는 데 쓴다)
- *   · 엄지·검지 사이에 작은 고리를 띄워 지금 쥐었는지 보여준다
+ * 그리는 순서로 층을 만든다.
+ *   L0  카메라 영상 — WebXR 이 캔버스 뒤에 (바닥·책상)
+ *   L1  AR 에셋     — 엔진이 먼저 그린다
+ *   L2  손 그림자   — 손 모양을 어둡게, 살짝 어긋나게. 에셋 위에 그림자가 진다.
+ *   L3  장갑 손     — 깊이를 비우고 그려 항상 에셋 위. 손가락끼리는 정상적으로 가려진다.
+ *   L4  집는 고리
+ *
+ * 손 모양 자체는 lib/hand/gloveHand.ts 가 만든다.
  */
 import * as THREE from "three";
+import { GloveHand, HAND_DRAW_DEPTH } from "@/lib/hand/gloveHand";
 import { LM, type HandFrame } from "@/lib/hand/types";
 
 /** 화면에서 손이 이만큼 크게 보일 때를 기준 거리로 삼는다 (손목~중지뿌리, 화면 정규화) */
@@ -77,10 +81,23 @@ export function screenDist(a: { x: number; y: number }, b: { x: number; y: numbe
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/** 그림자를 손에서 얼마나 어긋나게 놓을지 (손 너비 대비) */
+const SHADOW_OFFSET = 0.12;
+
 export class HandVisual {
-  /** 집는 지점 고리 — 손 레이어까지 다 그린 뒤 맨 위에 얹는다 */
-  readonly overlayScene = new THREE.Scene();
+  /** 장갑 손 씬 — 그림자 패스에도 같은 지오메트리를 재사용한다 */
+  private readonly handScene = new THREE.Scene();
+  /** 집는 지점 고리 — 손까지 다 그린 뒤 맨 위에 얹는다 */
+  private readonly cursorScene = new THREE.Scene();
+  private glove: GloveHand;
+  private shadowMat: THREE.MeshBasicMaterial;
   private cursor: THREE.Mesh;
+  /** 21개 관절의 월드 좌표 */
+  private joints: THREE.Vector3[] = Array.from({ length: 21 }, () => new THREE.Vector3());
+  private shadowShift = new THREE.Vector3();
+  private camRight = new THREE.Vector3();
+  private camUp = new THREE.Vector3();
+  private camFwd = new THREE.Vector3();
 
   /**
    * 집는 지점(엄지·검지 끝 중점)의 화면 좌표(0~1).
@@ -92,14 +109,42 @@ export class HandVisual {
   depth = 1;
 
   get visible() {
-    return this.overlayScene.visible;
+    return this.handScene.visible;
   }
 
   private pinchWorld = new THREE.Vector3();
-  private wrist = new THREE.Vector3();
-  private mcp = new THREE.Vector3();
 
   constructor() {
+    // 한지빛 면장갑 — 어두운 나무 무대 위에서 또렷하되 튀지 않는다
+    const glove = new THREE.MeshStandardMaterial({
+      color: 0xf6efe0, // --hanji
+      roughness: 0.86, // 면직물이라 반사가 거의 없다
+      metalness: 0.0,
+      side: THREE.DoubleSide, // 손바닥 다각형은 손 방향에 따라 감기는 순서가 뒤집힌다
+    });
+    // 손목 소매 — UI 의 금선 색
+    const cuff = new THREE.MeshStandardMaterial({
+      color: 0xc6a568, // --gold
+      roughness: 0.4,
+      metalness: 0.45,
+    });
+    this.glove = new GloveHand(glove, cuff);
+    this.handScene.add(this.glove.group);
+
+    // 그림자 패스에서 손 전체를 이 재질로 덮어쓴다 (지오메트리를 두 벌 만들지 않으려고)
+    this.shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x140d06,
+      transparent: true,
+      opacity: 0.3,
+      depthTest: false, // 에셋 위로 그림자가 지게
+      depthWrite: false,
+    });
+
+    this.handScene.add(new THREE.HemisphereLight(0xfff6e6, 0x4a3a28, 1.1));
+    const key = new THREE.DirectionalLight(0xfff4e2, 2.3);
+    key.position.set(0.4, 1, 0.8);
+    this.handScene.add(key);
+
     this.cursor = new THREE.Mesh(
       new THREE.RingGeometry(0.22, 0.3, 28),
       new THREE.MeshBasicMaterial({
@@ -112,8 +157,8 @@ export class HandVisual {
       })
     );
     this.cursor.frustumCulled = false;
-    this.overlayScene.add(this.cursor);
-    this.overlayScene.visible = false;
+    this.cursorScene.add(this.cursor);
+    this.handScene.visible = false;
   }
 
   /**
@@ -125,23 +170,33 @@ export class HandVisual {
       this.hide();
       return;
     }
-    this.overlayScene.visible = true;
+    this.handScene.visible = true;
 
-    // 화면에서 손이 클수록 카메라에 가깝다
+    // 집어 든 물건을 놓을 거리 — 화면에서 손이 클수록 카메라에 가깝다
     const span = Math.max(frame.screenSpan, 1e-4);
     this.depth = THREE.MathUtils.clamp((baseDepth * REF_SPAN) / span, DEPTH_MIN, DEPTH_MAX);
+
+    // 손 자체는 고정 거리에 그린다. 화면 좌표에서 역산하므로 거리를 바꿔도
+    // 화면에 비치는 크기·모양은 똑같고, 에셋 위에 오는 건 그리는 순서가 보장한다.
+    for (let i = 0; i < 21; i++) {
+      const s = toScreen(frame.landmarks[i], fit);
+      screenToWorld(s.x, s.y, HAND_DRAW_DEPTH, camera, this.joints[i]);
+    }
 
     const ps = toScreen(frame.pinchPoint, fit);
     this.pinchScreen.x = ps.x;
     this.pinchScreen.y = ps.y;
-    screenToWorld(ps.x, ps.y, this.depth, camera, this.pinchWorld);
+    screenToWorld(ps.x, ps.y, HAND_DRAW_DEPTH, camera, this.pinchWorld);
 
-    // 고리 크기는 손 크기를 따라간다 — 멀어지면 같이 작아진다
-    const w = toScreen(frame.landmarks[LM.WRIST], fit);
-    const m = toScreen(frame.landmarks[LM.MIDDLE_MCP], fit);
-    screenToWorld(w.x, w.y, this.depth, camera, this.wrist);
-    screenToWorld(m.x, m.y, this.depth, camera, this.mcp);
-    const worldSpan = this.wrist.distanceTo(this.mcp);
+    const worldSpan = this.joints[LM.WRIST].distanceTo(this.joints[LM.MIDDLE_MCP]);
+    this.glove.update(this.joints, worldSpan);
+
+    // 그림자는 화면 기준 오른쪽 아래로 어긋나게 — 손이 떠 있는 것처럼 보인다
+    camera.matrixWorld.extractBasis(this.camRight, this.camUp, this.camFwd);
+    this.shadowShift
+      .copy(this.camRight)
+      .multiplyScalar(worldSpan * SHADOW_OFFSET)
+      .addScaledVector(this.camUp, -worldSpan * SHADOW_OFFSET);
 
     this.cursor.position.copy(this.pinchWorld);
     this.cursor.quaternion.copy(camera.quaternion); // 항상 화면을 마주보게
@@ -152,16 +207,44 @@ export class HandVisual {
     this.cursor.scale.setScalar(worldSpan * THREE.MathUtils.lerp(0.85, 0.5, frame.pinch));
   }
 
+  /**
+   * 손을 그린다. 엔진이 무대(L1)를 그린 뒤에 부른다.
+   * 그림자 → 깊이 비우기 → 손 → 고리 순으로, 세 패스가 이 안에서 끝난다.
+   */
+  render(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
+    if (!this.handScene.visible) return;
+
+    // 1) 그림자 — 같은 손을 어둡게, 살짝 어긋나게. 에셋 위에 드리운다.
+    this.glove.group.position.copy(this.shadowShift);
+    this.handScene.overrideMaterial = this.shadowMat;
+    renderer.render(this.handScene, camera);
+
+    // 2) 손 — 깊이를 비우고 그려 항상 에셋 위. 손가락끼리는 제대로 가려진다.
+    this.glove.group.position.set(0, 0, 0);
+    this.handScene.overrideMaterial = null;
+    renderer.clearDepth();
+    renderer.render(this.handScene, camera);
+
+    // 3) 집는 고리
+    renderer.render(this.cursorScene, camera);
+  }
+
   hide() {
-    this.overlayScene.visible = false;
+    this.handScene.visible = false;
   }
 
   dispose() {
-    this.overlayScene.traverse((o: THREE.Object3D) => {
-      const mesh = o as THREE.Mesh;
-      mesh.geometry?.dispose?.();
-      (mesh.material as THREE.Material | undefined)?.dispose?.();
-    });
-    this.overlayScene.clear();
+    this.glove.dispose();
+    this.shadowMat.dispose();
+    for (const sc of [this.handScene, this.cursorScene]) {
+      sc.traverse((o: THREE.Object3D) => {
+        const mesh = o as THREE.Mesh;
+        mesh.geometry?.dispose?.();
+        const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+        if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+        else mat?.dispose?.();
+      });
+      sc.clear();
+    }
   }
 }

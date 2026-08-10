@@ -22,20 +22,13 @@ const WASM_FILES = [
 
 /**
  * 내려받을 모델들.
- *  · hand_landmarker  — 손 관절 21개. 무엇을 집었는지 판정하는 데 쓴다.
- *  · selfie_segmenter — 픽셀 단위 사람/배경 분할. 카메라 영상에서 손만 오려내
- *                       AR 에셋 **위에** 얹기 위해 필요하다. 관절만으로는 윤곽을 알 수 없다.
+ *  · hand_landmarker — 손 관절 21개. 이걸로 장갑 손을 그리고 무엇을 집었는지 판정한다.
  */
 const MODELS = [
   {
     name: "hand_landmarker.task",
     url: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
     minBytes: 5_000_000,
-  },
-  {
-    name: "selfie_segmenter.tflite",
-    url: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
-    minBytes: 100_000,
   },
 ];
 

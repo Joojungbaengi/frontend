@@ -23,8 +23,6 @@ import { HandTracker } from "@/lib/hand/handTracker";
 import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
 import type { HandFrame } from "@/lib/hand/types";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
-import { HandSegmenter } from "@/lib/hand/handSegmenter";
-import { HandLayer } from "@/lib/hand/handLayer";
 import { getRecipe } from "@/lib/brewery/recipes";
 import { styles } from "@/components/arBreweryStyles";
 
@@ -1106,10 +1104,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         uiRoot!.classList.remove("hands-on");
         handTracker?.dispose();
         handTracker = null;
-        handSegmenter?.dispose();
-        handSegmenter = null;
-        handLayer.setCameraTexture(null);
-        handLayer.setMask(null);
         xrSession = null;
         hitTestSource = null;
         uiRoot!.classList.remove("ar-mode");
@@ -1141,12 +1135,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
      * 무대를 카메라 앞 고정 위치에 자동으로 놓는다.
      * ===================================================================*/
     let handTracker: HandTracker | null = null;
-    let handSegmenter: HandSegmenter | null = null;
-    /**
-     * 손 레이어 — 카메라 영상에서 손 픽셀만 오려 에셋 위에 얹는다.
-     * 레이어 순서: 카메라 영상(L0) → AR 에셋(L1) → 손(L2).
-     */
-    const handLayer = new HandLayer();
     const handVisual = new HandVisual();
     // 영상이 화면에 cover 로 잘리는 것을 보정하는 값 — 매 프레임 화면 크기로 다시 잰다
     let handFit: CoverFit = { scaleX: 1, scaleY: 1, offX: 0, offY: 0 };
@@ -1177,17 +1165,6 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         console.warn("[ar] 손 인식을 켜지 못했습니다 —", e);
         return; // 평면 인식만 되는 기존 AR 로 계속 간다
       }
-      // 분할 모델은 손 윤곽을 픽셀 단위로 알아내는 데 쓴다. 이게 없으면 손을
-      // 에셋 위 레이어로 올릴 수 없다 — 관절만으로는 어디까지가 손인지 모른다.
-      const segmenter = new HandSegmenter();
-      try {
-        await segmenter.load();
-        handSegmenter = segmenter;
-      } catch (e) {
-        segmenter.dispose();
-        console.warn("[ar] 손 분할 모델을 올리지 못했습니다 — 손은 에셋 뒤에 보입니다.", e);
-      }
-
       handTracker = tracker;
       xrFeed = new XrCameraFeed();
       S.hand = true;
@@ -1242,28 +1219,18 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         if (xrCam) {
           const now = performance.now();
 
-          // 카메라 텍스처는 이 프레임에만 유효하다. 손 레이어는 매 프레임 새것을 써야
-          // 선명하게 보이므로 (마스크만 가끔 갱신) 먼저 넘겨 준다.
-          const tex = renderer.xr.getCameraTexture(xrCam);
-          handLayer.setCameraTexture((tex as any) ?? null);
-
-          if (tex && now - lastDetectAt >= AR_DETECT_MS) {
+          if (now - lastDetectAt >= AR_DETECT_MS) {
             lastDetectAt = now;
-            const shot = xrFeed.capture(renderer, tex as any, xrCam.width, xrCam.height);
-            if (shot) {
-              // 같은 캡처 한 장으로 관절과 손 마스크를 함께 뽑는다
-              handTracker.detect(shot, now);
-              handSegmenter?.segment(shot, now);
-              handLayer.setMask(handSegmenter?.mask ?? null);
+            const tex = renderer.xr.getCameraTexture(xrCam);
+            if (tex) {
+              const shot = xrFeed.capture(renderer, tex as any, xrCam.width, xrCam.height);
+              if (shot) handTracker.detect(shot, now);
             }
           }
           handFit = coverFit(xrCam.width, xrCam.height, canvas!.clientWidth, canvas!.clientHeight);
-          handLayer.setFit(handFit);
         }
 
         const f = handTracker.latest;
-        // 손이 잡힌 자리로 마스크 범위를 좁힌다 (얼굴·몸이 같이 떠오르지 않게)
-        if (f.present) handLayer.setRegionFromLandmarks(f.landmarks);
         // 무대까지의 거리 — 오클루더를 그 앞에 놓고, 집어 든 물건 거리의 기준으로도 쓴다
         const stageAt = camera.getWorldPosition(handOrigin).distanceTo(anchor.position);
         handVisual.update(f, camera, handFit, Math.max(stageAt, 0.2));
@@ -1281,15 +1248,11 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
       // 레이어 순서대로 쌓아 올린다.
       //   L0  카메라 영상 — WebXR 이 캔버스 뒤에 깔아 준다 (바닥·책상)
-      //   L1  AR 에셋     — 아래 scene. 구멍 없이 온전히 그린다.
-      //   L2  손          — 카메라 영상에서 손 픽셀만 오려 에셋 위에 얹는다.
-      //   L3  집는 지점 고리
+      //   L1  AR 에셋     — 아래 scene
+      //   L2+ 손          — 그림자 → 장갑 손 → 집는 고리 (handVisual.render 안에서)
       renderer.clear();
       renderer.render(scene, camera);
-      if (S.hand) {
-        if (handLayer.ready) renderer.render(handLayer.scene, camera);
-        if (handVisual.visible) renderer.render(handVisual.overlayScene, camera);
-      }
+      if (S.hand) handVisual.render(renderer, camera);
     });
 
     /* =====================================================================
@@ -1784,9 +1747,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       }
       clearStage();
       handTracker?.dispose();
-      handSegmenter?.dispose();
       xrFeed?.dispose();
-      handLayer.dispose();
       handVisual.dispose();
       controls.dispose();
       renderer.dispose();
