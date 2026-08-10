@@ -19,6 +19,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
+import { HandTracker, describeHandError } from "@/lib/hand/handTracker";
+import { HandVisual, coverFit, type CoverFit } from "@/lib/hand/handVisual";
+import type { HandFrame } from "@/lib/hand/types";
 import { getRecipe } from "@/lib/brewery/recipes";
 import { styles } from "@/components/arBreweryStyles";
 
@@ -29,11 +32,13 @@ import { styles } from "@/components/arBreweryStyles";
 export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?: Recipe }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const uiRoot = rootRef.current;
-    if (!canvas || !uiRoot) return;
+    const video = videoRef.current;
+    if (!canvas || !uiRoot || !video) return;
 
     const $ = <T extends Element = HTMLElement>(s: string) =>
       uiRoot.querySelector(s) as T | null;
@@ -77,6 +82,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       press: 0,
       tempLog: [] as number[],
       xr: false,
+      /** 손 모드(카메라 + MediaPipe)로 체험 중인가 — WebXR 과 배타적이다 */
+      hand: false,
       isInitializing: true,
     };
     /**
@@ -363,7 +370,9 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       mixers: THREE.AnimationMixer[];
       models: THREE.Object3D[];
       tick: ((t: number, dt: number) => void) | null;
-    } = { particles: [], mixers: [], models: [], tick: null };
+      /** 손 모드에서 매 프레임 손 상태를 받는 훅. 단계별 build 함수가 채운다. */
+      onHand: ((frame: HandFrame, hand: HandVisual) => void) | null;
+    } = { particles: [], mixers: [], models: [], tick: null, onHand: null };
 
     function clearStage() {
       stageGroup.traverse((o: any) => {
@@ -380,6 +389,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       live.mixers.length = 0;
       live.models.length = 0;
       live.tick = null;
+      live.onHand = null;
       godubapShowStage = null;
       finishShowShip = null;
       fermentShowStage = null;
@@ -953,6 +963,65 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     }
 
     /* =====================================================================
+     * 3.5 손 모드 — 카메라 영상 + MediaPipe 손 인식
+     *
+     * WebXR 세션 중에는 ARCore 가 카메라를 독점해 getUserMedia 를 함께 쓸 수 없다.
+     * 그래서 손 모드는 WebXR 대신 쓰는 별도 경로다 — 평면 인식은 없고,
+     * 무대를 카메라 앞 고정 위치에 자동으로 놓는다.
+     * ===================================================================*/
+    let handTracker: HandTracker | null = null;
+    const handVisual = new HandVisual();
+    scene.add(handVisual.group);
+    // 영상이 object-fit:cover 로 잘리는 것을 보정하는 값 — 매 프레임 화면 크기로 다시 잰다
+    let handFit: CoverFit = { scaleX: 1, scaleY: 1, offX: 0, offY: 0 };
+
+    function setHandHud(state: "idle" | "tracking" | "hover" | "holding" | "dropped", text: string) {
+      const hud = $("#hand-hud");
+      if (hud) (hud as HTMLElement).dataset.state = state;
+      const msg = $("#hand-hud-msg");
+      if (msg) msg.textContent = text;
+    }
+
+    async function enterHandMode() {
+      const btn = $("#btn-hand") as HTMLButtonElement | null;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "카메라와 손 인식 준비 중…";
+      }
+
+      handTracker = new HandTracker(video!);
+      try {
+        await handTracker.start();
+      } catch (e) {
+        handTracker.dispose();
+        handTracker = null;
+        const note = $("#place-note");
+        if (note) note.textContent = describeHandError(e);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "손으로 체험하기";
+        }
+        return;
+      }
+
+      S.hand = true;
+      uiRoot!.classList.add("hand-mode");
+      // 손으로 조작하는 동안 화면 드래그로 시점이 돌아가면 손과 물건의 위치 감각이 어긋난다
+      controls.enabled = false;
+
+      // 평면 인식이 없으므로 무대를 원점에 놓고 카메라가 그 앞을 보게 한다
+      anchor.position.set(0, 0, 0);
+      anchor.visible = true;
+      applySurfaceScale();
+      S.placed = true;
+      setStep("ingredient");
+      setHandHud("idle", "손을 카메라에 비춰 주세요");
+    }
+
+    const handBtn = $("#btn-hand") as HTMLButtonElement | null;
+    if (handBtn) handBtn.onclick = () => void enterHandMode();
+
+    /* =====================================================================
      * 4. 렌더 루프
      * ===================================================================*/
     const clock = new THREE.Clock();
@@ -992,6 +1061,16 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         onFermentTick();
       }
 
+      // 손 갱신은 3D 갱신보다 먼저 — 이번 프레임의 손 위치를 보고 물건이 따라와야 한다
+      if (S.hand && handTracker) {
+        const f = handTracker.latest;
+        handFit = coverFit(video!.videoWidth, video!.videoHeight, canvas!.clientWidth, canvas!.clientHeight);
+        handVisual.update(f, camera, handFit, camera.position.distanceTo(controls.target));
+        // 손이 사라진 프레임도 그대로 넘긴다 — 잡고 있던 물건을 놓아야 하기 때문
+        live.onHand?.(f, handVisual);
+        handTracker.consumeEdges();
+      }
+
       live.mixers.forEach((m) => m.update(dt));
       if (live.tick) live.tick(t, dt);
       live.particles.forEach((p) => updateParticles(p, dt));
@@ -1014,6 +1093,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       const say = (text: string) => {
         if (note) note.textContent = text;
       };
+
+      // 손 모드 버튼도 준비가 끝나야 눌리게 한다 (모델·카메라를 그때 받기 시작한다)
+      const hb = $("#btn-hand") as HTMLButtonElement | null;
+      if (hb && !S.hand) hb.disabled = S.isInitializing;
 
       // 초기 로딩 중일 때는 무조건 준비 중 상태로 표시
       if (S.isInitializing) {
@@ -1489,6 +1572,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         } catch {}
       }
       clearStage();
+      handTracker?.dispose();
+      handVisual.dispose();
       controls.dispose();
       renderer.dispose();
       delete document.documentElement.dataset.arStep;
@@ -1499,6 +1584,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
+      {/* 손 모드 배경 — 후면 카메라. 캔버스보다 먼저 와야 3D가 그 위에 겹쳐진다. */}
+      <video ref={videoRef} id="camfeed" muted playsInline autoPlay />
       <canvas ref={canvasRef} id="gl" />
       {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
       <div className="vignette" />
@@ -1517,6 +1604,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
             <button data-surface="table" aria-pressed="false">책상에 작게</button>
           </div>
           <button className="cta" id="btn-place" disabled>평면을 찾는 중…</button>
+          <button className="cta hand-cta" id="btn-hand" disabled>손으로 체험하기</button>
         </div>
       </div>
 
@@ -1533,6 +1621,10 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
         </div>
         <div className="fill" />
         <div className="dock">
+          <div className="hand-hud" id="hand-hud" data-state="idle">
+            <i className="lamp" />
+            <span id="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+          </div>
           <div className="grid" id="grid" />
           <button className="cta" id="btn-ingredient" disabled>주원료 선택</button>
         </div>

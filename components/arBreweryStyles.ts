@@ -22,6 +22,41 @@ export const styles = `
 .ar-ui.ar-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 .ar-ui.ar-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 
+/* 손 모드 — 후면 카메라 영상을 배경에 깔고 그 위에 3D 캔버스를 겹친다.
+   비디오가 캔버스보다 먼저(DOM 순서) 오고 둘 다 z-index:0 이라 캔버스가 위에 그려진다.
+   캔버스는 alpha:true 라, 손 오클루더가 원료를 가린 자리에는 이 영상이 그대로 비친다. */
+.ar-ui video#camfeed{position:absolute; inset:0; width:100%; height:100%;
+  object-fit:cover; display:none; z-index:0; pointer-events:none}
+.ar-ui.hand-mode{background:transparent}
+.ar-ui.hand-mode canvas#gl{background:transparent}
+.ar-ui.hand-mode video#camfeed{display:block}
+.ar-ui.hand-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
+.ar-ui.hand-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
+.ar-ui.hand-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
+
+/* 손 상태 표시 — 지금 손이 무엇을 하고 있는지 한 줄로 알려준다.
+   (인식됨 / 원료 위 / 잡음 / 담음) 이 바뀔 때마다 문구와 색이 함께 바뀐다. */
+.ar-ui .hand-hud{display:none; align-items:center; gap:9px; align-self:center;
+  max-width:100%; padding:8px 15px; border-radius:999px;
+  background:rgba(28,21,12,.82); border:1px solid var(--line);
+  backdrop-filter:blur(6px); font-size:12.5px; color:var(--cream-dim);
+  box-shadow:0 10px 24px rgba(0,0,0,.4)}
+.ar-ui.hand-mode .hand-hud{display:flex}
+.ar-ui .hand-hud .lamp{width:8px; height:8px; border-radius:50%; flex:none;
+  background:rgba(243,230,204,.35); transition:background .18s ease, box-shadow .18s ease}
+.ar-ui .hand-hud[data-state="tracking"] .lamp{background:var(--sage); box-shadow:0 0 8px var(--sage)}
+.ar-ui .hand-hud[data-state="hover"] .lamp{background:var(--gold-bright); box-shadow:0 0 9px var(--gold-bright)}
+.ar-ui .hand-hud[data-state="hover"]{color:var(--gold-bright)}
+.ar-ui .hand-hud[data-state="holding"] .lamp{background:var(--clay); box-shadow:0 0 10px var(--clay)}
+.ar-ui .hand-hud[data-state="holding"]{color:#f3e6cc; border-color:rgba(194,69,47,.5)}
+.ar-ui .hand-hud[data-state="dropped"] .lamp{background:var(--sage); box-shadow:0 0 10px var(--sage)}
+.ar-ui .hand-hud[data-state="dropped"]{color:var(--sage)}
+
+/* 손 모드 진입 버튼 — 기본 CTA 아래에 부수적으로 놓는다 */
+.ar-ui .cta.hand-cta{background:transparent; color:var(--gold-bright);
+  border:1px solid rgba(232,201,138,.45)}
+.ar-ui .cta.hand-cta:disabled{opacity:.5}
+
 .ar-ui .fill{flex:1; position:relative}
 /* 하단 여백은 헤더 위 여백과 비슷하게 — 버튼이 화면 끝에 붙지 않도록 */
 .ar-ui .dock{padding:0 22px calc(34px + var(--safe-b)); display:flex; flex-direction:column; gap:14px}
