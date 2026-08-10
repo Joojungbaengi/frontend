@@ -1,9 +1,9 @@
-type XRViewWithCamera = XRView & { camera?: unknown | null };
-type XRSessionWithFeatures = XRSession & { enabledFeatures?: readonly string[] };
-type XRManagerWithCameraAccess = {
-  getCameraTexture(camera: unknown): unknown;
-};
-type CameraTextureRenderer = { xr: XRManagerWithCameraAccess };
+import type * as THREE from "three";
+
+import type { XRCameraTextureSample } from "@/lib/ar/webxrHandLandmarkProbe";
+
+type XRCameraInfo = { width?: number; height?: number };
+type XRViewWithCamera = XRView & { camera?: XRCameraInfo | null };
 
 export interface WebXRCameraAccessProbe {
   onXRFrame(frame: XRFrame): void;
@@ -12,9 +12,10 @@ export interface WebXRCameraAccessProbe {
 
 interface ProbeOptions {
   session: XRSession;
-  renderer: CameraTextureRenderer;
+  renderer: THREE.WebGLRenderer;
   referenceSpace: XRReferenceSpace;
   overlay: HTMLElement;
+  onCameraTexture?: (sample: XRCameraTextureSample) => void;
 }
 
 /**
@@ -26,16 +27,16 @@ export function createWebXRCameraAccessProbe({
   renderer,
   referenceSpace,
   overlay,
+  onCameraTexture,
 }: ProbeOptions): WebXRCameraAccessProbe {
   const accessEl = overlay.querySelector<HTMLElement>("[data-camera-access]");
   const xrCameraEl = overlay.querySelector<HTMLElement>("[data-xr-camera]");
   const textureEl = overlay.querySelector<HTMLElement>("[data-camera-texture]");
 
   let disposed = false;
-  let textureAttempted = false;
   let errorLogged = false;
 
-  const enabledFeatures = (session as XRSessionWithFeatures).enabledFeatures;
+  const enabledFeatures = session.enabledFeatures;
   const featureGranted = enabledFeatures?.includes("camera-access") ?? false;
 
   function setText(element: HTMLElement | null, text: string) {
@@ -48,7 +49,7 @@ export function createWebXRCameraAccessProbe({
 
   return {
     onXRFrame(frame) {
-      if (disposed || textureAttempted) return;
+      if (disposed) return;
 
       try {
         const pose = frame.getViewerPose(referenceSpace);
@@ -66,11 +67,15 @@ export function createWebXRCameraAccessProbe({
         setText(accessEl, "GRANTED");
         setText(xrCameraEl, "AVAILABLE");
 
-        // 불투명 텍스처는 보관하지 않고, 최초 1회 호출 결과만 확인한다.
-        textureAttempted = true;
-        const texture = renderer.xr.getCameraTexture(xrCamera);
+        const texture = renderer.xr.getCameraTexture(xrCamera as never);
         if (texture) {
           setText(textureEl, "OK");
+          onCameraTexture?.({
+            texture,
+            cameraWidth: xrCamera.width ?? 0,
+            cameraHeight: xrCamera.height ?? 0,
+            timestamp: performance.now(),
+          });
         } else {
           setText(textureEl, "ERROR");
         }
@@ -85,7 +90,6 @@ export function createWebXRCameraAccessProbe({
 
     dispose() {
       disposed = true;
-      textureAttempted = false;
       setText(accessEl, "UNAVAILABLE");
       setText(xrCameraEl, "NULL");
       setText(textureEl, "ERROR");

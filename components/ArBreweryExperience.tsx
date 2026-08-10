@@ -24,6 +24,10 @@ import {
   createWebXRCameraAccessProbe,
   type WebXRCameraAccessProbe,
 } from "@/lib/ar/webxrCameraAccessProbe";
+import {
+  createWebXRHandLandmarkProbe,
+  type WebXRHandLandmarkProbe,
+} from "@/lib/ar/webxrHandLandmarkProbe";
 import { styles } from "@/components/arBreweryStyles";
 
 /**
@@ -894,6 +898,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let hitTestSource: XRHitTestSource | null = null;
     let localSpace: XRReferenceSpace | null = null;
     let cameraAccessProbe: WebXRCameraAccessProbe | null = null;
+    let handLandmarkProbe: WebXRHandLandmarkProbe | null = null;
     let arSupported = false;
     let surfaceReady = false;
 
@@ -938,17 +943,30 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
 
       const handDebugOverlay = $("#hand-debug");
       if (handDebug && handDebugOverlay) {
+        try {
+          handLandmarkProbe = createWebXRHandLandmarkProbe({
+            renderer,
+            overlay: handDebugOverlay,
+          });
+        } catch (error) {
+          const modelStatus = handDebugOverlay.querySelector<HTMLElement>("[data-hand-model]");
+          if (modelStatus) modelStatus.textContent = "ERROR";
+          console.warn("[hand-debug] Hand Landmarker probe setup failed", error);
+        }
         cameraAccessProbe = createWebXRCameraAccessProbe({
           session: xrSession!,
           renderer,
           referenceSpace: localSpace,
           overlay: handDebugOverlay,
+          onCameraTexture: (sample) => handLandmarkProbe?.onCameraTexture(sample),
         });
       }
 
       xrSession!.addEventListener("end", () => {
         cameraAccessProbe?.dispose();
         cameraAccessProbe = null;
+        handLandmarkProbe?.dispose();
+        handLandmarkProbe = null;
         S.xr = false;
         xrSession = null;
         hitTestSource = null;
@@ -1507,6 +1525,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       renderer.setAnimationLoop(null);
       cameraAccessProbe?.dispose();
       cameraAccessProbe = null;
+      handLandmarkProbe?.dispose();
+      handLandmarkProbe = null;
       if (xrSession) {
         try {
           xrSession.end();
@@ -1532,6 +1552,11 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
           <span>CAMERA ACCESS: <b data-camera-access>UNAVAILABLE</b></span>
           <span>XR CAMERA: <b data-xr-camera>NULL</b></span>
           <span>CAMERA TEXTURE: <b data-camera-texture>ERROR</b></span>
+          <br />
+          <span>HAND MODEL: <b data-hand-model>LOADING</b></span>
+          <span>HAND: <b data-hand>NOT DETECTED</b></span>
+          <span>WRIST X: <b data-wrist-x>0.000</b></span>
+          <span>WRIST Y: <b data-wrist-y>0.000</b></span>
         </div>
       )}
 
