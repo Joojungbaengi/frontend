@@ -22,6 +22,15 @@ export const styles = `
 .ar-ui.ar-mode .lead p{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 .ar-ui.ar-mode .caption{color:#f3e6cc; text-shadow:0 1px 8px rgba(0,0,0,.8)}
 
+.ar-ui .hand-debug{position:absolute; top:calc(10px + env(safe-area-inset-top,0px)); left:10px;
+  z-index:40; pointer-events:none; display:flex; flex-direction:column; gap:3px;
+  padding:9px 11px; border:1px solid rgba(255,255,255,.28); border-radius:8px;
+  background:rgba(0,0,0,.72); color:#fff; font:11px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;
+  text-shadow:none; font-variant-numeric:tabular-nums}
+.ar-ui .hand-debug strong{font-size:12px; letter-spacing:.08em; color:#ffe08a}
+.ar-ui .hand-debug span{display:block}
+.ar-ui .hand-debug b{font-weight:700}
+
 .ar-ui .fill{flex:1; position:relative}
 /* 하단 여백은 헤더 위 여백과 비슷하게 — 버튼이 화면 끝에 붙지 않도록 */
 .ar-ui .dock{padding:0 22px calc(34px + var(--safe-b)); display:flex; flex-direction:column; gap:14px}

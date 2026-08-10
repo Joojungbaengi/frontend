@@ -20,6 +20,10 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
 import { getRecipe } from "@/lib/brewery/recipes";
+import {
+  createWebXRCameraAccessProbe,
+  type WebXRCameraAccessProbe,
+} from "@/lib/ar/webxrCameraAccessProbe";
 import { styles } from "@/components/arBreweryStyles";
 
 /**
@@ -29,6 +33,9 @@ import { styles } from "@/components/arBreweryStyles";
 export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?: Recipe }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const handDebug =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("handDebug") === "1";
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -886,6 +893,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     let xrSession: XRSession | null = null;
     let hitTestSource: XRHitTestSource | null = null;
     let localSpace: XRReferenceSpace | null = null;
+    let cameraAccessProbe: WebXRCameraAccessProbe | null = null;
     let arSupported = false;
     let surfaceReady = false;
 
@@ -905,7 +913,7 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       try {
         xrSession = await xr.requestSession("immersive-ar", {
           requiredFeatures: ["hit-test", "local"],
-          optionalFeatures: ["dom-overlay"],
+          optionalFeatures: handDebug ? ["dom-overlay", "camera-access"] : ["dom-overlay"],
           domOverlay: { root: uiRoot },
         });
       } catch (e: any) {
@@ -928,7 +936,19 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       localSpace = await xrSession!.requestReferenceSpace("local");
       hitTestSource = await (xrSession as any).requestHitTestSource({ space: viewerSpace });
 
+      const handDebugOverlay = $("#hand-debug");
+      if (handDebug && handDebugOverlay) {
+        cameraAccessProbe = createWebXRCameraAccessProbe({
+          session: xrSession!,
+          renderer,
+          referenceSpace: localSpace,
+          overlay: handDebugOverlay,
+        });
+      }
+
       xrSession!.addEventListener("end", () => {
+        cameraAccessProbe?.dispose();
+        cameraAccessProbe = null;
         S.xr = false;
         xrSession = null;
         hitTestSource = null;
@@ -959,6 +979,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     renderer.setAnimationLoop((_time, frame) => {
       const dt = Math.min(clock.getDelta(), 0.05);
       const t = clock.elapsedTime;
+
+      if (frame) cameraAccessProbe?.onXRFrame(frame);
 
       if (S.step === "place" && !S.placed) {
         let found = false;
@@ -1483,6 +1505,8 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
     return () => {
       window.removeEventListener("resize", resize);
       renderer.setAnimationLoop(null);
+      cameraAccessProbe?.dispose();
+      cameraAccessProbe = null;
       if (xrSession) {
         try {
           xrSession.end();
@@ -1494,14 +1518,22 @@ export default function ArBreweryExperience({ recipe = getRecipe() }: { recipe?:
       delete document.documentElement.dataset.arStep;
     };
     // recipe 가 바뀌면 씬·UI를 새 술로 다시 초기화한다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe]);
+  }, [recipe, handDebug]);
 
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
       <canvas ref={canvasRef} id="gl" />
       {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
       <div className="vignette" />
+
+      {handDebug && (
+        <div className="hand-debug" id="hand-debug" role="status" aria-live="polite">
+          <strong>HAND DEBUG</strong>
+          <span>CAMERA ACCESS: <b data-camera-access>UNAVAILABLE</b></span>
+          <span>XR CAMERA: <b data-xr-camera>NULL</b></span>
+          <span>CAMERA TEXTURE: <b data-camera-texture>ERROR</b></span>
+        </div>
+      )}
 
       {/* 11 · AR 시작 */}
       <div className="panel-step" id="p-place">
