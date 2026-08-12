@@ -1,16 +1,24 @@
 import type { Recipe } from "@/lib/brewery/types";
+import {
+  commonStageModels,
+  finishSteps,
+  godubapStageModels,
+  godubapSteps,
+  mashSteps,
+} from "@/lib/brewery/stages";
 
 /**
- * ⚙️ 예시/템플릿 레시피 — "다른 술이 오면 이렇게 추가한다"를 보여주는 스캐폴드.
+ * 예시/템플릿 레시피 — "다른 술이 오면 이렇게 추가한다"를 보여주는 본보기.
  *
- * 냥이탁주와 달리 ▸ 주원료가 3종(밀 없음) ▸ 단양주라 '덧술'이 없고 발효 단계가 3개 ▸ 완성 공정 2개.
- * 즉 "원재료 종류·개수도 달라지고 선택 개수도 달라진다"는 요구를 그대로 검증한다.
- * 텍스처/3D 모델은 냥이탁주 것을 그대로 재사용하므로 에셋 없이도 바로 돌아간다.
- * 실제 브랜드가 정해지면 값만 바꾸면 된다.
+ * 새 술을 붙이는 일은 대부분 **블록을 고르는 것**으로 끝난다.
+ * 여기서 냥이탁주와 다른 건 두 가지뿐이다.
+ *   · 주원료가 3종 (밀 없음)
+ *   · 덧술을 하지 않는 단양주 → mashSteps({ rounds: 0 })
+ * 나머지 공정 문구는 lib/brewery/stages.ts 에서 그대로 가져온다.
+ *
+ * 실제 술을 붙일 때는 이 파일을 복사해 drinkId 와 다른 값만 바꾸고
+ * 레지스트리(recipes/index.ts)에 등록하면 된다.
  */
-
-/** 3D 모델은 술끼리 공유한다 (받침대·바구니·솥 등) */
-const MODEL_BASE = "/ar/3d-assets";
 
 export const sampleDanyangju: Recipe = {
   id: "sample",
@@ -30,34 +38,15 @@ export const sampleDanyangju: Recipe = {
     { id: "honey", name: "벌꿀",   texture: "/ar/images/honey.png", essential: false, flavorNote: "벌꿀을 더하면 둥근 단맛이 살짝 감돌지." },
   ],
 
-  models: [
-    { id: "low_wooden_bench", file: `${MODEL_BASE}/low_wooden_bench.glb`, step: "common",     height: 0.14, y: 0.03 },
-    { id: "water_jar",        file: `${MODEL_BASE}/water_jar.glb`,        step: "ferment",    height: 0.17, y: 0.03 },
-    { id: "bamboo_basket",    file: `${MODEL_BASE}/bamboo_basket.glb`,    step: "ingredient", height: 0.12, y: 0.03 },
-  ],
+  models: commonStageModels(),
+  godubapModels: godubapStageModels(),
 
-  // 예시는 있는 에셋(그릇)만 써서 항상 동작하게 둔다.
-  godubapModels: [
-    { id: "rice_bowl", file: `${MODEL_BASE}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
-  ],
+  godubapRicePlane: { texture: "/ar/images/godubap.png", width: 0.18, depth: 0.3, y: 0.055 },
 
-  godubapSteps: [
-    { id: "wash",  name: "세척", caption: "쌀을 맑은 물이 나올 때까지 씻어요", models: ["rice_bowl"] },
-    { id: "soak",  name: "불리기", caption: "물에 넉넉히 불려요", models: ["rice_bowl"], water: 1 },
-    { id: "steam", name: "증자", caption: "증기로 쪄 고두밥을 지어요", models: ["rice_bowl"], steam: true },
-    { id: "cool",  name: "냉각", caption: "채반에 펼쳐 차게 식혀요", models: ["rice_bowl"], dark: true },
-  ],
-
-  fermentSteps: [
-    { id: "mix",  name: "혼합",   caption: "식힌 고두밥에 누룩과 물을 섞어 항아리에 담았어요" },
-    { id: "prim", name: "발효",   caption: "발효실에서 술이 부글부글 끓어올라요" },
-    { id: "post", name: "후발효", caption: "천천히 맑은 술이 익어가요" },
-  ],
-
-  pressSteps: [
-    { id: "press", name: "압착·여과", caption: "보자기에 짜 맑게 걸러요" },
-    { id: "ship",  name: "출고",     caption: "병입해 세상에 내보내요" },
-  ],
+  // ── 공정 — 블록을 골라 조립한다 ──────────────────────────────────────
+  godubapSteps: godubapSteps({ soakHours: 2, drainHours: 1 }),
+  fermentSteps: mashSteps({ rounds: 0, primaryDays: 7, postDays: 14 }), // 단양주 = 덧술 없음
+  pressSteps: finishSteps({ ageC: 2, agePeriod: "보름쯤" }),
 
   quiz: {
     question: "고두밥이 아직 뜨겁네. 지금 누룩을 섞으면 어떻게 될까?",

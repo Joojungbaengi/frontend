@@ -1,12 +1,17 @@
 import type { Recipe } from "@/lib/brewery/types";
+import {
+  AR_ASSETS,
+  commonStageModels,
+  finishSteps,
+  godubapStageModels,
+  godubapSteps,
+  mashSteps,
+} from "@/lib/brewery/stages";
 
 /**
  * 냥이탁주 9 — 고양 가와지쌀로 세 번 담가 빚는 삼양주 (행주산성주가).
  * 이 파일 하나가 '냥이탁주'의 바뀌는 데이터 전부다. 다른 술은 이걸 복사해 값만 바꾸면 된다.
  */
-
-/** 3D 모델은 술끼리 공유한다 (받침대·바구니·솥 등) */
-const MODEL_BASE = "/ar/3d-assets";
 
 export const nyangiTakju: Recipe = {
   id: "nyangi",
@@ -27,56 +32,27 @@ export const nyangiTakju: Recipe = {
     { id: "honey",  name: "벌꿀",     texture: "/ar/images/honey.png",  essential: false, flavorNote: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지." },
   ],
 
-  // 3D 모델 — low_wooden_bench(받침), 단계별로 water_jar / bamboo_basket.
-  // (고두밥 단계의 그릇·솥·채반 등은 아래 godubapModels 에서 단계별로 갈아 끼운다)
-  models: [
-    { id: "low_wooden_bench", file: `${MODEL_BASE}/low_wooden_bench.glb`, step: "common",     height: 0.14, y: 0.03 },
-    { id: "water_jar",        file: `${MODEL_BASE}/water_jar.glb`,        step: "ferment",    height: 0.17, y: 0.03 },
-    { id: "bamboo_basket",    file: `${MODEL_BASE}/bamboo_basket.glb`,    step: "ingredient", height: 0.12, y: 0.03 },
-  ],
+  // 무대 모델은 술끼리 공유한다 (받침대·항아리·그릇, 그리고 고두밥 단계의 솥·채반)
+  models: commonStageModels(),
+  godubapModels: godubapStageModels(),
 
-  // 고두밥 하위 단계별 무대 모델 (id 를 godubapSteps[].models 에서 참조)
-  //  · 세미/침수/탈수 → rice_bowl (그릇)
-  //  · 증자           → kitchen_pot (솥을 세운다)
-  //  · 냉각           → metal_food_tray + blanket(보자기 덮기) + rice(고두밥 뿌리기)
-  // ⚠ kitchen_pot / metal_food_tray / blanket 은 아직 파일이 없으니 아래 경로에 넣어야 보인다.
-  //    (rice 는 있는 rice_grains.glb 를 흩뿌려 고두밥을 표현)
-  godubapModels: [
-    { id: "rice_bowl",       file: `${MODEL_BASE}/rice_bowl.glb`,       step: "godubap", height: 0.16, y: 0.03 },
-    { id: "kitchen_pot",     file: `${MODEL_BASE}/kitchen_pot.glb`,     step: "godubap", height: 0.22, y: 0.03 },
-    { id: "metal_food_tray", file: `${MODEL_BASE}/metal_food_tray.glb`, step: "godubap", height: 0.05, y: 0.03 },
-  ],
   // 냉각/혼합 때 채반 위에 까는 고두밥 평면. 채반 크기에 맞춰 자동으로 덮되,
   // 채반이 없을 때 쓸 기본 크기는 3:5(직사각). texture 에 '고두밥' 이미지를 넣는다.
   godubapRicePlane: { texture: "/ar/images/godubap.png", width: 0.18, depth: 0.30, y: 0.055 },
 
   // 완성 공정 '출고' 단계에서 나타나는 완성 제품 병 (Nyangi.glb 를 아래 경로에 넣어야 보인다)
-  finishModel: { id: "nyangi", file: `${MODEL_BASE}/Nyangi.glb`, step: "done", height: 0.28, y: 0.03 },
+  finishModel: { id: "nyangi", file: `${AR_ASSETS}/Nyangi.glb`, step: "done", height: 0.28, y: 0.03 },
 
-  // 고두밥 만들기 (세미 → 냉각). 마지막 단계에서 장인 퀴즈가 뜬다.
-  godubapSteps: [
-    // 세미부터 물을 받아 둔다 — 손으로 휘저어 쌀을 헹구는 단계라서.
-    { id: "semi",     name: "세미", caption: "물을 받아 가와지쌀을 손으로 헹궈요", models: ["rice_bowl", "bowl_rice"], water: 1 },
-    { id: "chimsu",   name: "침수", caption: "세 시간 동안 물에 충분히 불려요", models: ["rice_bowl", "bowl_rice"], water: 1 },
-    { id: "talsu",    name: "탈수", caption: "한 시간 동안 물을 빼줘요", models: ["rice_bowl", "bowl_rice"] },
-    { id: "jeungja",  name: "증자", caption: "강한 증기로 쪄 고두밥을 지어요", models: ["kitchen_pot"], steam: true },
-    { id: "naenggak", name: "냉각", caption: "다단식 채반에 펼쳐 차게 식혀요", models: ["metal_food_tray", "rice_plane"], dark: true },
-  ],
+  // ── 공정 ────────────────────────────────────────────────────────────
+  // 겹치는 과정은 lib/brewery/stages.ts 에서 가져와 조립한다.
+  // 다른 술을 붙일 때 이 문구들을 다시 쓸 필요가 없다.
 
-  // 담금·발효 (혼합 → 후발효). 마지막 '후발효'에서 항아리가 등장하고 시간(온도)으로 자동 발효.
-  fermentSteps: [
-    { id: "mix",  name: "혼합",   caption: "식힌 고두밥에 불린 전통누룩을 섞어 항아리에 담았어요" },
-    { id: "prim", name: "1차발효", caption: "발효실에서 사흘, 첫 술이 부글부글 끓어올라요" },
-    { id: "deot", name: "덧술",   caption: "고두밥을 두 번 더 안쳐 삼양주로 빚어요" },
-    { id: "post", name: "후발효", caption: "서른 날 남짓, 맑은 술이 천천히 익어가요" },
-  ],
+  godubapSteps: godubapSteps({ rice: "가와지쌀", soakHours: 3, drainHours: 1 }),
 
-  // 완성 공정 (압착·여과 → 출고). 탭을 눌러 진행.
-  pressSteps: [
-    { id: "press", name: "압착·여과", caption: "보자기에 술덧을 붓고 손으로 정성껏 짜 맑게 걸러요" },
-    { id: "aging", name: "저온숙성", caption: "1℃ 냉장창고에서 한 달 넘게 저온으로 숙성해요" },
-    { id: "ship",  name: "출고",     caption: "손으로 병입하고 라벨을 붙여 세상에 내보내요" },
-  ],
+  // 덧술 2회 = 삼양주. 냥이탁주의 핵심이라 실제로 두 번 담근다.
+  fermentSteps: mashSteps({ rounds: 2, primaryDays: 3, postDays: 30 }),
+
+  pressSteps: finishSteps({ ageC: 1, agePeriod: "한 달 넘게" }),
 
   quiz: {
     question: "고두밥이 아직 뜨겁네. 지금 누룩을 섞으면 발효에 어떤 영향을 줄까?",
