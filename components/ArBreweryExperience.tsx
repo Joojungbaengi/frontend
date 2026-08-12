@@ -1328,6 +1328,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
       handTracker = tracker;
       xrFeed = new XrCameraFeed();
+      void handVisual.loadModel(); // 손 모델은 늦게 와도 되므로 기다리지 않는다
       S.hand = true;
       uiRoot!.classList.add("hands-on");
       handTracker.setPaused(S.step !== "ingredient");

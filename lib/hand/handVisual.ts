@@ -10,10 +10,13 @@
  *   L3  장갑 손     — 깊이를 비우고 그려 항상 에셋 위. 손가락끼리는 정상적으로 가려진다.
  *   L4  집는 고리
  *
- * 손 모양 자체는 lib/hand/gloveHand.ts 가 만든다.
+ * 손 모양은 뼈대가 든 3D 모델(riggedHand.ts)이 맡는다. 모델은 비동기로 오므로,
+ * 도착하기 전이나 못 불러왔을 때는 코드로 그린 손(gloveHand.ts)이 대신 나온다.
+ * 시연 도중 손이 통째로 사라지는 것보다는 낫다.
  */
 import * as THREE from "three";
 import { GloveHand, HAND_DRAW_DEPTH } from "@/lib/hand/gloveHand";
+import { RiggedHand } from "@/lib/hand/riggedHand";
 import { LM, type HandFrame } from "@/lib/hand/types";
 
 /** 화면에서 손이 이만큼 크게 보일 때를 기준 거리로 삼는다 (손목~중지뿌리, 화면 정규화) */
@@ -90,6 +93,7 @@ export class HandVisual {
   /** 집는 지점 고리 — 손까지 다 그린 뒤 맨 위에 얹는다 */
   private readonly cursorScene = new THREE.Scene();
   private glove: GloveHand;
+  private rigged = new RiggedHand();
   private shadowMat: THREE.MeshBasicMaterial;
   private cursor: THREE.Mesh;
   /** 21개 관절의 월드 좌표 */
@@ -130,6 +134,7 @@ export class HandVisual {
     });
     this.glove = new GloveHand(glove, cuff);
     this.handScene.add(this.glove.group);
+    this.handScene.add(this.rigged.group);
 
     // 그림자 패스에서 손 전체를 이 재질로 덮어쓴다 (지오메트리를 두 벌 만들지 않으려고)
     this.shadowMat = new THREE.MeshBasicMaterial({
@@ -162,6 +167,17 @@ export class HandVisual {
   }
 
   /**
+   * 손 모델을 올린다. 실패해도 체험은 계속된다 — 코드로 그린 손으로 떨어질 뿐이다.
+   */
+  async loadModel() {
+    try {
+      await this.rigged.load();
+    } catch (e) {
+      console.warn("[ar] 손 모델을 불러오지 못했습니다 — 기본 손으로 대체합니다.", e);
+    }
+  }
+
+  /**
    * 한 프레임 갱신.
    * @param baseDepth 무대(앵커)까지의 거리 — 손 거리 추정의 기준
    */
@@ -188,8 +204,17 @@ export class HandVisual {
     this.pinchScreen.y = ps.y;
     screenToWorld(ps.x, ps.y, HAND_DRAW_DEPTH, camera, this.pinchWorld);
 
+    // 손 크기 — 그림자를 얼마나 밀지, 집는 고리를 얼마나 키울지의 기준
     const worldSpan = this.joints[LM.WRIST].distanceTo(this.joints[LM.MIDDLE_MCP]);
-    this.glove.update(this.joints, worldSpan);
+
+    // 모델이 도착했으면 그걸 쓰고, 아직이면 코드로 그린 손을 쓴다
+    if (this.rigged.loaded) {
+      this.rigged.update(this.joints);
+      this.glove.group.visible = false;
+    } else {
+      this.glove.update(this.joints, worldSpan);
+      this.glove.group.visible = true;
+    }
 
     // 그림자는 화면 기준 오른쪽 아래로 어긋나게 — 손이 떠 있는 것처럼 보인다
     camera.matrixWorld.extractBasis(this.camRight, this.camUp, this.camFwd);
@@ -214,13 +239,19 @@ export class HandVisual {
   render(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
     if (!this.handScene.visible) return;
 
+    // 지금 쓰는 손 (모델 / 코드로 그린 것) 을 통째로 옮겨 그림자를 만든다
+    const hand = this.rigged.loaded ? this.rigged.group : this.glove.group;
+    const home = hand.position.clone();
+
     // 1) 그림자 — 같은 손을 어둡게, 살짝 어긋나게. 에셋 위에 드리운다.
-    this.glove.group.position.copy(this.shadowShift);
+    hand.position.add(this.shadowShift);
+    hand.updateMatrixWorld(true);
     this.handScene.overrideMaterial = this.shadowMat;
     renderer.render(this.handScene, camera);
 
     // 2) 손 — 깊이를 비우고 그려 항상 에셋 위. 손가락끼리는 제대로 가려진다.
-    this.glove.group.position.set(0, 0, 0);
+    hand.position.copy(home);
+    hand.updateMatrixWorld(true);
     this.handScene.overrideMaterial = null;
     renderer.clearDepth();
     renderer.render(this.handScene, camera);
@@ -235,6 +266,7 @@ export class HandVisual {
 
   dispose() {
     this.glove.dispose();
+    this.rigged.dispose();
     this.shadowMat.dispose();
     for (const sc of [this.handScene, this.cursorScene]) {
       sc.traverse((o: THREE.Object3D) => {
