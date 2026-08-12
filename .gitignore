@@ -46,3 +46,6 @@ next-env.d.ts
 
 # MediaPipe wasm + 손 랜드마크 모델 (dev/build 시 scripts/fetch-mediapipe.mjs 가 준비)
 /public/mediapipe/
+
+# 팀 내부 정리 문서 — 저장소에 올리지 않는다
+/docs/
