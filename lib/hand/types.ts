@@ -56,6 +56,8 @@ export interface HandFrame {
    * 카메라에 가까울수록 커진다 — 깊이 추정에 쓴다.
    */
   screenSpan: number;
+  /** 왼손인가 오른손인가 — 3D 손 모델을 어느 쪽으로 세울지 정한다 */
+  handedness: "left" | "right" | null;
 }
 
 /** 아직 손이 없을 때 쓰는 빈 프레임 */
@@ -69,5 +71,6 @@ export function emptyHandFrame(): HandFrame {
     justPinched: false,
     justReleased: false,
     screenSpan: 0.2,
+    handedness: null,
   };
 }

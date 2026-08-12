@@ -209,7 +209,9 @@ export class HandVisual {
 
     // 모델이 도착했으면 그걸 쓰고, 아직이면 코드로 그린 손을 쓴다
     if (this.rigged.loaded) {
-      this.rigged.update(this.joints);
+      // 모델은 오른손이다 (바인드 포즈에서 인식 좌표와 맞춰 확인했다).
+      // 왼손이면 손가락 축을 기준으로 반 바퀴 돌려 쓴다.
+      this.rigged.update(this.joints, frame.handedness === "left");
       this.glove.group.visible = false;
     } else {
       this.glove.update(this.joints, worldSpan);

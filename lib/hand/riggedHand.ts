@@ -3,8 +3,8 @@
 /**
  * 리그드 손 — 뼈대가 들어 있는 3D 손 모델을 인식한 관절에 맞춰 움직인다.
  *
- * 직접 관을 뽑아 만들던 손(gloveHand.ts)을 대신한다. 모델의 뼈 구조가 우리가 인식하는
- * 관절 21개와 그대로 맞아떨어져서, 뼈 이름만 보고 짝을 지을 수 있다.
+ * 모델의 뼈 구조가 우리가 인식하는 관절 21개와 그대로 맞아떨어져서, 뼈 이름만 보고
+ * 짝을 지을 수 있다.
  *
  *   radius_ulna(손목) ─┬─ index_meta → index_prox → index_midd → index_dist
  *                      ├─ midd_·  ring_·  pinky_· (같은 구조)
@@ -14,8 +14,9 @@
  * "이 관절에서 다음 관절로 향하는 방향"을 구해 그쪽을 보도록 돌린다.
  * 부모부터 자식 순서로 돌려야 한다 — 부모가 움직이면 자식의 기준도 같이 움직이기 때문이다.
  *
- * 손 전체의 위치·크기·기울기는 뼈가 아니라 바깥 그룹이 맡는다. 뼈는 손가락 관절만 담당한다.
- * 그래야 손목을 돌렸을 때 손바닥이 엉뚱한 쪽을 보는 일이 없다.
+ * **모델의 축·크기·기준점은 하나도 미리 정해 두지 않는다.** 어느 축이 손바닥 법선인지
+ * 손이 얼마나 큰지를 코드에 박아 두면, 한 번 잘못 짚었을 때 손이 뒤집히거나 크기가 어긋난다.
+ * 대신 불러온 직후 쉬는 자세에서 **직접 재서** 기준을 잡는다.
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -57,22 +58,32 @@ export class RiggedHand {
   private bones = new Map<string, THREE.Bone>();
   /** 뼈마다 "쉬는 자세에서 어느 쪽을 보고 있었나" (뼈 자기 좌표계) */
   private restAxis = new Map<string, THREE.Vector3>();
-  /** 모델 기준 손목~중지너클 길이 — 실제 손 크기에 맞춰 줄이고 늘리는 기준 */
-  private restSpan = 1;
-  /** 쉬는 자세에서 손목뼈가 그룹 원점으로부터 떨어져 있는 만큼 */
-  private wristOffset = new THREE.Vector3();
+
+  /** 쉬는 자세에서 잰 값들 — 전부 측정한 것이지 정해 둔 상수가 아니다 */
+  private restBasisInv = new THREE.Matrix4();
+  private restKnuckle = new THREE.Vector3();
+  private restWidth = 1;
   private ready = false;
 
   private tmpDir = new THREE.Vector3();
-  private tmpQ = new THREE.Quaternion();
   private parentQ = new THREE.Quaternion();
   private fwd = new THREE.Vector3();
   private side = new THREE.Vector3();
   private up = new THREE.Vector3();
-  private basis = new THREE.Matrix4();
+  private tmpSide = new THREE.Vector3();
+  private obsBasis = new THREE.Matrix4();
+  private rot = new THREE.Matrix4();
+  private anchor = new THREE.Vector3();
 
   get loaded() {
     return this.ready;
+  }
+
+  /** fwd 를 기준으로 side 를 직각으로 고쳐 직교 기저를 만든다 */
+  private basisFrom(fwd: THREE.Vector3, side: THREE.Vector3, out: THREE.Matrix4) {
+    this.up.crossVectors(fwd, side).normalize();
+    this.tmpSide.crossVectors(this.up, fwd).normalize();
+    out.makeBasis(this.tmpSide, fwd, this.up);
   }
 
   /** 모델을 올린다. 손을 실제로 쓰기 시작할 때 한 번만 부른다. */
@@ -87,12 +98,12 @@ export class RiggedHand {
         // 뼈를 크게 움직이므로 화면 밖 판정을 끈다 (안 그러면 손이 통째로 사라진다)
         m.frustumCulled = false;
         const mat = m.material as THREE.MeshStandardMaterial;
+        // 반대쪽 손일 때 뒤집어 쓰므로 뒷면도 그려야 한다
         if (mat) mat.side = THREE.DoubleSide;
       }
     });
 
-    // 쉬는 자세에서 각 뼈가 보던 방향을 기억해 둔다.
-    // 자식 뼈의 상대 위치가 곧 "이 뼈가 뻗은 쪽"이다.
+    // 쉬는 자세에서 각 뼈가 보던 방향. 자식 뼈의 상대 위치가 곧 "이 뼈가 뻗은 쪽"이다.
     for (const { bones } of CHAINS) {
       let lastAxis: THREE.Vector3 | null = null;
       bones.forEach((name, i) => {
@@ -116,19 +127,31 @@ export class RiggedHand {
     this.group.scale.setScalar(1);
     this.group.updateMatrixWorld(true);
 
-    // 크기 기준 — 손목뼈에서 중지 너클까지. 이 길이가 인식된 손의 0→9 에 대응한다.
-    //
-    // 주의: 뼈의 local position 은 "부모로부터 떨어진 거리"라서 midd_meta.position 은
-    // 손등뼈 길이가 아니라 손목에서 손등뼈가 시작하는 지점까지의 거리다.
-    // 그걸 손 크기로 쓰면 손이 서너 배로 부푼다. 월드 좌표로 직접 잰다.
-    const wrist = this.bones.get("radius_ulna");
-    const knuckle = this.bones.get("midd_prox");
-    if (wrist && knuckle) {
-      const a = wrist.getWorldPosition(new THREE.Vector3());
-      const b = knuckle.getWorldPosition(new THREE.Vector3());
-      this.restSpan = a.distanceTo(b) || 1;
-      this.wristOffset.copy(a); // 그룹이 원점에 있을 때의 손목 위치
-    }
+    // ── 모델의 축과 크기를 직접 잰다 ────────────────────────────────
+    // 뼈의 local position 만 더해서는 안 된다. 손가락을 벌려 놓는 건 각 뼈의 **회전**이라,
+    // 회전을 빼고 위치만 더하면 다섯 손가락이 한 줄로 겹쳐 나온다.
+    // getWorldPosition 은 회전까지 반영한 실제 자리를 준다.
+    const at = (name: string) =>
+      this.bones.get(name)?.getWorldPosition(new THREE.Vector3()) ?? new THREE.Vector3();
+
+    const middleMeta = at("midd_meta");
+    const middleKnuckle = at("midd_prox");
+    const indexKnuckle = at("index_prox");
+    const pinkyKnuckle = at("pinky_prox");
+
+    // 손이 뻗은 쪽 — 중지 손등뼈. 인식 좌표의 손목→중지너클과 같은 구간이다.
+    const restFwd = middleKnuckle.clone().sub(middleMeta).normalize();
+    // 너클을 가로지르는 쪽 — 새끼에서 검지로
+    const restSide = indexKnuckle.clone().sub(pinkyKnuckle).normalize();
+
+    this.basisFrom(restFwd, restSide, this.rot);
+    this.restBasisInv.copy(this.rot).transpose(); // 직교행렬이라 전치가 곧 역행렬
+
+    // 크기 기준은 **너클 폭**으로 잡는다. 손목~너클을 쓰면 모델에 붙은 팔뚝까지 세어져
+    // 실제 손보다 작게 그려진다 — 모델의 손목뼈는 손목이 아니라 팔뚝 끝에 있다.
+    this.restWidth = indexKnuckle.distanceTo(pinkyKnuckle) || 1;
+    // 손을 붙일 기준점도 팔뚝의 영향을 안 받는 중지 너클로 잡는다
+    this.restKnuckle.copy(middleKnuckle);
 
     this.group.visible = false;
     this.ready = true;
@@ -137,50 +160,51 @@ export class RiggedHand {
   /**
    * 인식한 관절 위치(월드 좌표)에 손을 맞춘다.
    * @param joints 21개 관절의 월드 좌표
+   * @param mirrored 모델과 반대쪽 손이면 true — 손가락 축을 기준으로 반 바퀴 돌려 쓴다
    */
-  update(joints: THREE.Vector3[]) {
+  update(joints: THREE.Vector3[], mirrored = false) {
     if (!this.ready || joints.length < 21) return;
-    this.group.visible = true;
 
     // ── 1. 손 전체 놓기 ─────────────────────────────────────────────
-    // 손이 향한 쪽(손목→중지뿌리)과 손등을 가로지르는 쪽(새끼→검지)으로 자세를 잡는다.
     this.fwd.subVectors(joints[LM.MIDDLE_MCP], joints[LM.WRIST]);
-    const span = this.fwd.length();
-    if (span < 1e-6) return;
-    this.fwd.divideScalar(span);
+    if (this.fwd.lengthSq() < 1e-10) return;
+    this.fwd.normalize();
 
-    this.side.subVectors(joints[LM.INDEX_MCP], joints[LM.PINKY_MCP]).normalize();
-    this.up.crossVectors(this.fwd, this.side).normalize();
-    // 손이 기울면 side 가 fwd 와 직각이 아니게 된다. 다시 직각으로 세운다.
-    this.side.crossVectors(this.up, this.fwd).normalize();
+    this.side.subVectors(joints[LM.INDEX_MCP], joints[LM.PINKY_MCP]);
+    const width = this.side.length();
+    if (width < 1e-6) return;
+    this.side.divideScalar(width);
 
-    // 모델의 축을 손의 축에 맞춘다.
-    //   Y = 뼈가 뻗은 쪽(손가락 방향)  ← 모든 뼈의 local translation 이 +Y 다
-    //   X = 손바닥 법선                ← 모델 치수가 5×25×20 이라 얇은 축이 X 다
-    //   Z = 너클을 가로지르는 쪽
-    // (side, fwd, up) 순으로 넣으면 손이 옆으로 누워 종잇장처럼 보인다.
-    this.basis.makeBasis(this.up, this.fwd, this.side);
-    this.group.quaternion.setFromRotationMatrix(this.basis);
-    const scale = span / this.restSpan;
+    // 반대쪽 손은 손가락 축을 기준으로 반 바퀴 돌린 모양이다.
+    // side 를 뒤집으면 up 도 같이 뒤집혀 축 두 개가 바뀌므로, 뒤집힌 행렬이 아니라
+    // 그냥 회전으로 남는다. (음수 배율을 쓰면 조명과 앞뒤면이 깨진다)
+    if (mirrored) this.side.negate();
+
+    this.basisFrom(this.fwd, this.side, this.obsBasis);
+
+    // 모델 기저 → 관측 기저로 옮기는 회전
+    this.rot.multiplyMatrices(this.obsBasis, this.restBasisInv);
+    this.group.quaternion.setFromRotationMatrix(this.rot);
+
+    const scale = width / this.restWidth;
     this.group.scale.setScalar(scale);
 
-    // 손목뼈가 그룹 원점에 있지 않으므로, 그만큼 빼야 손목이 제자리에 온다
-    this.tmpDir.copy(this.wristOffset).multiplyScalar(scale).applyQuaternion(this.group.quaternion);
-    this.group.position.copy(joints[LM.WRIST]).sub(this.tmpDir);
+    // 중지 너클이 인식된 너클 자리에 오도록 그룹을 민다
+    this.anchor.copy(this.restKnuckle).multiplyScalar(scale).applyQuaternion(this.group.quaternion);
+    this.group.position.copy(joints[LM.MIDDLE_MCP]).sub(this.anchor);
     this.group.updateMatrixWorld(true);
+    this.group.visible = true;
 
     // ── 2. 손가락 굽히기 ────────────────────────────────────────────
     // i=0 (손등뼈 / 엄지 손목뼈) 는 건드리지 않는다.
     // 실제 손에서 손등뼈는 거의 안 움직이는데, 이걸 인식 좌표대로 돌리면
     // 다섯 개가 제각각 벌어지면서 손바닥이 찢어진 것처럼 보인다.
-    // 손 전체의 방향은 이미 바깥 그룹이 잡아 줬으므로 손가락 마디만 굽히면 된다.
     for (const { bones, joints: js } of CHAINS) {
       for (let i = 1; i < bones.length; i++) {
         const bone = this.bones.get(bones[i]);
         const axis = this.restAxis.get(bones[i]);
         if (!bone || !bone.parent || !axis) continue;
 
-        // 이 뼈가 향해야 하는 방향 (월드)
         this.tmpDir.subVectors(joints[js[i + 1]], joints[js[i]]);
         if (this.tmpDir.lengthSq() < 1e-10) continue;
         this.tmpDir.normalize();

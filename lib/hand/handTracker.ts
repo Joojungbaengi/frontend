@@ -76,7 +76,11 @@ export class HandTracker {
   }
 
   /** 검출 결과를 HandFrame 으로 바꿔 latest 에 남긴다 */
-  private ingest(res: { landmarks: Landmark[][]; worldLandmarks: Landmark[][] }) {
+  private ingest(res: {
+    landmarks: Landmark[][];
+    worldLandmarks: Landmark[][];
+    handedness?: { categoryName?: string }[][];
+  }) {
     const raw = res.landmarks?.[0];
     const world = res.worldLandmarks?.[0];
 
@@ -111,6 +115,7 @@ export class HandTracker {
       justPinched: pendingPinch,
       justReleased: pendingRelease,
       screenSpan: screenSpan(landmarks),
+      handedness: readHandedness(res.handedness?.[0]?.[0]?.categoryName),
     };
   }
 
@@ -130,4 +135,19 @@ export class HandTracker {
     this.frame = emptyHandFrame();
     this.gesture.reset();
   }
+}
+
+/**
+ * MediaPipe 가 알려주는 좌우를 **사용자 기준**으로 뒤집는다.
+ *
+ * MediaPipe 는 셀피(전면) 카메라처럼 좌우가 뒤집힌 화면을 가정하고 판정한다.
+ * 우리는 후면 카메라를 쓰므로 화면이 뒤집혀 있지 않고, 그래서 알려준 값의 반대가
+ * 실제 사용자의 손이다.
+ *
+ * 실기에서 손이 반대로 서면 이 함수의 좌우만 바꾸면 된다.
+ */
+function readHandedness(name?: string): "left" | "right" | null {
+  if (name === "Left") return "right";
+  if (name === "Right") return "left";
+  return null;
 }
