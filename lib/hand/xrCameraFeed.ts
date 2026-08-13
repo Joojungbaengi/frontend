@@ -83,6 +83,11 @@ export class XrCameraFeed {
    * @param srcW,srcH XRCamera 가 알려주는 원본 이미지 크기
    * @returns MediaPipe 에 넘길 캔버스. 실패하면 null.
    */
+  /** 픽셀을 내려받는 중인가 */
+  private reading = false;
+  /** 캔버스에 쓸 만한 그림이 한 번이라도 올라왔는가 */
+  private fresh = false;
+
   capture(
     renderer: THREE.WebGLRenderer,
     texture: THREE.Texture,
@@ -92,6 +97,9 @@ export class XrCameraFeed {
     if (!srcW || !srcH || !this.ctx) return null;
     this.ensureTarget(srcW, srcH);
     if (!this.rt || !this.buffer || !this.imageData) return null;
+    // 앞서 시작한 읽기가 아직 안 끝났으면 이번 프레임은 건너뛴다.
+    // 같은 버퍼를 두 번 겹쳐 읽지 않으려는 것이다.
+    if (this.reading) return this.fresh ? this.canvas : null;
 
     this.size.w = srcW;
     this.size.h = srcH;
@@ -107,21 +115,54 @@ export class XrCameraFeed {
       renderer.xr.enabled = false;
       renderer.setRenderTarget(this.rt);
       renderer.render(this.scene, this.camera);
-      renderer.readRenderTargetPixels(this.rt, 0, 0, this.rt.width, this.rt.height, this.buffer);
+
+      // GPU 에서 픽셀을 내리는 동안 그리기가 멈춘다. 초당 열몇 번이면 화면이
+      // 눈에 띄게 튄다. 그래서 기다리지 않고 맡겨 두었다가 끝나면 받는다.
+      // 한 프레임 늦게 오지만, 손 검출은 어차피 60ms 마다라 차이가 없다.
+      const async_ = (
+        renderer as unknown as {
+          readRenderTargetPixelsAsync?: (
+            rt: THREE.WebGLRenderTarget, x: number, y: number, w: number, h: number, buf: Uint8Array
+          ) => Promise<unknown>;
+        }
+      ).readRenderTargetPixelsAsync;
+
+      if (async_) {
+        this.reading = true;
+        void async_
+          .call(renderer, this.rt, 0, 0, this.rt.width, this.rt.height, this.buffer)
+          .then(() => this.publish())
+          .catch(() => undefined)
+          .finally(() => {
+            this.reading = false;
+          });
+      } else {
+        renderer.readRenderTargetPixels(this.rt, 0, 0, this.rt.width, this.rt.height, this.buffer);
+        this.publish();
+      }
     } catch {
       // 기기에 따라 카메라 텍스처를 읽지 못할 수 있다. 이 프레임은 건너뛴다.
+      this.reading = false;
       return null;
     } finally {
       renderer.xr.enabled = prevXr;
       renderer.setRenderTarget(prevTarget);
     }
 
+    return this.fresh ? this.canvas : null;
+  }
+
+  /** 내려받은 픽셀을 캔버스에 올린다 */
+  private publish() {
+    if (!this.ctx || !this.buffer || !this.imageData) return;
     this.imageData.data.set(this.buffer);
     this.ctx.putImageData(this.imageData, 0, 0);
-    return this.canvas;
+    this.fresh = true;
   }
 
   dispose() {
+    this.reading = false;
+    this.fresh = false;
     this.rt?.dispose();
     this.rt = null;
     this.material.dispose();

@@ -237,6 +237,8 @@ export class HandVisual {
 
   hide() {
     this.handScene.visible = false;
+    // 다시 잡혔을 때 사라진 자리에서 화면을 가로질러 쓸고 오지 않게 비운다
+    this.rigged.reset();
   }
 
   dispose() {

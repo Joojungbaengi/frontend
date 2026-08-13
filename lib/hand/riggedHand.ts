@@ -29,6 +29,36 @@ const MODEL = {
 /** 손 크기가 프레임마다 튀지 않게 하는 정도 (0에 가까울수록 느리게 따라감) */
 const SCALE_EASE = 0.25;
 
+/**
+ * 자세가 목표를 따라가는 시간(초). 손 인식은 60ms 마다 한 번이고 화면은 그보다
+ * 훨씬 자주 그리므로, 그대로 쓰면 손이 네 프레임에 한 번씩 뚝뚝 건너뛴다.
+ */
+const POSE_TAU = 0.08;
+
+/** 좌우 판정이 목표를 따라가는 시간(초). 손을 바꾸는 일은 드무니 길게 잡는다. */
+const SIDE_TAU = 0.5;
+
+/**
+ * 좌우를 바꾸려면 이만큼은 확실해야 한다. 엄지가 손바닥 면에서 벗어난 정도라
+ * 원래 크지 않은 값이고, 손등이 보일 때는 깊이 추정이 흔들려 부호가 자주 뒤집힌다.
+ * 그때마다 모델을 갈아 끼우면 손가락이 얽히고 화면이 깜빡인다.
+ */
+const SIDE_LOCK = 0.04;
+
+/**
+ * 손을 얼마나 눕힌 것까지 믿을지. 손이 시선과 나란해지면 화면에서 본 길이가
+ * 0 에 가까워져, 그걸로 크기를 되돌리면 손이 터무니없이 커진다.
+ */
+const MIN_FORESHORTEN = 0.35;
+
+/**
+ * 깊이를 손 크기의 몇 배까지 인정할지.
+ *
+ * MediaPipe 의 깊이는 화면 좌표보다 한참 거칠고, 특히 손등이 보일 때는 앞뒤
+ * 해석이 헷갈려 크게 튄다. 그대로 두면 손가락이 화면 안쪽으로 푹 꺾여 보인다.
+ */
+const MAX_DEPTH = 1.2;
+
 interface JointDef {
   bone: string;
   /** 부모 뼈 (없으면 손목) */
@@ -120,8 +150,16 @@ export class RiggedHand {
   private up = new THREE.Vector3();
   private camQuat = new THREE.Quaternion();
   private viewDir = new THREE.Vector3();
-  /** 인식한 손의 3D 자세를 월드 좌표로 옮겨 담는 곳 */
+  private eye = new THREE.Vector3();
+  /** 인식한 손의 3D 자세를 월드 좌표로 옮겨 담는 곳 (부드럽게 따라간다) */
   private pose: THREE.Vector3[] = Array.from({ length: 21 }, () => new THREE.Vector3());
+  /** 이번 프레임이 가리키는 목표 자세 */
+  private target: THREE.Vector3[] = Array.from({ length: 21 }, () => new THREE.Vector3());
+  private posed = false;
+  private lastAt = 0;
+  /** 좌우 판정을 시간에 걸쳐 눌러 둔 값 — 한 프레임 튐으로 손이 바뀌지 않게 */
+  private sideScore = 0;
+  private lockedSide: "left" | "right" | null = null;
 
   get loaded() {
     return Boolean(this.hands.right || this.hands.left);
@@ -158,8 +196,9 @@ export class RiggedHand {
     this.side.subVectors(indexMcp, pinkyMcp);
     this.up.crossVectors(this.fwd, this.side);
     this.tmpV.subVectors(thumb, wrist);
-    const d = this.up.dot(this.tmpV);
-    return d > 0 ? 1 : d < 0 ? -1 : 0;
+    const n = this.up.length() * this.tmpV.length();
+    // 손 크기로 나눠 둔다 — 화면에서 손이 크든 작든 같은 잣대로 재려고
+    return n < 1e-12 ? 0 : this.up.dot(this.tmpV) / n;
   }
 
   /**
@@ -289,7 +328,7 @@ export class RiggedHand {
   private buildPose(joints: THREE.Vector3[], frame: HandFrame, camera: THREE.Camera): boolean {
     const w = frame.world;
     if (!w || w.length < 21) {
-      for (let i = 0; i < 21; i++) this.pose[i].copy(joints[i]);
+      for (let i = 0; i < 21; i++) this.target[i].copy(joints[i]);
       return false;
     }
 
@@ -298,27 +337,82 @@ export class RiggedHand {
     // 기기에서 손이 통째로 거울처럼 나오면 고칠 곳은 이 한 줄이다.
     camera.getWorldQuaternion(this.camQuat);
     for (let i = 0; i < 21; i++) {
-      this.pose[i].set(w[i].x, -w[i].y, -w[i].z).applyQuaternion(this.camQuat);
+      this.target[i].set(w[i].x, -w[i].y, -w[i].z).applyQuaternion(this.camQuat);
     }
 
     // 손목을 원점으로 옮긴다
-    this.tmpV.copy(this.pose[0]);
-    for (let i = 0; i < 21; i++) this.pose[i].sub(this.tmpV);
+    this.tmpV.copy(this.target[0]);
+    for (let i = 0; i < 21; i++) this.target[i].sub(this.tmpV);
 
     // 화면에 비치는 크기에 맞춘다. 손이 기울어 있으면 화면에서는 짧아 보이므로
     // 시선 방향 성분을 뺀 길이로 견줘야 크기가 튀지 않는다.
     camera.getWorldDirection(this.viewDir);
-    this.fwd.copy(this.pose[9]);
+    this.fwd.copy(this.target[9]);
     this.fwd.addScaledVector(this.viewDir, -this.fwd.dot(this.viewDir));
-    const flat = this.fwd.length();
+    const full = this.target[9].length();
     const seen = joints[0].distanceTo(joints[9]);
-    if (flat < 1e-5 || seen < 1e-6) {
-      for (let i = 0; i < 21; i++) this.pose[i].copy(joints[i]);
+    if (full < 1e-5 || seen < 1e-6) {
+      for (let i = 0; i < 21; i++) this.target[i].copy(joints[i]);
       return false;
     }
+    // 너무 눕은 손까지 되돌리려 들면 손이 폭발한다. 여기서 끊는다.
+    const flat = Math.max(this.fwd.length(), full * MIN_FORESHORTEN);
     const k = seen / flat;
-    for (let i = 0; i < 21; i++) this.pose[i].multiplyScalar(k).add(joints[0]);
+    for (let i = 0; i < 21; i++) this.target[i].multiplyScalar(k).add(joints[0]);
+
+    // ── 두 신호를 각자 믿을 수 있는 데에만 쓴다 ────────────────────────
+    // 화면 좌표는 화면 안에서 정확하고, 미터 좌표는 앞뒤를 알려 주지만 거칠다.
+    // 그래서 관절마다 **화면 좌표가 가리키는 시선 위에** 올려 두고, 카메라에서
+    // 얼마나 떨어뜨릴지만 미터 좌표에서 가져온다.
+    //
+    // 이렇게 하면 화면에 비치는 손 모양은 인식한 그대로가 되므로, 깊이가 좀
+    // 틀려도 손가락이 화면에서 꺾여 보이는 일이 없다. 손등이 보일 때 손이
+    // 일그러지던 것이 이 때문이었다.
+    camera.getWorldPosition(this.eye);
+    const base = joints[0].distanceTo(this.eye);
+    const limit = seen * MAX_DEPTH;
+    for (let i = 0; i < 21; i++) {
+      const depth = THREE.MathUtils.clamp(
+        this.tmpV.subVectors(this.target[i], joints[0]).dot(this.viewDir),
+        -limit,
+        limit
+      );
+      this.target[i]
+        .subVectors(joints[i], this.eye)
+        .normalize()
+        .multiplyScalar(base + depth)
+        .add(this.eye);
+    }
     return true;
+  }
+
+  /**
+   * 어느 손 모델을 쓸지 정한다.
+   *
+   * 부호만 보고 매 프레임 갈아 끼우면, 손등이 보일 때처럼 깊이 추정이 흔들리는
+   * 상황에서 왼손·오른손이 번갈아 나와 손가락이 얽히고 화면이 깜빡인다.
+   * 그래서 확신 정도를 시간에 걸쳐 눌러 두고, 충분히 기울었을 때만 바꾼다.
+   */
+  private decideSide(spatial: boolean, frame: HandFrame, a: number): "left" | "right" {
+    if (spatial) {
+      const c = this.chirality(
+        this.pose[0], this.pose[9], this.pose[5], this.pose[17], this.pose[2]
+      );
+      this.sideScore += (c - this.sideScore) * a;
+      if (Math.abs(this.sideScore) > SIDE_LOCK) {
+        const want = this.sideScore > 0 ? "right" : "left";
+        if (this.hands[want]) this.lockedSide = want;
+      }
+    }
+    return this.lockedSide ?? frame.handedness ?? "right";
+  }
+
+  /** 손을 놓쳤을 때 — 다시 잡히면 이전 자리에서 쓸고 오지 않게 상태를 비운다 */
+  reset() {
+    this.posed = false;
+    this.scale = 0;
+    this.sideScore = 0;
+    this.lockedSide = null;
   }
 
   /**
@@ -329,21 +423,25 @@ export class RiggedHand {
    */
   update(joints: THREE.Vector3[], frame: HandFrame, camera: THREE.Camera) {
     if (joints.length < 21) return;
+
+    // 지난 프레임에서 흐른 시간 — 화면이 빠르든 느리든 같은 속도로 따라가게
+    const now = performance.now();
+    const dt = this.lastAt ? Math.min((now - this.lastAt) / 1000, 0.1) : 0;
+    this.lastAt = now;
+
     const spatial = this.buildPose(joints, frame, camera);
 
-    // 어느 손 모델인지 — 인식한 손에서 직접 잰다. MediaPipe 의 좌우 표기는
-    // 영상이 거울인지에 따라 뒤집히지만, 이 부호는 손 모양 자체에서 나오므로
-    // 표기가 틀려도 화면에 보이는 손과 어긋나지 않는다.
-    let which: "left" | "right" = frame.handedness ?? "right";
-    if (spatial) {
-      const c = this.chirality(this.pose[0], this.pose[9], this.pose[5], this.pose[17], this.pose[2]);
-      if (c !== 0) {
-        for (const sd of ["right", "left"] as const) {
-          if (this.hands[sd] && this.hands[sd]!.restChirality === c) which = sd;
-        }
-      }
+    // 목표 자세로 부드럽게. 손 인식이 렌더보다 드물어 목표는 계단처럼 오는데,
+    // 여기서 눌러 주면 화면에서는 이어져 보인다.
+    if (!this.posed || dt <= 0) {
+      for (let i = 0; i < 21; i++) this.pose[i].copy(this.target[i]);
+      this.posed = true;
+    } else {
+      const a = 1 - Math.exp(-dt / POSE_TAU);
+      for (let i = 0; i < 21; i++) this.pose[i].lerp(this.target[i], a);
     }
 
+    const which = this.decideSide(spatial, frame, dt > 0 ? 1 - Math.exp(-dt / SIDE_TAU) : 1);
     const hand = this.hands[which] ?? this.hands.right ?? this.hands.left;
     if (!hand) return;
 
