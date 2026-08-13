@@ -83,8 +83,12 @@ interface Loaded {
   restOffset: Map<string, THREE.Vector3>;
   /** 부모 기준 회전 — 손등뼈처럼 방향을 안 받는 뼈가 그대로 쓴다 */
   restLocalQuat: Map<string, THREE.Quaternion>;
-  /** 쉬는 자세의 손바닥 방향 */
+  /** 쉬는 자세의 손바닥 방향 — 인식한 자세와 견줄 기준 */
   restPalmQuat: THREE.Quaternion;
+  /** 쉬는 자세의 손목 뼈 회전 — 모델이 가진 앞뒤가 여기 들어 있다 */
+  restWristQuat: THREE.Quaternion;
+  /** 뼈가 제 기준으로 어느 쪽을 가리키는지 (자식 쪽 단위벡터) */
+  restAim: Map<string, THREE.Vector3>;
   /** 쉬는 자세의 손목~중지너클 길이 — 크기 맞추는 기준 */
   restSpan: number;
 }
@@ -113,20 +117,24 @@ export class RiggedHand {
     return Boolean(this.hands.right || this.hands.left);
   }
 
-  /** 손바닥이 향한 자세를 쿼터니언으로. -Z 가 손끝 쪽, up 이 손등 바깥쪽. */
+  /**
+   * 손이 놓인 **자세**를 쿼터니언으로 잰다.
+   *
+   * 이 축이 손바닥 쪽인지 손등 쪽인지는 **알 필요가 없다**. 쉬는 자세와 인식한
+   * 자세를 똑같은 방법으로 재서 그 사이의 회전만 쓰기 때문에, 어느 쪽으로
+   * 잡든 상쇄된다. 예전에는 여기서 오른손만 축을 뒤집었는데, 그 추측이
+   * 모델의 실제 바인드 자세와 어긋나면 손의 앞뒤가 뒤집혀 보였다.
+   */
   private palmQuat(
     wrist: THREE.Vector3,
     middleMcp: THREE.Vector3,
     indexMcp: THREE.Vector3,
     pinkyMcp: THREE.Vector3,
-    isRight: boolean,
     out: THREE.Quaternion
   ) {
     this.fwd.subVectors(middleMcp, wrist).normalize();
     this.side.subVectors(indexMcp, pinkyMcp).normalize();
     this.up.crossVectors(this.fwd, this.side).normalize();
-    // fwd × side 는 오른손이면 손바닥 쪽을 향한다. 손등 바깥쪽으로 뒤집어 준다.
-    if (isRight) this.up.negate();
     if (this.up.lengthSq() < 1e-8) this.up.set(0, 1, 0);
     this.tmpV.copy(wrist).addScaledVector(this.fwd, 1); // -Z 가 손끝을 보게
     this.tmpM.lookAt(wrist, this.tmpV, this.up);
@@ -180,7 +188,20 @@ export class RiggedHand {
         const idxMcp = bindPos.get("index-finger-phalanx-proximal")!;
         const pkyMcp = bindPos.get("pinky-finger-phalanx-proximal")!;
         const restPalmQuat = new THREE.Quaternion();
-        this.palmQuat(wrist, midMcp, idxMcp, pkyMcp, side === "right", restPalmQuat);
+        this.palmQuat(wrist, midMcp, idxMcp, pkyMcp, restPalmQuat);
+        const restWristQuat = bindQuat.get("wrist")!.clone();
+
+        // 뼈가 제 기준으로 어느 쪽을 가리키는지 — 축 이름을 짐작하지 않고 잰다
+        const restAim = new Map<string, THREE.Vector3>();
+        for (const { bone, from } of JOINTS) {
+          if (from === undefined) continue;
+          const child = JOINTS.find((j) => j.parent === bone);
+          const a = bindPos.get(bone);
+          const b = child && bindPos.get(child.bone);
+          const q = bindQuat.get(bone);
+          if (!a || !b || !q) continue;
+          restAim.set(bone, b.clone().sub(a).normalize().applyQuaternion(q.clone().invert()));
+        }
 
         // 뼈마다 쓸 자리를 미리 만들어 둔다
         for (const { bone } of JOINTS) {
@@ -196,6 +217,8 @@ export class RiggedHand {
           restOffset,
           restLocalQuat,
           restPalmQuat,
+          restWristQuat,
+          restAim,
           restSpan: wrist.distanceTo(midMcp) || 1,
         };
       })
@@ -227,10 +250,17 @@ export class RiggedHand {
     this.scale = this.scale === 0 ? want : this.scale + (want - this.scale) * SCALE_EASE;
     const scale = this.scale;
 
-    // 손목 — 여기서부터 아래로 뻗어 나간다
-    this.palmQuat(joints[0], joints[9], joints[5], joints[17], which === "right", this.palm);
+    // 손목 — 여기서부터 아래로 뻗어 나간다.
+    // 인식한 자세를 그대로 넣지 않고, **쉬는 자세에서 여기까지 온 회전**을
+    // 모델의 바인드 손목에 얹는다. 그래야 쉬는 자세를 그대로 보여 줄 때
+    // 모델 원본과 정확히 겹치고, 손의 앞뒤가 모델이 가진 대로 나온다.
+    this.palmQuat(joints[0], joints[9], joints[5], joints[17], this.palm);
     this.worldPos.get("wrist")!.copy(joints[0]);
-    this.worldQuat.get("wrist")!.copy(this.palm);
+    this.worldQuat
+      .get("wrist")!
+      .copy(this.palm)
+      .multiply(this.tmpQ.copy(hand.restPalmQuat).invert())
+      .multiply(hand.restWristQuat);
 
     for (const j of JOINTS) {
       const bone = hand.bones.get(j.bone);
@@ -246,22 +276,24 @@ export class RiggedHand {
         const pos = this.worldPos.get(j.bone)!;
         pos.copy(off).multiplyScalar(scale).applyQuaternion(pQuat).add(pPos);
 
-        // 방향 — 인식한 손이 가리키는 쪽. 방향을 안 받는 뼈는 부모를 따라 돈다.
+        // 먼저 부모를 그대로 따라 도는 자세를 만든다. 방향을 안 받는 뼈
+        // (손등뼈·손끝)는 이걸 그대로 쓴다.
         const quat = this.worldQuat.get(j.bone)!;
-        let aimed = false;
-        if (j.from !== undefined && j.to !== undefined) {
+        const rest = hand.restLocalQuat.get(j.bone);
+        if (rest) quat.copy(pQuat).multiply(rest);
+        else quat.copy(pQuat);
+
+        // 방향을 받는 뼈는 여기서 **가리키는 쪽만** 인식한 손 쪽으로 돌린다.
+        // 축을 새로 세우지 않고 최소 회전만 얹으므로, 손가락이 제멋대로
+        // 비틀리지 않고 롤은 부모에게서 물려받는다.
+        const aim = hand.restAim.get(j.bone);
+        if (aim && j.from !== undefined && j.to !== undefined) {
           this.tmpV.subVectors(joints[j.to], joints[j.from]);
           if (this.tmpV.lengthSq() > 1e-12) {
-            this.tmpV.add(pos); // pos 에서 그 방향으로 바라보게
-            this.tmpM.lookAt(pos, this.tmpV, this.up);
-            quat.setFromRotationMatrix(this.tmpM);
-            aimed = true;
+            this.tmpV.normalize();
+            this.side.copy(aim).applyQuaternion(quat); // 지금 가리키는 쪽
+            quat.premultiply(this.tmpQ.setFromUnitVectors(this.side, this.tmpV));
           }
-        }
-        if (!aimed) {
-          const rest = hand.restLocalQuat.get(j.bone);
-          if (rest) quat.copy(pQuat).multiply(rest);
-          else quat.copy(pQuat);
         }
       }
 
