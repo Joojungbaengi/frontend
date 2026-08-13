@@ -138,16 +138,17 @@ export class HandTracker {
 }
 
 /**
- * MediaPipe 가 알려주는 좌우를 **사용자 기준**으로 뒤집는다.
+ * MediaPipe 가 알려주는 좌우를 그대로 쓴다.
  *
- * MediaPipe 는 셀피(전면) 카메라처럼 좌우가 뒤집힌 화면을 가정하고 판정한다.
- * 우리는 후면 카메라를 쓰므로 화면이 뒤집혀 있지 않고, 그래서 알려준 값의 반대가
- * 실제 사용자의 손이다.
+ * 문서상으로는 셀피(전면) 카메라처럼 좌우가 뒤집힌 화면을 가정한 판정이라
+ * 후면 카메라에서는 뒤집어야 할 것 같지만, 실기에서 확인해 보니 뒤집으면
+ * 오른손이 왼손 모델로 나왔다. 그래서 알려준 값을 그대로 쓴다.
  *
- * 실기에서 손이 반대로 서면 이 함수의 좌우만 바꾸면 된다.
+ * **손이 반대로 서면 이 함수의 "Left"/"right" 두 줄만 맞바꾸면 된다.**
+ * 좌우 모델이 따로 있어서 어느 쪽이 틀렸는지 화면에서 바로 보인다.
  */
 function readHandedness(name?: string): "left" | "right" | null {
-  if (name === "Left") return "right";
-  if (name === "Right") return "left";
+  if (name === "Left") return "left";
+  if (name === "Right") return "right";
   return null;
 }

@@ -84,21 +84,14 @@ export function screenDist(a: { x: number; y: number }, b: { x: number; y: numbe
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** 그림자를 손에서 얼마나 어긋나게 놓을지 (손 너비 대비) */
-const SHADOW_OFFSET = 0.12;
-
 export class HandVisual {
   /** 장갑 손 씬 — 그림자 패스에도 같은 지오메트리를 재사용한다 */
   private readonly handScene = new THREE.Scene();
-  /** 집는 지점 고리 — 손까지 다 그린 뒤 맨 위에 얹는다 */
-  private readonly cursorScene = new THREE.Scene();
   private glove: GloveHand;
   private rigged = new RiggedHand();
-  private shadowMat: THREE.MeshBasicMaterial;
   private cursor: THREE.Mesh;
   /** 21개 관절의 월드 좌표 */
   private joints: THREE.Vector3[] = Array.from({ length: 21 }, () => new THREE.Vector3());
-  private shadowShift = new THREE.Vector3();
   private camRight = new THREE.Vector3();
   private camUp = new THREE.Vector3();
   private camFwd = new THREE.Vector3();
@@ -136,15 +129,6 @@ export class HandVisual {
     this.handScene.add(this.glove.group);
     this.handScene.add(this.rigged.group);
 
-    // 그림자 패스에서 손 전체를 이 재질로 덮어쓴다 (지오메트리를 두 벌 만들지 않으려고)
-    this.shadowMat = new THREE.MeshBasicMaterial({
-      color: 0x140d06,
-      transparent: true,
-      opacity: 0.3,
-      depthTest: false, // 에셋 위로 그림자가 지게
-      depthWrite: false,
-    });
-
     this.handScene.add(new THREE.HemisphereLight(0xfff6e6, 0x4a3a28, 1.1));
     const key = new THREE.DirectionalLight(0xfff4e2, 2.3);
     key.position.set(0.4, 1, 0.8);
@@ -162,7 +146,8 @@ export class HandVisual {
       })
     );
     this.cursor.frustumCulled = false;
-    this.cursorScene.add(this.cursor);
+    // 고리도 같은 씬에 둔다 — 씬을 나누면 그릴 때마다 XR 이 카메라를 다시 세팅해 비싸다
+    this.handScene.add(this.cursor);
     this.handScene.visible = false;
   }
 
@@ -204,26 +189,18 @@ export class HandVisual {
     this.pinchScreen.y = ps.y;
     screenToWorld(ps.x, ps.y, HAND_DRAW_DEPTH, camera, this.pinchWorld);
 
-    // 손 크기 — 그림자를 얼마나 밀지, 집는 고리를 얼마나 키울지의 기준
+    // 손 크기 — 집는 고리를 얼마나 키울지의 기준
     const worldSpan = this.joints[LM.WRIST].distanceTo(this.joints[LM.MIDDLE_MCP]);
 
     // 모델이 도착했으면 그걸 쓰고, 아직이면 코드로 그린 손을 쓴다
     if (this.rigged.loaded) {
-      // 모델은 오른손이다 (바인드 포즈에서 인식 좌표와 맞춰 확인했다).
-      // 왼손이면 손가락 축을 기준으로 반 바퀴 돌려 쓴다.
-      this.rigged.update(this.joints, frame.handedness === "left");
+      // 왼손·오른손 모델이 따로 있어 프레임의 좌우 정보만 넘기면 된다
+      this.rigged.update(this.joints, frame);
       this.glove.group.visible = false;
     } else {
       this.glove.update(this.joints, worldSpan);
       this.glove.group.visible = true;
     }
-
-    // 그림자는 화면 기준 오른쪽 아래로 어긋나게 — 손이 떠 있는 것처럼 보인다
-    camera.matrixWorld.extractBasis(this.camRight, this.camUp, this.camFwd);
-    this.shadowShift
-      .copy(this.camRight)
-      .multiplyScalar(worldSpan * SHADOW_OFFSET)
-      .addScaledVector(this.camUp, -worldSpan * SHADOW_OFFSET);
 
     this.cursor.position.copy(this.pinchWorld);
     this.cursor.quaternion.copy(camera.quaternion); // 항상 화면을 마주보게
@@ -236,30 +213,16 @@ export class HandVisual {
 
   /**
    * 손을 그린다. 엔진이 무대(L1)를 그린 뒤에 부른다.
-   * 그림자 → 깊이 비우기 → 손 → 고리 순으로, 세 패스가 이 안에서 끝난다.
+   *
+   * 깊이만 비우고 **한 번에** 그린다. 예전에는 그림자까지 얹느라 한 프레임에 손을
+   * 세 번 그렸는데, XR 세션에서는 render() 를 부를 때마다 카메라를 다시 세우기 때문에
+   * 그 비용이 그대로 프레임 저하로 돌아왔다. 손 인식이 렌더 루프에 물려 있어서
+   * 프레임이 떨어지면 집기·주먹 판정까지 같이 둔해진다.
    */
   render(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
     if (!this.handScene.visible) return;
-
-    // 지금 쓰는 손 (모델 / 코드로 그린 것) 을 통째로 옮겨 그림자를 만든다
-    const hand = this.rigged.loaded ? this.rigged.group : this.glove.group;
-    const home = hand.position.clone();
-
-    // 1) 그림자 — 같은 손을 어둡게, 살짝 어긋나게. 에셋 위에 드리운다.
-    hand.position.add(this.shadowShift);
-    hand.updateMatrixWorld(true);
-    this.handScene.overrideMaterial = this.shadowMat;
+    renderer.clearDepth(); // 여기부터는 무대보다 앞
     renderer.render(this.handScene, camera);
-
-    // 2) 손 — 깊이를 비우고 그려 항상 에셋 위. 손가락끼리는 제대로 가려진다.
-    hand.position.copy(home);
-    hand.updateMatrixWorld(true);
-    this.handScene.overrideMaterial = null;
-    renderer.clearDepth();
-    renderer.render(this.handScene, camera);
-
-    // 3) 집는 고리
-    renderer.render(this.cursorScene, camera);
   }
 
   hide() {
@@ -269,8 +232,7 @@ export class HandVisual {
   dispose() {
     this.glove.dispose();
     this.rigged.dispose();
-    this.shadowMat.dispose();
-    for (const sc of [this.handScene, this.cursorScene]) {
+    for (const sc of [this.handScene]) {
       sc.traverse((o: THREE.Object3D) => {
         const mesh = o as THREE.Mesh;
         mesh.geometry?.dispose?.();
