@@ -195,7 +195,7 @@ export class HandVisual {
     // 모델이 도착했으면 그걸 쓰고, 아직이면 코드로 그린 손을 쓴다
     if (this.rigged.loaded) {
       // 왼손·오른손 모델이 따로 있어 프레임의 좌우 정보만 넘기면 된다
-      this.rigged.update(this.joints, frame);
+      this.rigged.update(this.joints, frame, camera);
       this.glove.group.visible = false;
     } else {
       this.glove.update(this.joints, worldSpan);

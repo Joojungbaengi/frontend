@@ -91,6 +91,12 @@ interface Loaded {
   restAim: Map<string, THREE.Vector3>;
   /** 쉬는 자세의 손목~중지너클 길이 — 크기 맞추는 기준 */
   restSpan: number;
+  /**
+   * 이 모델이 왼손인지 오른손인지를 **부호 하나로** 잰 값.
+   * 오른손과 왼손은 거울상이라 이 부호가 반대다. 인식한 손에서 같은 값을
+   * 재서 부호가 맞는 모델을 고르면, 좌우 판정이 틀려도 손 모양이 뒤집히지 않는다.
+   */
+  restChirality: number;
 }
 
 export class RiggedHand {
@@ -112,9 +118,40 @@ export class RiggedHand {
   private fwd = new THREE.Vector3();
   private side = new THREE.Vector3();
   private up = new THREE.Vector3();
+  private camQuat = new THREE.Quaternion();
+  private viewDir = new THREE.Vector3();
+  /** 인식한 손의 3D 자세를 월드 좌표로 옮겨 담는 곳 */
+  private pose: THREE.Vector3[] = Array.from({ length: 21 }, () => new THREE.Vector3());
 
   get loaded() {
     return Boolean(this.hands.right || this.hands.left);
+  }
+
+  /**
+   * 손의 좌우를 부호로 잰다. 손바닥 법선과 엄지가 같은 쪽이면 +, 반대면 -.
+   * 거울상인 두 손은 반드시 반대 부호가 나온다.
+   */
+  /**
+   * 오른손이면 +1, 왼손이면 -1.
+   *
+   * 오른손을 손바닥이 보이게 세우면 검지가 새끼보다 왼쪽에 온다. 그래서
+   * (손목→중지너클) × (검지너클→새끼너클) 은 손바닥 바깥을 향하고, 엄지도
+   * 손바닥 쪽에 있으므로 둘의 내적이 양수가 된다. 왼손은 거울상이라 반대다.
+   * 자세와 무관한 값이라 주먹을 쥐든 손을 뒤집든 부호는 그대로다.
+   */
+  private chirality(
+    wrist: THREE.Vector3,
+    middleMcp: THREE.Vector3,
+    indexMcp: THREE.Vector3,
+    pinkyMcp: THREE.Vector3,
+    thumb: THREE.Vector3
+  ): number {
+    this.fwd.subVectors(middleMcp, wrist);
+    this.side.subVectors(indexMcp, pinkyMcp);
+    this.up.crossVectors(this.fwd, this.side);
+    this.tmpV.subVectors(thumb, wrist);
+    const d = this.up.dot(this.tmpV);
+    return d > 0 ? 1 : d < 0 ? -1 : 0;
   }
 
   /**
@@ -147,6 +184,8 @@ export class RiggedHand {
     await Promise.all(
       (["right", "left"] as const).map(async (side) => {
         const gltf = await loader.loadAsync(MODEL[side]);
+        // 파일 이름이 아니라 **모델을 재서** 어느 손인지 정한다.
+        // 실제로 이 두 파일은 이름과 반대 손이 들어 있었다.
         const root = gltf.scene;
         const bones = new Map<string, THREE.Bone>();
         root.traverse((o) => {
@@ -190,6 +229,9 @@ export class RiggedHand {
         const restPalmQuat = new THREE.Quaternion();
         this.palmQuat(wrist, midMcp, idxMcp, pkyMcp, restPalmQuat);
         const restWristQuat = bindQuat.get("wrist")!.clone();
+        const restChirality = this.chirality(
+          wrist, midMcp, idxMcp, pkyMcp, bindPos.get("thumb-phalanx-proximal")!
+        );
 
         // 뼈가 제 기준으로 어느 쪽을 가리키는지 — 축 이름을 짐작하지 않고 잰다
         const restAim = new Map<string, THREE.Vector3>();
@@ -211,7 +253,7 @@ export class RiggedHand {
           }
         }
 
-        this.hands[side] = {
+        this.hands[restChirality > 0 ? "right" : "left"] = {
           root,
           bones,
           restOffset,
@@ -219,6 +261,7 @@ export class RiggedHand {
           restPalmQuat,
           restWristQuat,
           restAim,
+          restChirality,
           restSpan: wrist.distanceTo(midMcp) || 1,
         };
       })
@@ -226,14 +269,75 @@ export class RiggedHand {
   }
 
   /**
-   * 인식한 관절 위치(월드 좌표)에 손을 맞춘다.
-   * @param joints 21개 관절의 월드 좌표
-   * @param frame 좌우 정보를 쓴다
+   * 인식한 손의 **실제 3D 자세**를 월드 좌표로 옮겨 this.pose 에 담는다.
+   *
+   * 화면 좌표(joints)는 카메라에서 같은 거리에 놓이므로 손이 납작해진다.
+   * 납작한 손에는 뼈 길이가 정해진 모델을 맞출 수 없고(손가락이 남거나 모자란다),
+   * 손등이 보이는지 손바닥이 보이는지도 알 수 없다. 그래서 모양은 미터 좌표에서
+   * 가져오고, **화면 어디에 얼마만 하게** 그릴지만 화면 좌표에서 가져온다.
+   *
+   * @returns 3D 자세를 쓸 수 있으면 true, 미터 좌표가 없어 납작하게 갔으면 false
    */
-  update(joints: THREE.Vector3[], frame: HandFrame) {
-    const which = frame.handedness ?? "right";
+  private buildPose(joints: THREE.Vector3[], frame: HandFrame, camera: THREE.Camera): boolean {
+    const w = frame.world;
+    if (!w || w.length < 21) {
+      for (let i = 0; i < 21; i++) this.pose[i].copy(joints[i]);
+      return false;
+    }
+
+    // MediaPipe 축(x 오른쪽, y 아래, z 카메라에서 먼 쪽) → three.js 카메라 축.
+    // 두 축을 뒤집으므로 좌우가 바뀌지 않는다 (거울이 되면 손이 뒤집힌다).
+    // 기기에서 손이 통째로 거울처럼 나오면 고칠 곳은 이 한 줄이다.
+    camera.getWorldQuaternion(this.camQuat);
+    for (let i = 0; i < 21; i++) {
+      this.pose[i].set(w[i].x, -w[i].y, -w[i].z).applyQuaternion(this.camQuat);
+    }
+
+    // 손목을 원점으로 옮긴다
+    this.tmpV.copy(this.pose[0]);
+    for (let i = 0; i < 21; i++) this.pose[i].sub(this.tmpV);
+
+    // 화면에 비치는 크기에 맞춘다. 손이 기울어 있으면 화면에서는 짧아 보이므로
+    // 시선 방향 성분을 뺀 길이로 견줘야 크기가 튀지 않는다.
+    camera.getWorldDirection(this.viewDir);
+    this.fwd.copy(this.pose[9]);
+    this.fwd.addScaledVector(this.viewDir, -this.fwd.dot(this.viewDir));
+    const flat = this.fwd.length();
+    const seen = joints[0].distanceTo(joints[9]);
+    if (flat < 1e-5 || seen < 1e-6) {
+      for (let i = 0; i < 21; i++) this.pose[i].copy(joints[i]);
+      return false;
+    }
+    const k = seen / flat;
+    for (let i = 0; i < 21; i++) this.pose[i].multiplyScalar(k).add(joints[0]);
+    return true;
+  }
+
+  /**
+   * 인식한 손에 3D 모델을 맞춘다.
+   * @param joints 21개 관절의 화면 기준 월드 좌표 — 어디에 그릴지
+   * @param frame 미터 좌표와 좌우 정보
+   * @param camera 미터 좌표를 월드로 돌리는 데 쓴다
+   */
+  update(joints: THREE.Vector3[], frame: HandFrame, camera: THREE.Camera) {
+    if (joints.length < 21) return;
+    const spatial = this.buildPose(joints, frame, camera);
+
+    // 어느 손 모델인지 — 인식한 손에서 직접 잰다. MediaPipe 의 좌우 표기는
+    // 영상이 거울인지에 따라 뒤집히지만, 이 부호는 손 모양 자체에서 나오므로
+    // 표기가 틀려도 화면에 보이는 손과 어긋나지 않는다.
+    let which: "left" | "right" = frame.handedness ?? "right";
+    if (spatial) {
+      const c = this.chirality(this.pose[0], this.pose[9], this.pose[5], this.pose[17], this.pose[2]);
+      if (c !== 0) {
+        for (const sd of ["right", "left"] as const) {
+          if (this.hands[sd] && this.hands[sd]!.restChirality === c) which = sd;
+        }
+      }
+    }
+
     const hand = this.hands[which] ?? this.hands.right ?? this.hands.left;
-    if (!hand || joints.length < 21) return;
+    if (!hand) return;
 
     if (this.shown !== which) {
       for (const s of ["left", "right"] as const) {
@@ -244,7 +348,7 @@ export class RiggedHand {
     }
 
     // 손 크기 — 갑자기 튀지 않게 조금씩 따라간다
-    const span = joints[0].distanceTo(joints[9]);
+    const span = this.pose[0].distanceTo(this.pose[9]);
     if (span < 1e-6) return;
     const want = span / hand.restSpan;
     this.scale = this.scale === 0 ? want : this.scale + (want - this.scale) * SCALE_EASE;
@@ -254,8 +358,8 @@ export class RiggedHand {
     // 인식한 자세를 그대로 넣지 않고, **쉬는 자세에서 여기까지 온 회전**을
     // 모델의 바인드 손목에 얹는다. 그래야 쉬는 자세를 그대로 보여 줄 때
     // 모델 원본과 정확히 겹치고, 손의 앞뒤가 모델이 가진 대로 나온다.
-    this.palmQuat(joints[0], joints[9], joints[5], joints[17], this.palm);
-    this.worldPos.get("wrist")!.copy(joints[0]);
+    this.palmQuat(this.pose[0], this.pose[9], this.pose[5], this.pose[17], this.palm);
+    this.worldPos.get("wrist")!.copy(this.pose[0]);
     this.worldQuat
       .get("wrist")!
       .copy(this.palm)
@@ -288,7 +392,7 @@ export class RiggedHand {
         // 비틀리지 않고 롤은 부모에게서 물려받는다.
         const aim = hand.restAim.get(j.bone);
         if (aim && j.from !== undefined && j.to !== undefined) {
-          this.tmpV.subVectors(joints[j.to], joints[j.from]);
+          this.tmpV.subVectors(this.pose[j.to], this.pose[j.from]);
           if (this.tmpV.lengthSq() > 1e-12) {
             this.tmpV.normalize();
             this.side.copy(aim).applyQuaternion(quat); // 지금 가리키는 쪽

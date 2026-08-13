@@ -41,6 +41,15 @@ export interface HandFrame {
   present: boolean;
   /** 21개 랜드마크 (화면 정규화, 스무딩 적용됨) */
   landmarks: Landmark[];
+  /**
+   * 21개 랜드마크의 **실제 3D 좌표** (미터, 손 중심이 원점).
+   * MediaPipe 기준 축 그대로 — x 오른쪽, y 아래, z 카메라에서 멀어지는 쪽.
+   *
+   * 화면 좌표만으로는 손이 납작해져서, 뼈 길이가 정해진 3D 모델을 거기에
+   * 맞출 수가 없다. 손등이 보이는지 손바닥이 보이는지도 알 수 없다.
+   * 손 모양은 이 값에서 가져오고, 화면 어디에 그릴지만 landmarks 로 정한다.
+   */
+  world: Landmark[];
   /** 엄지-검지 끝의 중점 — "집는 지점" (화면 정규화) */
   pinchPoint: { x: number; y: number };
   /** 0(활짝 폄) ~ 1(완전히 붙임). 히스테리시스 판정 전의 연속값 */
@@ -65,6 +74,7 @@ export function emptyHandFrame(): HandFrame {
   return {
     present: false,
     landmarks: [],
+    world: [],
     pinchPoint: { x: 0.5, y: 0.5 },
     pinch: 0,
     pinching: false,

@@ -88,6 +88,7 @@ export class HandTracker {
       // 두세 프레임 놓친 정도로 손을 지우면 잡고 있던 물건이 뚝 떨어진다. 조금 버틴다.
       if (++this.missStreak >= 4 && this.frame.present) {
         this.gesture.reset();
+        this.worldEma = null;
         this.frame = emptyHandFrame();
       }
       return;
@@ -95,6 +96,7 @@ export class HandTracker {
     this.missStreak = 0;
 
     const landmarks = this.gesture.smooth(raw);
+    const smoothWorld = this.smoothWorld(world);
     const ratio = pinchRatio(world);
     const { pinching, justPinched, justReleased } = this.gesture.updatePinch(ratio);
 
@@ -109,6 +111,7 @@ export class HandTracker {
     this.frame = {
       present: true,
       landmarks,
+      world: smoothWorld,
       pinchPoint: { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 },
       pinch: pinchAmount(ratio),
       pinching,
@@ -117,6 +120,26 @@ export class HandTracker {
       screenSpan: screenSpan(landmarks),
       handedness: readHandedness(res.handedness?.[0]?.[0]?.categoryName),
     };
+  }
+
+  /**
+   * 실제 3D 좌표도 떨림을 걷어낸다. 여기가 흔들리면 손 전체가 덜덜 떤다.
+   * 화면 좌표와 달리 잡는 판정에 쓰지 않으므로 조금 더 세게 눌러도 된다.
+   */
+  private worldEma: Landmark[] | null = null;
+  private smoothWorld(w: Landmark[]): Landmark[] {
+    const A = 0.5;
+    if (!this.worldEma || this.worldEma.length !== w.length) {
+      this.worldEma = w.map((p) => ({ ...p }));
+    } else {
+      for (let i = 0; i < w.length; i++) {
+        const e = this.worldEma[i];
+        e.x += (w[i].x - e.x) * A;
+        e.y += (w[i].y - e.y) * A;
+        e.z += (w[i].z - e.z) * A;
+      }
+    }
+    return this.worldEma.map((p) => ({ ...p }));
   }
 
   /**
@@ -138,14 +161,12 @@ export class HandTracker {
 }
 
 /**
- * MediaPipe 가 알려주는 좌우를 그대로 쓴다.
+ * MediaPipe 가 알려주는 좌우. 셀피(전면) 카메라처럼 좌우가 뒤집힌 화면을
+ * 가정한 판정이라 후면 카메라에서는 맞지 않을 수 있다.
  *
- * 문서상으로는 셀피(전면) 카메라처럼 좌우가 뒤집힌 화면을 가정한 판정이라
- * 후면 카메라에서는 뒤집어야 할 것 같지만, 실기에서 확인해 보니 뒤집으면
- * 오른손이 왼손 모델로 나왔다. 그래서 알려준 값을 그대로 쓴다.
- *
- * **손이 반대로 서면 이 함수의 "Left"/"right" 두 줄만 맞바꾸면 된다.**
- * 좌우 모델이 따로 있어서 어느 쪽이 틀렸는지 화면에서 바로 보인다.
+ * 그래서 **어느 손 모델을 쓸지는 이 값으로 정하지 않는다.** 손 모양 자체에서
+ * 잰 부호(riggedHand 의 chirality)로 고른다 — 이 표기가 틀려도 화면에 보이는
+ * 손과 어긋나지 않게 하려는 것이다. 이 값은 미터 좌표가 없을 때의 예비용이다.
  */
 function readHandedness(name?: string): "left" | "right" | null {
   if (name === "Left") return "left";
