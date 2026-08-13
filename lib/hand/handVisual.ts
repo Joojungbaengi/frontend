@@ -197,6 +197,16 @@ export class HandVisual {
       // 왼손·오른손 모델이 따로 있어 프레임의 좌우 정보만 넘기면 된다
       this.rigged.update(this.joints, frame, camera);
       this.glove.group.visible = false;
+
+      // 집는 지점을 **모델의 실제 손끝**으로 옮긴다.
+      // 인식 좌표는 손을 납작하게 편 값이라 3D 자세로 선 손끝과 어긋난다.
+      // 그대로 두면 고리가 손에서 뚝 떨어져 잡는 느낌이 사라진다.
+      const t = this.rigged.jointAt("thumb-tip");
+      const i = this.rigged.jointAt("index-finger-tip");
+      if (t && i) {
+        this.pinchWorld.addVectors(t, i).multiplyScalar(0.5);
+        worldToScreen(this.pinchWorld, camera, this.pinchScreen);
+      }
     } else {
       this.glove.update(this.joints, worldSpan);
       this.glove.group.visible = true;

@@ -128,6 +128,14 @@ export class RiggedHand {
   }
 
   /**
+   * 마지막으로 세운 뼈의 월드 위치. 집는 고리를 **눈에 보이는 손끝**에
+   * 붙이려고 연다 — 인식 좌표에 붙이면 3D 자세와 어긋나 손에서 떨어진다.
+   */
+  jointAt(bone: string): THREE.Vector3 | undefined {
+    return this.worldPos.get(bone);
+  }
+
+  /**
    * 손의 좌우를 부호로 잰다. 손바닥 법선과 엄지가 같은 쪽이면 +, 반대면 -.
    * 거울상인 두 손은 반드시 반대 부호가 나온다.
    */
