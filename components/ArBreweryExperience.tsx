@@ -17,6 +17,7 @@ import Link from "next/link";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
 import { HandTracker } from "@/lib/hand/handTracker";
@@ -174,6 +175,29 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       buildStageFor(next);
     }
 
+    /* =========================================================
+    * TEMP DEBUG — 출고 직전으로 바로 이동
+    * 나중에 삭제
+    * ======================================================= */
+    function debugSkipToBeforeShip() {
+      S.placed = true;
+      anchor.visible = true;
+
+      // 완성 공정의 마지막 바로 전 단계
+      S.press = Math.max(0, PRESS_STEPS.length - 2);
+
+      setStep("done");
+
+      finishShowShip?.();
+
+      console.log(
+        "[DEBUG] 출고 직전으로 이동",
+        S.press,
+        "/",
+        PRESS_STEPS.length - 1
+      );
+    }
+
     /* =====================================================================
      * 1. 렌더러 / 씬
      * ===================================================================*/
@@ -181,7 +205,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 0.9; //임시로 1.05에서 내림
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.xr.enabled = true;
@@ -189,6 +213,25 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     renderer.autoClear = false;
 
     const scene = new THREE.Scene();
+    
+    /* ─────────────────────────────────────
+     * PBR 환경광
+     * GLB의 metalness / roughness 재질이
+     * 단순 조명만 받을 때 플라스틱처럼 보이는 문제를 완화
+     * ───────────────────────────────────── */
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const roomEnvironment = new RoomEnvironment();
+
+    const envMap = pmremGenerator.fromScene(
+      roomEnvironment,
+      0.04
+    ).texture;
+
+    scene.environment = envMap;
+
+    roomEnvironment.dispose();
+    pmremGenerator.dispose();
+
     const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 40);
     camera.position.set(0, 0.42, 0.95);
 
@@ -204,11 +247,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     controls.minPolarAngle = Math.PI * 0.06; // 거의 수직에서 내려다보는 각도까지
     controls.maxPolarAngle = Math.PI * 0.49; // 바닥 아래로는 내려가지 않게
 
-    scene.add(new THREE.HemisphereLight(0xdfe8e0, 0x1b2118, 1.15));
-    const keyLight = new THREE.DirectionalLight(0xfff2d8, 1.9);
+    scene.add(new THREE.HemisphereLight(0xe8eee9, 0x3b4037, 0.75)); //0xdfe8e0, 0x1b2118, 1.15
+    const keyLight = new THREE.DirectionalLight(0xfff2df, 1.25); //0xfff2d8, 1.9
     keyLight.position.set(0.9, 1.6, 0.7);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(1024, 1024);
+
+    keyLight.shadow.bias = -0.00015;
+    keyLight.shadow.normalBias = 0.02;
+
     keyLight.shadow.camera.near = 0.1;
     keyLight.shadow.camera.far = 6;
     keyLight.shadow.camera.left = -1.2;
@@ -216,7 +263,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     keyLight.shadow.camera.top = 1.2;
     keyLight.shadow.camera.bottom = -1.2;
     scene.add(keyLight);
-    const rim = new THREE.PointLight(0xc2452f, 2.2, 3);
+    const rim = new THREE.PointLight(0xc76a54, 0.8, 3); //0xc2452f, 2.2, 3
     rim.position.set(-0.7, 0.5, -0.5);
     scene.add(rim);
 
@@ -1130,6 +1177,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     function buildFinish() {
       const platformTop = addPlatform();
       const contentY = platformContentY(platformTop);
+
+      /* ─────────────────────────────────────
+       * Contact Shadow
+       * 병이 실제 바닥에 닿아 있다는 느낌
+       * 병 크기에 따라 0.17을 조절하여 그림자를 조절한다.
+       * ───────────────────────────────────── */
+      const contactShadow = new THREE.Mesh(
+        new THREE.CircleGeometry(0.17, 48),
+        new THREE.ShadowMaterial({
+          color: 0x000000,
+          opacity: 0.28,
+        })
+      );
+      contactShadow.rotation.x = -Math.PI / 2;
+      /*
+       * 정확히 표면과 겹치면 z-fighting이 생길 수 있으므로
+       * 1mm 정도 위에 둔다.
+       */
+      contactShadow.position.set(0, contentY + 0.001, 0);
+      contactShadow.receiveShadow = true;
+      stageGroup.add(contactShadow);
+
       placeModelsForStep("done", stageGroup, platformTop);
       const bottle = new THREE.Group();
       const body = new THREE.Mesh(
@@ -1166,6 +1235,24 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (FINISH_MODEL) {
         const node = spawnModel(FINISH_MODEL);
         if (node) {
+          /* GLB 전체에 shadow 적용 */
+          node.traverse((obj) => {
+            if (!(obj instanceof THREE.Mesh)) return;
+
+            obj.castShadow = true;
+            obj.receiveShadow = true;
+
+            const material = obj.material;
+
+            if (Array.isArray(material)) {
+              material.forEach((mat) => {
+                mat.needsUpdate = true;
+              });
+            } else if (material) {
+              material.needsUpdate = true;
+            }
+          });
+
           const g = new THREE.Group();
           g.position.set(0, platformTop + FINISH_MODEL.y, 0);
           g.add(node);
@@ -1181,13 +1268,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         bottle.visible = shipModel ? !shipped : true; // 제품이 뜨면 임시 병은 숨긴다
       };
       finishShowShip();
-
+     
+      /*
       const sparks = makeParticles(90, {
         color: 0xffe9b8, size: 0.011, opacity: 0.75, speed: 0.2,
         radius: 0.22, baseY: contentY + 0.05, height: 0.45, taper: -0.3,
       });
       stageGroup.add(sparks);
       live.particles.push(sparks);
+      */
 
       live.tick = () => {
         bottle.rotation.y += 0.006;
@@ -1939,6 +2028,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
     }
 
+    /* =========================================================
+     * TEMP DEBUG — 출고 직전 이동 버튼 연결
+     * 나중에 삭제
+     * ======================================================= */
+    const debugSkipBtn = $("#debug-skip-before-ship");
+
+    if (debugSkipBtn) {
+      (debugSkipBtn as HTMLButtonElement).onclick =
+        debugSkipToBeforeShip;
+    }
+
     /* --- 뒤로 --- */
     const ORDER: (typeof S.step)[] = ["place", "ingredient", "godubap", "ferment", "done"];
     $$("[data-back]").forEach((b) => {
@@ -1995,6 +2095,29 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
       <canvas ref={canvasRef} id="gl" />
+
+      {/* TEMP DEBUG — 개발 완료 후 삭제 */}
+      <button
+        id="debug-skip-before-ship"
+        type="button"
+        style={{
+          position: "absolute",
+          top: 80,
+          right: 12,
+          zIndex: 9999,
+          padding: "8px 12px",
+          borderRadius: 8,
+          border: "1px solid rgba(255,255,255,0.4)",
+          background: "rgba(0,0,0,0.7)",
+          color: "#fff",
+          fontSize: 11,
+          fontWeight: 700,
+        }}
+      >
+        DEV · 출고 직전
+      </button>
+
+
       {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
       <div className="vignette" />
 

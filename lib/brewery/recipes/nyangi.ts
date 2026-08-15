@@ -40,8 +40,8 @@ export const nyangiTakju: Recipe = {
   // 채반이 없을 때 쓸 기본 크기는 3:5(직사각). texture 에 '고두밥' 이미지를 넣는다.
   godubapRicePlane: { texture: "/ar/images/godubap.png", width: 0.18, depth: 0.30, y: 0.055 },
 
-  // 완성 공정 '출고' 단계에서 나타나는 완성 제품 병 (Nyangi.glb 를 아래 경로에 넣어야 보인다)
-  finishModel: { id: "nyangi", file: `${AR_ASSETS}/Nyangi.glb`, step: "done", height: 0.28, y: 0.03 },
+  // 완성 공정 '출고' 단계에서 나타나는 완성 제품 병 (Nyangi_Takju.glb 를 아래 경로에 넣어야 보인다)
+  finishModel: { id: "nyangi", file: `${AR_ASSETS}/Nyangi_Takju.glb`, step: "done", height: 0.28, y: 0.03 },
 
   // ── 공정 ────────────────────────────────────────────────────────────
   // 겹치는 과정은 lib/brewery/stages.ts 에서 가져와 조립한다.
