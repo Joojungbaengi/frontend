@@ -24,6 +24,7 @@ import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type Co
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
+import { TrayPullGesture } from "@/lib/hand/trayPullGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
@@ -75,6 +76,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const REQUIRED_RINSE_TURNS = 3;
     /** 침수 — 이만큼 가만히 두면 다 불었다고 본다 */
     const SOAK_MS = 4500;
+    const trayDebug = new URLSearchParams(window.location.search).get("trayDebug") === "1";
 
     const S = {
       step: "place" as "place" | ArStep,
@@ -257,8 +259,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const gltfLoader = new GLTFLoader();
 
     async function preloadModels() {
+      const extraTrayModel = {
+        id: "metal_tray",
+        file: "/ar/3d-assets/metal_tray.glb",
+        step: "godubap" as const,
+        height: 0.05,
+        y: 0.03,
+      };
       await Promise.all(
-        [...MODELS, ...GODUBAP_MODELS, ...(FINISH_MODEL ? [FINISH_MODEL] : [])].map(async (m) => {
+        [...MODELS, ...GODUBAP_MODELS, ...(trayDebug ? [extraTrayModel] : []), ...(FINISH_MODEL ? [FINISH_MODEL] : [])].map(async (m) => {
           try {
             LOADED[m.id] = await gltfLoader.loadAsync(m.file);
           } catch (e: any) {
@@ -867,6 +876,44 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       glow.position.set(0, 0.2, 0);
       stageGroup.add(glow);
 
+      const trayPullGesture = new TrayPullGesture();
+      let trayDebugGroup: THREE.Group | null = null;
+      let trayDebugMarker: THREE.Mesh | null = null;
+      let trayDebugTarget: THREE.Vector3 | null = null;
+      const trayDebugStart = new THREE.Vector3();
+      const trayDebugPulled = new THREE.Vector3();
+      const trayDebugScreen = { x: 0.5, y: 0.5 };
+
+      if (trayDebug) {
+        const trayDef = { id: "metal_tray", file: "/ar/3d-assets/metal_tray.glb", step: "godubap" as const, height: 0.05, y: 0.03 };
+        const trayNode = spawnModel(trayDef as ModelDef);
+        trayDebugGroup = new THREE.Group();
+        trayDebugGroup.visible = false;
+        if (trayNode) {
+          trayNode.position.set(0, 0, 0);
+          trayDebugGroup.add(trayNode);
+        } else {
+          const fallbackTray = new THREE.Mesh(
+            new THREE.BoxGeometry(0.28, 0.02, 0.35),
+            new THREE.MeshStandardMaterial({ color: 0x8c949e, metalness: 0.8, roughness: 0.35 })
+          );
+          fallbackTray.position.y = 0.01;
+          trayDebugGroup.add(fallbackTray);
+        }
+        trayDebugStart.set(0, platformTop + 0.05, 0);
+        trayDebugPulled.set(0, platformTop + 0.05, -0.2);
+        trayDebugGroup.position.copy(trayDebugStart);
+        stageGroup.add(trayDebugGroup);
+
+        trayDebugTarget = new THREE.Vector3();
+        trayDebugMarker = new THREE.Mesh(
+          new THREE.SphereGeometry(0.015, 12, 12),
+          new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.9 })
+        );
+        trayDebugMarker.visible = false;
+        stageGroup.add(trayDebugMarker);
+      }
+
       const steam = makeParticles(140, {
         color: 0xf2ecdb, size: 0.016, opacity: 0, speed: 0.15,
         radius: 0.1, baseY: 0.24, height: 0.34, taper: 0.55,
@@ -1017,7 +1064,79 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const fan = new FanGesture();
       const stir = new StirGesture();
 
+      const syncTrayDebugPanel = (state: string, handFound: boolean, pinchClosed: boolean, targetNear: boolean, startSpan: number, currentSpan: number, spanRatio: number, progress: number) => {
+        if (!trayDebug) return;
+        const row = $("#tray-debug");
+        if (!row) return;
+        row.classList.remove("hidden");
+        row.innerHTML = `
+          <div><span>HAND</span><b>${handFound ? "FOUND" : "LOST"}</b></div>
+          <div><span>PINCH</span><b>${pinchClosed ? "CLOSED" : "OPEN"}</b></div>
+          <div><span>TARGET</span><b>${targetNear ? "HOVER" : "NONE"}</b></div>
+          <div><span>GRAB</span><b>${state === "GRABBED" || state === "PULLING" || state === "COMPLETE" ? "YES" : "NO"}</b></div>
+          <div><span>START SPAN</span><b>${startSpan.toFixed(3)}</b></div>
+          <div><span>CURRENT SPAN</span><b>${currentSpan.toFixed(3)}</b></div>
+          <div><span>SPAN RATIO</span><b>${spanRatio.toFixed(2)}x</b></div>
+          <div><span>PULL PROGRESS</span><b>${Math.round(progress * 100)}%</b></div>
+          <div><span>STATE</span><b>${state}</b></div>
+          <div><span>RESULT</span><b>${state === "COMPLETE" ? "TRAY PULL OK" : "WAITING"}</b></div>
+        `;
+      };
+
       live.onHand = (f) => {
+        if (trayDebug && coolingActive() && trayDebugGroup) {
+          const trayWorld = trayDebugGroup.getWorldPosition(new THREE.Vector3());
+          worldToScreen(trayWorld, camera, trayDebugScreen);
+          const pullResult = trayPullGesture.update({
+            frame: f,
+            targetScreen: trayDebugScreen,
+            now: performance.now(),
+          });
+
+          trayDebugGroup.visible = true;
+          trayDebugGroup.position.lerpVectors(
+            trayDebugStart,
+            trayDebugPulled,
+            pullResult.state === "COMPLETE" ? 1 : pullResult.progress
+          );
+
+          if (trayDebugMarker && trayDebugTarget) {
+            trayDebugTarget.copy(trayWorld); 
+            trayDebugMarker.position.copy(trayDebugTarget);
+            trayDebugMarker.visible = pullResult.state !== "IDLE" || pullResult.targetNear;
+          }
+
+          syncTrayDebugPanel(
+            pullResult.state,
+            f.present,
+            pullResult.pinchClosed,
+            pullResult.targetNear,
+            pullResult.startSpan,
+            pullResult.currentSpan,
+            pullResult.spanRatio,
+            pullResult.progress
+          );
+
+          if (pullResult.state === "IDLE" && !pullResult.targetNear) {
+            trayDebugGroup.position.copy(trayDebugStart);
+          }
+
+          if (pullResult.state === "COMPLETE" && f.justReleased) {
+            return;
+          }
+
+          if (f.justReleased && pullResult.state !== "COMPLETE") {
+            trayPullGesture.reset();
+            trayDebugGroup.position.copy(trayDebugStart);
+            return;
+          }
+
+          if (pullResult.state === "COMPLETE") {
+            trayDebugGroup.position.copy(trayDebugPulled);
+          }
+          return;
+        }
+
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
         if (rinseActive()) {
           const turns = stir.update(f);
@@ -2039,6 +2158,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       {/* 13 · 고두밥 */}
       <div className="panel-step" id="p-godubap">
+        <div id="tray-debug" className="hidden" style={{ position: "absolute", top: 12, right: 12, zIndex: 10, background: "rgba(15, 23, 42, 0.75)", color: "#e2e8f0", borderRadius: 8, padding: "8px 10px", fontSize: 12, lineHeight: 1.6, minWidth: 180 }} />
         <div className="steps" id="pills" />
         <div className="steps-hint" id="godubap-hint"></div>
         <div className="fill">
