@@ -23,14 +23,14 @@ export const nyangiTakju: Recipe = {
     "이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 가와지쌀·정제수·누룩·밀, 이 네 가지 주원료를 골라 담아보게.",
   ingredientsReady: "이제 고두밥부터 지어 세 번 담글 준비를 하세.",
 
-  // 주원료 4종(essential) + 부재료(선택). 개수가 달라져도 엔진이 essential 개수를 세어 맞춘다.
+  // 실제로 들어가는 네 가지만 놓는다. 안 넣어도 되는 재료를 섞어 두면 무엇으로
+  // 빚는 술인지 보여 주는 자리가 고르는 문제가 되어 버린다.
+  // (엔진은 essential 개수를 세어 맞추므로 술마다 개수가 달라도 된다)
   ingredients: [
-    { id: "rice",   name: "가와지쌀", texture: "/ar/images/rice.png",   essential: true },
-    { id: "water",  name: "정제수",   texture: "/ar/images/water.png",  essential: true },
-    { id: "nuruk",  name: "누룩",     texture: "/ar/images/nuruk.png",  essential: true },
-    { id: "mil",    name: "밀함유",   texture: "/ar/images/mil.png",    essential: true },
-    { id: "flower", name: "국화",     texture: "/ar/images/flower.png", essential: false, flavorNote: "국화를 넣으면 은은한 국화 향이 감돈다네." },
-    { id: "honey",  name: "벌꿀",     texture: "/ar/images/honey.png",  essential: false, flavorNote: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지." },
+    { id: "rice",  name: "가와지쌀", texture: "/ar/images/rice.png",  essential: true },
+    { id: "water", name: "정제수",   texture: "/ar/images/water.png", essential: true },
+    { id: "nuruk", name: "누룩",     texture: "/ar/images/nuruk.png", essential: true },
+    { id: "mil",   name: "밀함유",   texture: "/ar/images/mil.png",   essential: true },
   ],
 
   // 무대 모델은 술끼리 공유한다 (받침대·항아리·그릇, 그리고 고두밥 단계의 솥·채반)
