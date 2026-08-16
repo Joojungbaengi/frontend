@@ -51,7 +51,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * ===================================================================*/
 
     const MODELS = recipe.models;
-    const GODUBAP_MODELS = recipe.godubapModels ?? []; // 고두밥 하위 단계별 무대 모델
+    const trayDebug = new URLSearchParams(window.location.search).get("trayDebug") === "1";
+    const GODUBAP_MODELS = (recipe.godubapModels ?? []).map((m) =>
+      trayDebug && m.id === "metal_food_tray"
+        ? { ...m, id: "metal_tray", file: "/ar/3d-assets/metal_tray.glb" }
+        : m
+    );
+    const GODUBAP_STEPS = (recipe.godubapSteps ?? []).map((step) =>
+      trayDebug && step.models
+        ? { ...step, models: step.models.map((id) => (id === "metal_food_tray" ? "metal_tray" : id)) }
+        : step
+    );
     const FINISH_MODEL = recipe.finishModel;           // 출고 단계 완성 제품 모델
     const INGREDIENTS = recipe.ingredients;
     const ESSENTIALS = INGREDIENTS.filter((i) => i.essential);
@@ -59,7 +69,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const ESS_NAMES = ESSENTIALS.map((i) => i.name).join("·");
     const OPTIMAL_C = recipe.ferment.optimalC;       // 최적 발효 온도
 
-    const GODUBAP_STEPS = recipe.godubapSteps;
     // 핀 개수가 바뀌어도 로직이 따라오도록 하드코딩 대신 길이를 쓴다.
     const GB_N = GODUBAP_STEPS.length;      // 전체 단계 수
     const GB_LAST = GB_N - 1;               // 마지막 단계 인덱스 — 여기서 장인 퀴즈가 뜬다
@@ -76,7 +85,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const REQUIRED_RINSE_TURNS = 3;
     /** 침수 — 이만큼 가만히 두면 다 불었다고 본다 */
     const SOAK_MS = 4500;
-    const trayDebug = new URLSearchParams(window.location.search).get("trayDebug") === "1";
 
     const S = {
       step: "place" as "place" | ArStep,
@@ -259,15 +267,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const gltfLoader = new GLTFLoader();
 
     async function preloadModels() {
-      const extraTrayModel = {
-        id: "metal_tray",
-        file: "/ar/3d-assets/metal_tray.glb",
-        step: "godubap" as const,
-        height: 0.05,
-        y: 0.03,
-      };
       await Promise.all(
-        [...MODELS, ...GODUBAP_MODELS, ...(trayDebug ? [extraTrayModel] : []), ...(FINISH_MODEL ? [FINISH_MODEL] : [])].map(async (m) => {
+        [...MODELS, ...GODUBAP_MODELS, ...(FINISH_MODEL ? [FINISH_MODEL] : [])].map(async (m) => {
           try {
             LOADED[m.id] = await gltfLoader.loadAsync(m.file);
           } catch (e: any) {
@@ -885,7 +886,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const trayDebugScreen = { x: 0.5, y: 0.5 };
 
       if (trayDebug) {
-        const trayDef = { id: "metal_tray", file: "/ar/3d-assets/metal_tray.glb", step: "godubap" as const, height: 0.05, y: 0.03 };
+          const trayDef = GODUBAP_MODELS.find((m) => m.id === "metal_tray") ?? {
+          id: "metal_tray",
+          file: "/ar/3d-assets/metal_tray.glb",
+          step: "godubap" as const,
+          height: 0.05,
+          y: 0.03,
+        };
         const trayNode = spawnModel(trayDef as ModelDef);
         trayDebugGroup = new THREE.Group();
         trayDebugGroup.visible = false;
