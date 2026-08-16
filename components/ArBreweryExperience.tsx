@@ -187,6 +187,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     renderer.toneMappingExposure = 1.05;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false; // 그림자 자동 업데이트 비활성화 → 성능 향상
     renderer.xr.enabled = true;
     // 손을 두 번째 패스로 덧그리므로 자동 클리어를 끄고 직접 관리한다
     renderer.autoClear = false;
@@ -293,7 +294,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       root.traverse((o: any) => {
         if (o.isMesh) {
-          o.castShadow = true;
+          // 재료 모델들은 그림자 캐스팅 없이 → 성능 개선
+          const isIngredient = ["bowl_rice", "bowl_water", "bowl_mil", "nuruk_lump"].some(
+            (id) => def.id.includes(id)
+          );
+          o.castShadow = !isIngredient;
           o.receiveShadow = true;
         }
       });
@@ -623,13 +628,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        * 그릇 입에서 대야로 떨어지는 것만 보이면 되므로 모델 없이 점으로 그린다.
        * 아래로 갈수록 빨라지게 해서 흘러내리는 것으로 읽히게 한다.
        */
-      const POUR_N = 90;
+      const POUR_N = 150; // 파티클 수 둠릀게 증가
       const pourGeo = new THREE.BufferGeometry();
       pourGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(POUR_N * 3), 3));
       const pourMat = new THREE.PointsMaterial({
-        size: 0.012,
+        size: 0.032,
         transparent: true,
-        opacity: 0.95,
+        opacity: 1.0,
         depthWrite: false,
         sizeAttenuation: true,
       });
@@ -697,7 +702,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           n.rotation.y = THREE.MathUtils.lerp(n.rotation.y, ud.homeRotY as number, 0.18);
           // 다 부은 재료는 사라진다 — 대야에 담겼는데 제자리에 그대로 있으면 안 된다
           const want = ud.done ? 0 : ud.hover ? 1.12 : 1;
-          ud.vis = THREE.MathUtils.lerp((ud.vis as number) ?? 1, want, 0.18);
+          ud.vis = THREE.MathUtils.lerp((ud.vis as number) ?? 1, want, 0.25);
           n.scale.setScalar(Math.max(ud.vis as number, 0.0001));
           n.visible = (ud.vis as number) > 0.02;
         });
@@ -790,7 +795,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             }
           }
           
-          held.position.lerp(grabTarget, 0.5);
+          held.position.lerp(grabTarget, 0.7);
 
           // 누룩 — 대야 위에서 손을 펴면 들어간다
           if (ud.drop) {
