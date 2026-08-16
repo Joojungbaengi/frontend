@@ -836,16 +836,31 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           screenToWorld(pinch.x, pinch.y, heldDepth, camera, grabTarget);
           stageGroup.worldToLocal(grabTarget);
           
-          // 대야 충돌 감지 — 그릇이 대야를 뚫고 지나가지 않도록
+          // 대야 + 다른 재료 충돌 감지 — 겹쳐지 않게 위로 올린다
+          const nodeBounds = new THREE.Box3().setFromObject(held);
+          const testPos = grabTarget.clone();
+          const testBounds = nodeBounds.clone().translate(testPos.sub(held.position));
+          
+          // 대야와의 충돌
           if (basinBounds) {
-            const testPos = grabTarget.clone();
-            const nodeBounds = new THREE.Box3().setFromObject(held);
-            nodeBounds.translate(testPos.sub(held.position));
-            if (basinBounds.intersectsBox(nodeBounds)) {
-              // 대야와 겹치면 한 칸 위로
+            if (basinBounds.intersectsBox(testBounds)) {
               grabTarget.y = Math.max(grabTarget.y, basinTop + 0.1);
             }
           }
+          
+          // 다른 재료들과의 충돌 감지 — 현재 잡은 것 제외
+          ingredientNodes.forEach((other) => {
+            if (other === held || !held) return;
+            const otherBounds = new THREE.Box3().setFromObject(other);
+            const checkBounds = new THREE.Box3().setFromObject(held as THREE.Object3D);
+            checkBounds.translate(grabTarget.clone().sub((held as THREE.Object3D).position));
+            
+            if (otherBounds.intersectsBox(checkBounds)) {
+              // 충돌 시 위로 올려서 분리
+              const separation = otherBounds.max.y - checkBounds.min.y + 0.02;
+              grabTarget.y += Math.max(separation, 0);
+            }
+          });
           
           held.position.lerp(grabTarget, 0.7);
 

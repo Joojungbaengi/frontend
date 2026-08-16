@@ -16,7 +16,7 @@
 import * as THREE from "three";
 
 /** 내려받을 이미지 가로 크기. 손 감지만 되면 되므로 최소화. */
-const CAPTURE_W = 100; // 극단적으로 축소 (손 감지만 필요, 품질은 불필요)
+const CAPTURE_W = 256; // 원본값 복원 (100 -> 256, 손 인식 정확도 향상)
 
 export class XrCameraFeed {
   private rt: THREE.WebGLRenderTarget | null = null;
@@ -89,7 +89,7 @@ export class XrCameraFeed {
   private fresh = false;
 
   private lastCaptureAt = 0;
-  private captureInterval = 150; // ~6.7fps GPU 읽기 (극단적 성능 최우선)
+  private captureInterval = 60; // 원본값 복원 (~16fps GPU 읽기)
 
   capture(
     renderer: THREE.WebGLRenderer,
