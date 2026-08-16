@@ -15,8 +15,8 @@
  */
 import * as THREE from "three";
 
-/** 내려받을 이미지 가로 크기. 가능한 작게. */
-const CAPTURE_W = 120;
+/** 내려받을 이미지 가로 크기. AR 무대가 복잡할수록 더 작은 캡처가 덜 떨린다. */
+const CAPTURE_W = 140; // 120에서 조정 (120은 너무 작음)
 
 export class XrCameraFeed {
   private rt: THREE.WebGLRenderTarget | null = null;
@@ -89,7 +89,7 @@ export class XrCameraFeed {
   private fresh = false;
 
   private lastCaptureAt = 0;
-  private captureInterval = 67; // ~15fps 캡처 (매 프레임 아니라 제한)
+  private captureInterval = 60; // ~16.6fps 캡처 (손 감지와 동기화)
 
   capture(
     renderer: THREE.WebGLRenderer,
