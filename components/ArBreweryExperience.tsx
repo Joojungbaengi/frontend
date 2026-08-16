@@ -56,6 +56,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const riceSpreadDebug = query.get("riceSpreadDebug") === "1";
     const skipToCooling = trayDebug && query.get("skipTo") === "cooling";
     const skipToRiceSpread = riceSpreadDebug && query.get("skipTo") === "riceSpread";
+    /** debug query가 없을 때는 검증된 냉각①~④를 실제 공정으로 사용한다. */
+    const productionCooling = !trayDebug && !riceSpreadDebug;
     uiRoot.classList.toggle("tray-debug", trayDebug);
     uiRoot.classList.toggle("rice-spread-debug", riceSpreadDebug);
 
@@ -105,7 +107,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       soakAt: 0,
       /** 냉각 단계에서 지금까지 부친 횟수 */
       coolFans: 0,
-      /** 다 식혔나 — 이게 참이 돼야 장인 퀴즈가 열린다 */
+      coolingPhase: "TRAY_PULL" as "TRAY_PULL" | "RICE_SPREAD" | "QUIZ" | "FAN" | "COMPLETE",
+      coolTrayProgress: 0,
+      coolRiceProgress: 0,
+      /** 냉각④ 부채질까지 끝나 고두밥 냉각이 완료됐는가 */
       coolDone: false,
       quizDone: false,
       temp: 27,
@@ -130,6 +135,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let enteredIngredientAt = 0;
     // 고두밥 하위 단계가 바뀔 때 무대 모델을 갈아 끼우는 함수(buildGodubap 이 채운다)
     let godubapShowStage: (() => void) | null = null;
+    let resetCoolingInteraction: (() => void) | null = null;
+    let startCoolingFan: (() => void) | null = null;
     // 완성 공정 단계가 바뀔 때 출고 제품(Nyangi)을 보이는 함수(buildFinish 가 채운다)
     let finishShowShip: (() => void) | null = null;
     // 발효 하위 단계가 바뀔 때 채반고두밥/항아리를 갈아 끼우는 함수(buildFerment 가 채운다)
@@ -158,7 +165,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     function coolingActive() {
-      return S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone;
+      return S.hand && S.godubap === GB_LAST && S.coolingPhase === "FAN" && S.quizDone && !S.coolDone;
     }
 
     function resetIngredientSelection() {
@@ -174,6 +181,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const HAND_STEPS = new Set<typeof S.step>(["ingredient", "godubap"]);
 
     function setStep(next: typeof S.step) {
+      if (productionCooling && S.step === "godubap" && next !== "godubap") {
+        resetCoolingInteraction?.();
+      }
       S.step = next;
       uiRoot!.dataset.step = next;
       // 손을 쓰는 단계에서만 검출을 돌린다. 나머지 단계까지 MediaPipe 를 계속 굴리면
@@ -282,7 +292,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
         })
       );
-      const debugTrayLoad = trayDebug || riceSpreadDebug
+      const debugTrayLoad = trayDebug || riceSpreadDebug || productionCooling
         ? gltfLoader.loadAsync(DEBUG_TRAY_FILE)
             .then((gltf) => { LOADED[DEBUG_TRAY_ID] = gltf; })
             .catch((e: unknown) => console.warn(
@@ -470,6 +480,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       live.tick = null;
       live.onHand = null;
       godubapShowStage = null;
+      resetCoolingInteraction = null;
+      startCoolingFan = null;
       finishShowShip = null;
       fermentShowStage = null;
       uiRoot!.classList.remove("cooling"); // 냉각 비네트는 무대가 바뀌면 끈다
@@ -880,7 +892,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        * 실제 metal_tray.glb scene 전체를 하나의 물체로 취급한다. 임시 레일은
        * 방향과 이동량을 읽기 위한 debug geometry이며 production 에셋이 아니다.
       */
-      const trayGesture = trayDebug ? new TrayPullGesture() : null;
+      const trayGesture = trayDebug || productionCooling ? new TrayPullGesture() : null;
       const emptyTraySnapshot = (): TrayPullSnapshot => ({
         state: "IDLE", grabbed: false, startSpan: null,
         currentSpan: 0, spanRatio: 1, progress: 0,
@@ -922,8 +934,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
 
       // metal tray는 냉각①/②가 공유한다. riceSpreadDebug 단독 진입에서도 반드시 꺼낸다.
-      const debugGltf = trayDebug || riceSpreadDebug ? LOADED[DEBUG_TRAY_ID] : null;
-      if (debugGltf?.scene) {
+      const debugGltf = trayDebug || riceSpreadDebug || productionCooling ? LOADED[DEBUG_TRAY_ID] : null;
+      if ((trayDebug || productionCooling) && debugGltf?.scene) {
         trayRig = new THREE.Group();
         trayRig.position.set(0, platformTop + 0.12, 0);
         stageGroup.add(trayRig);
@@ -963,6 +975,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         );
         targetMarker.position.set(0, traySize.y + 0.018, traySize.z * 0.5 - 0.025);
         targetMarker.renderOrder = 8;
+        targetMarker.visible = trayDebug;
         trayMover.add(targetMarker);
         trayTarget = targetMarker;
 
@@ -985,21 +998,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         addRail(new THREE.Vector3(0.018, 0.12, 0.018), new THREE.Vector3(railX, -0.047, -traySize.z * 0.5));
 
         // 레일 방향(+Z)과 완료 위치를 폰 화면에서 바로 확인한다.
-        const arrow = new THREE.ArrowHelper(
-          new THREE.Vector3(0, 0, 1),
-          new THREE.Vector3(0, traySize.y + 0.045, traySize.z * 0.5),
-          TRAY_PULL.TRAY_PULL_DISTANCE,
-          0x52d8ff,
-          0.045,
-          0.024
-        );
-        trayRig.add(arrow);
-        const endMarker = new THREE.Mesh(
-          new THREE.RingGeometry(0.018, 0.026, 24).rotateX(-Math.PI / 2),
-          new THREE.MeshBasicMaterial({ color: 0x52d8ff, side: THREE.DoubleSide })
-        );
-        endMarker.position.set(0, traySize.y + 0.006, TRAY_PULL.TRAY_PULL_DISTANCE);
-        trayRig.add(endMarker);
+        if (trayDebug) {
+          const arrow = new THREE.ArrowHelper(
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, traySize.y + 0.045, traySize.z * 0.5),
+            TRAY_PULL.TRAY_PULL_DISTANCE,
+            0x52d8ff,
+            0.045,
+            0.024
+          );
+          trayRig.add(arrow);
+          const endMarker = new THREE.Mesh(
+            new THREE.RingGeometry(0.018, 0.026, 24).rotateX(-Math.PI / 2),
+            new THREE.MeshBasicMaterial({ color: 0x52d8ff, side: THREE.DoubleSide })
+          );
+          endMarker.position.set(0, traySize.y + 0.006, TRAY_PULL.TRAY_PULL_DISTANCE);
+          trayRig.add(endMarker);
+        }
         trayRig.visible = false;
       } else if (trayDebug) {
         console.warn("[trayDebug] metal_tray.glb를 불러오지 못해 tray pull 검증을 비활성화합니다.");
@@ -1008,7 +1023,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (trayResetButton) trayResetButton.onclick = resetTrayPull;
 
       /* ── 냉각② rice spread 기술 검증 (?riceSpreadDebug=1 전용) ───── */
-      const riceGesture = riceSpreadDebug ? new RiceSpreadGesture() : null;
+      const riceGesture = riceSpreadDebug || productionCooling ? new RiceSpreadGesture() : null;
       const emptyRiceSnapshot = (): RiceSpreadSnapshot => ({
         state: "IDLE", palm: { x: 0.5, y: 0.5 }, onRice: false,
         moveDistance: 0, currentZone: null, zoneCoverage: [0, 0, 0, 0, 0, 0],
@@ -1238,7 +1253,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         setHandHud("tracking", "채반 위 여러 영역을 손바닥으로 쓸어주세요");
       }
 
-      if (riceSpreadDebug && debugGltf?.scene) {
+      if ((riceSpreadDebug || productionCooling) && debugGltf?.scene) {
         riceRig = new THREE.Group();
         // Galaxy에서 검증된 Tray Pull rack 높이와 완료 거리 그대로 재사용한다.
         riceRig.position.set(0, platformTop + 0.12, 0);
@@ -1326,6 +1341,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               -riceTargetDepth * 0.5 + cellD * (row + 0.5)
             );
             zone.renderOrder = 9;
+            zone.visible = riceSpreadDebug;
             riceSurfaceGroup.add(zone);
             riceZoneMaterials.push(material);
             riceZoneMeshes.push(zone);
@@ -1421,19 +1437,31 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
         const show = new Set(cur?.models ?? []);
         Object.entries(stage).forEach(([id, groups]) => {
-          // debug 냉각에서는 기존 metal_food_tray를 새 metal_tray로 완전히 교체한다.
-          const debugReplacement = (trayDebug || riceSpreadDebug) && cur?.dark &&
+          // 검증된 냉각 interaction에서는 기존 metal_food_tray를 새 metal_tray로 교체한다.
+          const interactiveCooling =
+            (trayDebug || riceSpreadDebug || (productionCooling && S.godubap >= GB_LAST)) && cur?.dark;
+          const debugReplacement = interactiveCooling &&
             (id === "metal_food_tray" || id === "rice_plane");
           const on = show.has(id) && !debugReplacement;
           groups.forEach((g) => (g.visible = on));
         });
-        if (trayRig) trayRig.visible = trayDebug && cur?.dark === true;
+        if (trayRig) {
+          trayRig.visible =
+            (trayDebug && cur?.dark === true) ||
+            (productionCooling && S.godubap === GB_LAST && S.coolingPhase === "TRAY_PULL");
+        }
         if (riceRig) {
           // 손 상태나 model list가 아니라 debug mode + cooling index만으로 표시한다.
-          riceRig.visible = riceSpreadDebug && S.godubap === GB_LAST;
+          riceRig.visible =
+            (riceSpreadDebug && S.godubap === GB_LAST) ||
+            (productionCooling && S.godubap >= GB_LAST && S.coolingPhase !== "TRAY_PULL");
           updateRiceSceneDebug();
         }
-        steam.visible = !(skipToRiceSpread && S.godubap === GB_LAST);
+        steam.visible = skipToRiceSpread && S.godubap === GB_LAST
+          ? false
+          : productionCooling && S.godubap >= GB_LAST
+            ? S.coolingPhase === "FAN" || S.coolingPhase === "COMPLETE"
+            : true;
         const dark = cur?.dark === true;
         if (!dark) coolT = 0;
         uiRoot!.classList.toggle("cooling", dark); // 가장자리 비네트
@@ -1455,6 +1483,44 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             "visible",
             performance.now() < riceSpreadPulseUntil
           );
+        }
+
+        if (
+          productionCooling &&
+          S.godubap === GB_LAST &&
+          S.coolingPhase === "TRAY_PULL" &&
+          traySnapshot.state === "COMPLETE" &&
+          trayVisualProgress >= 0.985
+        ) {
+          S.coolTrayProgress = 1;
+          S.coolingPhase = "RICE_SPREAD";
+          if (trayRig && riceRig) {
+            riceRig.position.copy(trayRig.position);
+            riceRig.quaternion.copy(trayRig.quaternion);
+            riceRig.scale.copy(trayRig.scale);
+          }
+          riceGesture?.reset();
+          riceSnapshot = emptyRiceSnapshot();
+          riceVisualProgress = 0;
+          applyRiceVisual(0);
+          godubapShowStage?.();
+          syncGodubap();
+          setHandHud("tracking", "고두밥을 채반 위에 골고루 펼쳐주세요");
+        }
+
+        if (
+          productionCooling &&
+          S.godubap === GB_LAST &&
+          S.coolingPhase === "RICE_SPREAD" &&
+          riceSnapshot.state === "COMPLETE" &&
+          riceVisualProgress >= 0.985
+        ) {
+          S.coolRiceProgress = 1;
+          S.coolingPhase = "QUIZ";
+          godubapShowStage?.();
+          syncGodubap();
+          $("#quiz")?.classList.remove("hidden");
+          setHandHud("idle", "고두밥을 골고루 펼쳤어요 · 장인의 질문에 답해주세요");
         }
 
         // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
@@ -1531,6 +1597,31 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        */
       const fan = new FanGesture();
       const stir = new StirGesture();
+      resetCoolingInteraction = () => {
+        S.coolingPhase = "TRAY_PULL";
+        S.coolTrayProgress = 0;
+        S.coolRiceProgress = 0;
+        S.coolFans = 0;
+        S.coolDone = false;
+        S.quizDone = false;
+        resetTrayPull();
+        resetRiceSpread();
+        fan.reset();
+        $("#quiz")?.classList.add("hidden");
+        handTracker?.setPaused(false);
+        godubapShowStage?.();
+        setHandHud("tracking", "채반 앞쪽을 잡고 앞으로 당겨주세요");
+      };
+      startCoolingFan = () => {
+        S.coolingPhase = "FAN";
+        S.coolFans = 0;
+        fan.reset();
+        steam.visible = true;
+        steam.material.opacity = 0.55;
+        godubapShowStage?.();
+        syncGodubap();
+        setHandHud("tracking", "손을 좌우로 흔들어 고두밥을 식혀주세요");
+      };
       const trayWorld = new THREE.Vector3();
       const trayCameraLocal = new THREE.Vector3();
       const trayScreen = { x: 0, y: 0 };
@@ -1554,7 +1645,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         });
       }
 
-      function handleTrayPull(f: HandFrame, hand: HandVisual) {
+      function handleTrayPull(f: HandFrame, hand: HandVisual, debug = trayDebug) {
         if (!trayGesture || !trayRig || !trayTarget) return;
 
         // grab 전에는 임시 레일의 +Z가 현재 사용자/카메라를 향하게 한다.
@@ -1573,18 +1664,24 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         worldToScreen(trayWorld, camera, trayScreen);
         const hovering = f.present && screenDist(hand.pinchScreen, trayScreen) <= TRAY_PULL.GRAB_RADIUS;
         traySnapshot = trayGesture.update(f, hovering);
+        if (!debug) {
+          S.coolTrayProgress = traySnapshot.progress;
+          syncGodubapGame();
+        }
 
         updateTrayHighlight(hovering || traySnapshot.grabbed);
         updateTrayDebugPanel(f, hovering);
 
-        if (traySnapshot.state === "COMPLETE") setHandHud("dropped", "TRAY PULL OK");
+        if (traySnapshot.state === "COMPLETE") {
+          setHandHud("dropped", debug ? "TRAY PULL OK" : "채반을 꺼냈어요");
+        }
         else if (traySnapshot.grabbed) setHandHud("holding", "잡은 채 손을 몸 쪽으로 당겨 주세요");
         else if (hovering) setHandHud("hover", "앞쪽 테두리에서 엄지와 검지를 붙이세요");
         else if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
         else setHandHud("tracking", "노란 표시에 손을 가까이 대세요");
       }
 
-      function handleRiceSpread(f: HandFrame) {
+      function handleRiceSpread(f: HandFrame, debug = riceSpreadDebug) {
         if (!riceGesture || !riceRig || !riceSurfaceGroup) return;
 
         const rawPalm = palmCenter(f);
@@ -1624,12 +1721,20 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           palm,
           targetPoint,
         });
+        if (!debug) {
+          S.coolRiceProgress = riceSnapshot.progress;
+          syncGodubapGame();
+        }
         if (riceSnapshot.justSpread) riceSpreadPulseUntil = performance.now() + 420;
         updateRiceZones();
         updateRiceDebugPanel(f);
 
-        if (riceSnapshot.state === "COMPLETE") setHandHud("dropped", "RICE SPREAD OK");
-        else if (riceSnapshot.state === "SPREADING") setHandHud("holding", "SPREAD! · 다른 영역도 넓게 쓸어주세요");
+        if (riceSnapshot.state === "COMPLETE") {
+          setHandHud("dropped", debug ? "RICE SPREAD OK" : "고두밥을 골고루 펼쳤어요");
+        }
+        else if (riceSnapshot.state === "SPREADING") {
+          setHandHud("holding", debug ? "SPREAD! · 다른 영역도 넓게 쓸어주세요" : "다른 부분도 골고루 펼쳐주세요");
+        }
         else if (riceSnapshot.onRice) setHandHud("hover", "손바닥으로 고두밥 표면을 넓게 쓸어주세요");
         else if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
         else setHandHud("tracking", "채반 위 고두밥에 손바닥을 올려주세요");
@@ -1644,6 +1749,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (trayDebug && S.godubap === GB_LAST) {
           handleTrayPull(f, hand);
           return;
+        }
+        if (productionCooling && S.godubap === GB_LAST) {
+          if (S.coolingPhase === "TRAY_PULL") {
+            handleTrayPull(f, hand, false);
+            return;
+          }
+          if (S.coolingPhase === "RICE_SPREAD") {
+            handleRiceSpread(f, false);
+            return;
+          }
+          if (S.coolingPhase === "QUIZ") {
+            setHandHud("idle", "장인의 질문에 답해주세요");
+            return;
+          }
+          if (S.coolingPhase === "COMPLETE") return;
+          // FAN만 아래 기존 FanGesture 경로로 보낸다.
         }
 
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
@@ -1683,12 +1804,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           S.coolFans = Math.min(REQUIRED_FANS, S.coolFans + gained);
           fanPulse = 1;
           syncGodubapGame();
-          // 다 식히면 그때 장인이 질문을 던진다
+          // 냉각④ 완료 — tray와 펼쳐진 rice는 그대로 두고 손 추적만 쉰다.
           if (S.coolFans >= REQUIRED_FANS && !S.coolDone) {
             S.coolDone = true;
+            S.coolingPhase = "COMPLETE";
             fan.reset();
             S.godubap = GB_N; // 다 식었으니 고두밥 완성
+            handTracker?.setPaused(true);
             syncGodubap();
+            setHandHud("dropped", "고두밥이 충분히 식었어요!");
           }
           return;
         }
@@ -1889,6 +2013,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
 
       xrSession!.addEventListener("end", () => {
+        if (productionCooling) resetCoolingInteraction?.();
         S.xr = false;
         S.hand = false;
         uiRoot!.classList.remove("hands-on");
@@ -2220,11 +2345,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         b.onclick = () => {
           if (i !== S.godubap) return;
           if (i === GB_LAST) {
-            // 질문에 답하기 전이면 다시 띄워 주고, 답했으면 부채질이 남았다
-            if (!S.quizDone) $("#quiz")?.classList.remove("hidden");
+            if (productionCooling) {
+              if (S.coolingPhase === "QUIZ" && !S.quizDone) $("#quiz")?.classList.remove("hidden");
+            } else if (!S.quizDone) {
+              // 독립 debug flow는 기존 quiz 재표시 동작을 유지한다.
+              $("#quiz")?.classList.remove("hidden");
+            }
             return;
           }
           S.godubap = i + 1;
+          if (productionCooling && S.godubap === GB_LAST) resetCoolingInteraction?.();
           syncGodubap();
         };
         pills.appendChild(b);
@@ -2234,7 +2364,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * 고두밥 단계 진행 막대 — 헹구기·불리기·식히기가 같은 자리를 나눠 쓴다.
      * 손으로 할 일이 있는 국면에서만 나타난다.
      */
-      function syncGodubapGame() {
+    function syncGodubapGame() {
       let pct = 0;
       let text = "";
       let done = false;
@@ -2255,6 +2385,26 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         // 빠른 링크에서는 production fan UI/count를 tray test와 함께 노출하지 않는다.
         $("#godubap-game")?.classList.add("hidden");
         return;
+      } else if (productionCooling && S.godubap >= GB_LAST) {
+        if (S.coolingPhase === "TRAY_PULL") {
+          pct = Math.round(S.coolTrayProgress * 100);
+          text = "채반을 잡고 앞으로 당겨 꺼내세요";
+        } else if (S.coolingPhase === "RICE_SPREAD") {
+          pct = Math.round(S.coolRiceProgress * 100);
+          text = "고두밥을 채반 위에 골고루 펼쳐주세요";
+        } else if (S.coolingPhase === "FAN") {
+          pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
+          text = S.coolFans === 0
+            ? "손을 좌우로 흔들어 고두밥을 식혀주세요"
+            : `식히는 중 · ${S.coolFans}/${REQUIRED_FANS}번`;
+        } else if (S.coolingPhase === "COMPLETE") {
+          pct = 100;
+          done = true;
+          text = "고두밥이 충분히 식었어요!";
+        } else {
+          $("#godubap-game")?.classList.add("hidden");
+          return;
+        }
       } else if (S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone) {
         pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
         text =
@@ -2287,8 +2437,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       });
       const hint = $("#godubap-hint");
       if (hint) {
-        hint.textContent =
-          skipToRiceSpread && S.godubap === GB_LAST
+        if (productionCooling && S.godubap >= GB_LAST) {
+          hint.textContent = S.coolingPhase === "TRAY_PULL"
+            ? "채반을 잡고 앞으로 당겨 꺼내주세요"
+            : S.coolingPhase === "RICE_SPREAD"
+              ? "고두밥을 채반 위에 골고루 펼쳐주세요"
+              : S.coolingPhase === "QUIZ"
+                ? "장인의 질문에 답해주세요"
+                : S.coolingPhase === "FAN"
+                  ? "손을 좌우로 흔들어 고두밥을 식혀주세요"
+                  : "고두밥이 충분히 식었어요!";
+        } else {
+          hint.textContent = skipToRiceSpread && S.godubap === GB_LAST
             ? "채반 위 여러 영역을 손바닥으로 넓게 쓸어주세요"
             : skipToCooling && S.godubap === GB_LAST
               ? "노란 표시를 pinch한 뒤 손을 몸 쪽으로 당겨주세요"
@@ -2303,12 +2463,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
                 : soakActive()
                   ? "쌀이 물을 머금는 동안 잠시 기다려요"
                   : "";
+        }
       }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
       const cap = $("#cap-godubap");
-      if (cap)
-        cap.textContent =
-          skipToRiceSpread && S.godubap === GB_LAST
+      if (cap) {
+        if (productionCooling && S.godubap >= GB_LAST) {
+          cap.textContent = S.coolingPhase === "TRAY_PULL"
+            ? "냉각① · 채반 꺼내기"
+            : S.coolingPhase === "RICE_SPREAD"
+              ? "냉각② · 고두밥 펼치기"
+              : S.coolingPhase === "QUIZ"
+                ? "냉각③ · 장인의 질문"
+                : S.coolingPhase === "FAN"
+                  ? "냉각④ · 부채질로 식히기"
+                  : "고두밥 완성 · 채반에서 충분히 식었어요";
+        } else {
+          cap.textContent = skipToRiceSpread && S.godubap === GB_LAST
             ? "냉각② Rice Spread Debug"
             : skipToCooling && S.godubap === GB_LAST
               ? "냉각① Metal Tray Pull Debug"
@@ -2317,15 +2488,29 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             : S.godubap === GB_LAST && S.quizDone
               ? "아직 뜨거워요 · 손으로 부쳐 식혀 주세요"
               : cur.caption;
-      // 냉각에 들어오면 장인이 먼저 묻는다
-      if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
+        }
+      }
+      if (productionCooling && S.godubap >= GB_LAST) {
+        $("#quiz")?.classList.toggle("hidden", S.coolingPhase !== "QUIZ" || S.quizDone);
+      } else if (S.godubap === GB_LAST && !S.quizDone) {
+        // 독립 debug flow의 기존 quiz 동작은 유지한다.
+        $("#quiz")?.classList.remove("hidden");
+      }
       syncGodubapGame();
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
         // 아직 이를 때도 눌리게 두고, 대신 눌렀을 때 무엇을 해야 하는지 알려준다
         const ready = S.godubap >= GB_N;
         b.classList.toggle("waiting", !ready);
-        b.textContent = ready
+        b.textContent = productionCooling && S.godubap >= GB_LAST && !ready
+          ? S.coolingPhase === "TRAY_PULL"
+            ? "채반을 꺼내는 중…"
+            : S.coolingPhase === "RICE_SPREAD"
+              ? "고두밥을 펼치는 중…"
+              : S.coolingPhase === "QUIZ"
+                ? "장인의 질문에 답해주세요"
+                : "고두밥을 식히는 중…"
+          : ready
           ? "누룩 섞고 항아리에 담기"
           : skipToRiceSpread && S.godubap === GB_LAST
             ? "Rice spread 기술 검증 중"
@@ -2352,9 +2537,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             S.quizDone = true;
             setTimeout(() => {
               $("#quiz")?.classList.add("hidden");
-              // 답을 했으니 이제 식힐 차례다. 손을 못 쓰는 기기에서는 바로 완성으로 넘긴다.
-              if (!S.hand) S.godubap = GB_N;
-              syncGodubap();
+              if (productionCooling && S.coolingPhase === "QUIZ") {
+                startCoolingFan?.();
+              } else {
+                // 독립 debug/기존 fallback 흐름을 보존한다.
+                if (!S.hand) S.godubap = GB_N;
+                syncGodubap();
+              }
             }, 900);
           } else {
             setTimeout(() => c.classList.remove("no"), 900);
@@ -2588,6 +2777,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         S.soakAt = 0;
         S.coolFans = 0;
         S.coolDone = false;
+        S.coolingPhase = "TRAY_PULL";
+        S.coolTrayProgress = 0;
+        S.coolRiceProgress = 0;
         S.quizDone = false;
         S.temp = 27;
         S.ferment = 0;
