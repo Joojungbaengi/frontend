@@ -5,6 +5,7 @@ import {
   finishSteps,
   godubapStageModels,
   godubapSteps,
+  ingredientModels,
   mashSteps,
 } from "@/lib/brewery/stages";
 
@@ -33,7 +34,7 @@ export const nyangiTakju: Recipe = {
   ],
 
   // 무대 모델은 술끼리 공유한다 (받침대·항아리·그릇, 그리고 고두밥 단계의 솥·채반)
-  models: commonStageModels(),
+  models: [...commonStageModels(), ...ingredientModels()],
   godubapModels: godubapStageModels(),
 
   // 냉각/혼합 때 채반 위에 까는 고두밥 평면. 채반 크기에 맞춰 자동으로 덮되,

@@ -21,6 +21,8 @@ import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
 import { HandTracker } from "@/lib/hand/handTracker";
 import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
+import { TiltGesture } from "@/lib/hand/tiltGesture";
+import { LM } from "@/lib/hand/types";
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
@@ -509,223 +511,247 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     /* --- 12 · 원료 --- */
     let ingredientNodes: THREE.Group[] = [];
 
+    /**
+     * 1막 · 원료 고르기 — 그릇을 집어 들고 **기울여** 담금 대야에 붓는다.
+     *
+     * 예전에는 원료 그림이 떠 있고 그걸 집어 바구니에 넣었다. 화면을 눌러도
+     * 되는 일이라 카메라를 켤 이유가 없었다. 지금은 실제 그릇을 손으로 집어
+     * 기울여야 내용물이 쏟아지고, 쏟아지는 것이 눈에 보인다.
+     *
+     * 정답인 주원료만 놓는다. 안 넣어도 되는 재료를 섞어 두면 고르는 문제가
+     * 되는데, 이 막에서 보여 줄 것은 무엇이 들어가는지이지 함정이 아니다.
+     */
     function buildIngredients() {
-      const platformTop = addPlatform();       // 실제 상판 높이를 받음
-      placeModelsForStep("ingredient", stageGroup, platformTop);
-      // 정면에서 보면 바구니 옆에 뜬 원료가 서로 겹치므로 대각선 위에서 내려다본다
+      const platformTop = addPlatform();
+      placeCommonModels(stageGroup, platformTop);
       frame3D(platformTop + 0.02, 0.66, 0.92);
 
-      // 3D 모드에서는 정면에서 보면 바구니 옆에 뜬 원료가 서로 겹쳐 보인다.
-      // 대각선 위에서 내려다보는 시점으로 옮겨 원료가 한눈에 들어오게 한다. (AR은 실제 시점을 쓰므로 제외)
       if (!S.xr) {
         const c = anchor.position;
-        const s = anchor.scale.x;
-        camera.position.set(c.x, c.y + 0.82 * s, c.z + 0.7 * s);
-        controls.target.set(c.x, c.y + (platformTop + 0.08) * s, c.z);
+        const sc = anchor.scale.x;
+        // 그릇 넷이 대야를 둘러싸고 있어 예전보다 넓게 잡아야 다 들어온다
+        camera.position.set(c.x, c.y + 1.02 * sc, c.z + 0.86 * sc);
+        controls.target.set(c.x, c.y + (platformTop + 0.05) * sc, c.z);
         controls.update();
       }
 
-      const textureLoader = new THREE.TextureLoader();
-      const floatY = platformTop + 0.1;       // 상판에서 살짝만 띄움 (기존 0.18 → 대체)
-      const layoutRadius = 0.19;              // 0.2 → 0.26 (원 배치 반경도 넓혀서 안 겹치게)
+      const baseY = platformTop + 0.03;
 
-      // 고르면 바구니 안으로 내려앉고, 해제하면 제자리로 떠오른다.
-      const basketY = platformTop + 0.075;
-      const basketSpread = 0.026;
+      // 부어 넣을 대야 — 한가운데
+      const basinDef = MODELS.find((m) => m.id === "mix_basin");
+      const basin = basinDef ? spawnModel(basinDef) : null;
+      const basinTop = baseY + (basinDef?.height ?? 0.12);
+      if (basin) {
+        // 그릇들보다 앞에 둔다 — 어디에 붓는지가 한눈에 보여야 한다
+        basin.position.set(0, baseY, 0.07);
+        stageGroup.add(basin);
+        live.models.push(basin);
+      }
 
-      ingredientNodes = INGREDIENTS.map((ing, i) => {
-        const a = (i / INGREDIENTS.length) * Math.PI * 2;
+      // 원료 그릇 — 주원료만, 대야를 둘러싸게
+      const BOWL: Record<string, { model: string; color: number }> = {
+        rice: { model: "bowl_rice", color: 0xf2ece0 },
+        water: { model: "bowl_water", color: 0x8ec6e8 },
+        nuruk: { model: "bowl_nuruk", color: 0xd9c79b },
+        mil: { model: "bowl_mil", color: 0xc9b58d },
+      };
+      const picks = INGREDIENTS.filter((i) => i.essential && BOWL[i.id]);
+      const ringR = 0.23;
+
+      ingredientNodes = picks.map((ing, i) => {
+        const spec = BOWL[ing.id];
+        const def = MODELS.find((m) => m.id === spec.model);
         const g = new THREE.Group();
-        g.position.set(Math.cos(a) * layoutRadius, floatY, Math.sin(a) * layoutRadius);
+        // 화면 아래쪽은 원료 카드가 덮으므로, 그릇은 대야 **뒤쪽 호**에 늘어놓는다.
+        // 빙 둘러 놓으면 앞의 하나가 카드에 가려 집을 수가 없다.
+        const ang = THREE.MathUtils.degToRad(-160 + (i * 140) / Math.max(picks.length - 1, 1));
+        const home = new THREE.Vector3(Math.cos(ang) * ringR, baseY, Math.sin(ang) * ringR);
+        g.position.copy(home);
+        g.rotation.y = -ang;
 
-        const radius = 0.055;
+        const node = def ? spawnModel(def) : null;
+        if (node) g.add(node);
 
-        // texture는 항상 있음 (ingredientsData.ts 기준). 로드 실패 대비 회색 fallback.
-        const texture = textureLoader.load(
-          ing.texture,
-          undefined,
-          undefined,
-          (err) => console.warn("원료 텍스처 로드 실패:", ing.id, ing.texture, err)
-        );
-        texture.colorSpace = THREE.SRGBColorSpace;
+        // 누룩은 대야에 덩어리를 얹어 둔다 — 빈 대야만 있으면 뭐가 든 건지 안 보인다
+        const lumpDef = MODELS.find((m) => m.id === "nuruk_lump");
+        if (ing.id === "nuruk" && lumpDef) {
+          for (let k = 0; k < 3; k++) {
+            const lump = spawnModel(lumpDef);
+            if (!lump) break;
+            const a = (k / 3) * Math.PI * 2;
+            // 대야 전 높이만큼 올려야 테두리 위로 덩어리가 보인다
+            lump.position.set(Math.cos(a) * 0.018, (def?.height ?? 0.05) * 0.9, Math.sin(a) * 0.018);
+            lump.rotation.set(0, a, 0);
+            g.add(lump);
+          }
+        }
 
-        const mesh = new THREE.Mesh(
-          new THREE.CircleGeometry(radius, 48),
-          new THREE.MeshBasicMaterial({
-            map: texture,
-            color: 0xffffff, // 텍스처 로드 전/실패 시 흰색 원판으로라도 보이게
-            side: THREE.DoubleSide,
-            transparent: true,
-          })
-        );
-        mesh.castShadow = true;
-
-        // 항상 카메라 정면을 보게 하는 빌보드
-        mesh.onBeforeRender = (renderer, scene, camera) => {
-          mesh.quaternion.copy(camera.quaternion);
-        };
-
-        g.add(mesh);
-
-        (g.userData as any) = {
+        (g.userData as Record<string, unknown>) = {
           id: ing.id,
-          mesh,
-          phase: i,
-          /** 담기는 정도 0(제자리) ~ 1(바구니 안) */
-          t: 0,
-          // 고르지 않았을 때 떠 있는 제자리
-          home: new THREE.Vector3(Math.cos(a) * layoutRadius, floatY, Math.sin(a) * layoutRadius),
-          // 골랐을 때 내려앉을 바구니 안 자리 (겹치지 않게 조금씩 흩어 놓는다)
-          inside: new THREE.Vector3(Math.cos(a) * basketSpread, basketY, Math.sin(a) * basketSpread),
+          home,
+          homeRotY: -ang,
+          color: spec.color,
+          done: false,
+          tilt: new TiltGesture(),
         };
         stageGroup.add(g);
         return g;
       });
 
-      const seat = new THREE.Vector3();
-      const rimY = platformTop + 0.2; // 바구니 입구보다 확실히 위
+      /* ── 쏟아지는 알갱이 ────────────────────────────────────────────────
+       * 그릇 입에서 대야로 떨어지는 것만 보이면 되므로 모델 없이 점으로 그린다.
+       * 아래로 갈수록 빨라지게 해서 흘러내리는 것으로 읽히게 한다.
+       */
+      const POUR_N = 90;
+      const pourGeo = new THREE.BufferGeometry();
+      pourGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(POUR_N * 3), 3));
+      const pourMat = new THREE.PointsMaterial({
+        size: 0.012,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        sizeAttenuation: true,
+      });
+      const pour = new THREE.Points(pourGeo, pourMat);
+      pour.frustumCulled = false;
+      pour.visible = false;
+      stageGroup.add(pour);
+      const pourSeed = Array.from({ length: POUR_N }, () => Math.random());
+      const from = new THREE.Vector3();
+      const to = new THREE.Vector3(0, basinTop - 0.02, 0.07);
+
+      /** 그릇 입에서 대야로 흐르는 줄기를 갱신한다 */
+      function streamTo(node: THREE.Group, t: number) {
+        from.copy(node.position);
+        from.y += 0.05;
+        const arr = (pourGeo.attributes.position as THREE.BufferAttribute).array as Float32Array;
+        for (let i = 0; i < POUR_N; i++) {
+          const life = (t * 1.7 + pourSeed[i]) % 1;
+          const w = pourSeed[i] * 0.022 - 0.011;
+          arr[i * 3] = THREE.MathUtils.lerp(from.x, to.x, life) + w;
+          arr[i * 3 + 1] = THREE.MathUtils.lerp(from.y, to.y, life * life);
+          arr[i * 3 + 2] = THREE.MathUtils.lerp(from.z, to.z, life) + w;
+        }
+        (pourGeo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      }
+
+      let held: THREE.Group | null = null;
+      let hovered: THREE.Group | null = null;
+      let heldDepth = 1;
+      let pouringNode: THREE.Group | null = null;
 
       live.tick = (t) => {
         ingredientNodes.forEach((n) => {
-          const ud = n.userData as any;
-          const on = S.selected.has(ud.id);
-          const home: THREE.Vector3 = ud.home;
-          const inside: THREE.Vector3 = ud.inside;
-
-          ud.t = THREE.MathUtils.lerp(ud.t, on ? 1 : 0, 0.09);
-          const p: number = ud.t;
-
-          // 손에 들려 있으면 위치는 onHand 가 정한다. 크기만 키워 "들고 있다"를 보인다.
-          if (ud.grabbed) {
-            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.3, 0.22);
-            n.scale.setScalar(ud.vis);
-            return;
-          }
-
-          // 수평으로 먼저 바구니 입구 위까지 옮겨간 뒤에 아래로 내려앉는다.
-          // 한 번에 직선으로 보내면 바구니 옆면을 뚫고 지나간다.
-          const ph = THREE.MathUtils.smoothstep(p, 0, 0.62); // 수평 이동
-          const pv = THREE.MathUtils.smoothstep(p, 0.45, 1); // 입구 위에서 하강
-
-          // 둥둥 뜨는 흔들림은 그대로 두되, 바구니에 담길수록 잔물결 정도로 잦아든다
-          const bob = Math.sin(t * 1.4 + ud.phase) * THREE.MathUtils.lerp(0.018, 0.004, p);
-          seat.set(
-            THREE.MathUtils.lerp(home.x, inside.x, ph),
-            THREE.MathUtils.lerp(THREE.MathUtils.lerp(home.y, rimY, ph), inside.y, pv) + bob,
-            THREE.MathUtils.lerp(home.z, inside.z, ph)
-          );
-          n.position.copy(seat);
-
-          // 담기면 바구니에 들어앉은 것처럼 살짝 작아진다.
-          // 손을 갖다 대면(호버) 커져서 "이걸 집을 수 있다"가 바로 보인다.
-          const base = THREE.MathUtils.lerp(1, 0.72, p);
-          const want = ud.hover ? base * 1.22 : base;
-          ud.vis = THREE.MathUtils.lerp(ud.vis ?? base, want, 0.2);
-          n.scale.setScalar(ud.vis);
+          const ud = n.userData as Record<string, unknown>;
+          if (n === held) return; // 들고 있는 동안은 손이 자리를 정한다
+          n.position.lerp(ud.home as THREE.Vector3, 0.14); // 놓으면 제자리로
+          n.rotation.z = THREE.MathUtils.lerp(n.rotation.z, 0, 0.18);
+          n.rotation.y = THREE.MathUtils.lerp(n.rotation.y, ud.homeRotY as number, 0.18);
+          const want = ud.done ? 0.82 : ud.hover ? 1.12 : 1;
+          ud.vis = THREE.MathUtils.lerp((ud.vis as number) ?? 1, want, 0.18);
+          n.scale.setScalar(ud.vis as number);
         });
+        if (pouringNode) streamTo(pouringNode, t);
+        pour.visible = Boolean(pouringNode);
       };
 
-      /* ── 손으로 집어 담기 ──────────────────────────────────────────────
-       * 무엇을 집었는지는 **화면 좌표**로 고른다. 손까지의 거리 추정은 흔들리는데,
-       * 3D 거리로 고르면 화면에서는 원료 위에 손이 있는데도 안 집히는 일이 생긴다.
-       * 화면 기준으로 고르면 사용자가 보는 것과 판정이 항상 일치한다.
+      /* ── 손으로 집어 기울이기 ──────────────────────────────────────────
+       * 무엇을 집었는지는 화면 좌표로 고른다. 손까지의 거리 추정은 흔들리는데
+       * 3D 거리로 고르면 화면에서는 그릇 위에 손이 있는데도 안 집힌다.
        */
-      const basketLocal = new THREE.Vector3(0, basketY, 0);
-      const basketWorld = new THREE.Vector3();
-      const basketScreen = { x: 0.5, y: 0.5 };
       const nodeWorld = new THREE.Vector3();
       const nodeScreen = { x: 0.5, y: 0.5 };
       const grabTarget = new THREE.Vector3();
-
-      /** 화면에서 이 반경(0~1) 안에 있으면 집을 수 있다 */
-      const PICK_R = 0.13;
-      /** 바구니 위로 인정하는 반경 — 놓기는 넉넉하게 봐준다 */
-      const DROP_R = 0.18;
-
-      let hovered: THREE.Group | null = null;
-      let held: THREE.Group | null = null;
-      /**
-       * 집은 순간의 카메라~원료 거리. 들고 다니는 동안 이 거리를 유지해야
-       * 손 거리 추정이 흔들려도 원료 크기가 커졌다 작아졌다 하지 않는다.
-       */
-      let heldDepth = 1;
+      const PICK_R = 0.15;
 
       const nameOf = (id: string) => INGREDIENTS.find((i) => i.id === id)?.name ?? "원료";
       const cardOf = (id: string) => $(`#grid .card[data-id="${id}"]`);
 
       const setHover = (n: THREE.Group | null) => {
         if (hovered === n) return;
-        if (hovered) (hovered.userData as any).hover = false;
+        if (hovered) (hovered.userData as Record<string, unknown>).hover = false;
         hovered = n;
-        if (hovered) (hovered.userData as any).hover = true;
+        if (hovered) (hovered.userData as Record<string, unknown>).hover = true;
       };
 
-      /** 손을 놓쳤거나 단계를 벗어날 때 — 들고 있던 것을 제자리로 돌린다 */
-      const dropHeld = () => {
+      const release = () => {
         if (!held) return;
-        (held.userData as any).grabbed = false;
+        const ud = held.userData as Record<string, unknown>;
+        if (!ud.done) (ud.tilt as TiltGesture).reset();
         held = null;
+        pouringNode = null;
       };
 
-      // 조명이 어둡거나 손이 화면 밖이면 인식이 안 잡힌다. 한참 못 잡으면
-      // 아래 카드로도 담을 수 있다는 걸 알려 체험이 막히지 않게 한다.
       let lastSeenAt = performance.now();
+      let lastAt = performance.now();
       const LOST_HINT_MS = 6000;
 
       live.onHand = (f, hand) => {
+        const now = performance.now();
+        const dt = Math.min((now - lastAt) / 1000, 0.1);
+        lastAt = now;
+
         if (!f.present) {
-          dropHeld();
+          release();
           setHover(null);
           setHandHud(
             "idle",
-            performance.now() - lastSeenAt > LOST_HINT_MS
+            now - lastSeenAt > LOST_HINT_MS
               ? "손이 안 보여요 · 아래 카드를 눌러 담아도 돼요"
               : "손을 카메라에 비춰 주세요"
           );
           return;
         }
-        lastSeenAt = performance.now();
-
+        lastSeenAt = now;
         const pinch = hand.pinchScreen;
 
-        // 1) 들고 있는 중 — 손끝을 따라오게 하고, 펴면 놓는다
+        // 1) 들고 있는 중 — 따라오게 하고, 기울이면 쏟는다
         if (held) {
-          const ud = held.userData as any;
-          // 화면상 손끝을 따라간다. 거리는 집었을 때 그대로 — 크기가 들쭉날쭉하지 않게.
+          const ud = held.userData as Record<string, unknown>;
           screenToWorld(pinch.x, pinch.y, heldDepth, camera, grabTarget);
           stageGroup.worldToLocal(grabTarget);
           held.position.lerp(grabTarget, 0.5);
 
-          stageGroup.localToWorld(basketWorld.copy(basketLocal));
-          worldToScreen(basketWorld, camera, basketScreen);
-          const overBasket = screenDist(pinch, basketScreen) < DROP_R;
+          const st = (ud.tilt as TiltGesture).update(
+            f.landmarks[LM.WRIST],
+            f.landmarks[LM.MIDDLE_MCP],
+            dt
+          );
+          // 손이 기운 만큼 그릇도 기운다 — 쏟는 각이 보여야 조작이 읽힌다
+          held.rotation.z = THREE.MathUtils.clamp((st.angle * Math.PI) / 180, 0, 1.9) * 0.85;
+          pouringNode = st.pouring ? held : null;
+          if (st.pouring) pourMat.color.setHex(ud.color as number);
+
+          if (st.justEmptied) {
+            ud.done = true;
+            S.selected.add(ud.id as string);
+            cardOf(ud.id as string)?.setAttribute("aria-pressed", "true");
+            syncIngredient(INGREDIENTS.find((i) => i.id === ud.id), true);
+            setHandHud("dropped", `${nameOf(ud.id as string)}을(를) 다 부었어요`);
+            release();
+            return;
+          }
 
           if (f.justReleased) {
-            const id: string = ud.id;
-            if (overBasket) {
-              // 기존 담기 애니메이션(ud.t 0→1)이 이어받아 바구니 안으로 내려앉는다
-              S.selected.add(id);
-              cardOf(id)?.setAttribute("aria-pressed", "true");
-              syncIngredient(INGREDIENTS.find((i) => i.id === id), true);
-              setHandHud("dropped", `${nameOf(id)}을(를) 바구니에 담았어요`);
-            } else {
-              setHandHud("tracking", `${nameOf(id)}을(를) 놓쳤어요 · 다시 집어 보세요`);
-            }
-            dropHeld();
+            setHandHud("tracking", `${nameOf(ud.id as string)}을(를) 내려놓았어요`);
+            release();
             return;
           }
 
           setHandHud(
             "holding",
-            overBasket ? `${nameOf(ud.id)} · 손을 펴서 바구니에 놓으세요` : `${nameOf(ud.id)}을(를) 집었어요`
+            st.pouring
+              ? `${nameOf(ud.id as string)}을(를) 붓는 중 · ${Math.round(st.poured * 100)}%`
+              : `${nameOf(ud.id as string)} · 손목을 기울여 대야에 부으세요`
           );
           return;
         }
 
-        // 2) 빈손 — 화면에서 가장 가까운 원료를 고른다
+        // 2) 빈손 — 화면에서 가장 가까운 그릇을 고른다
         let best: THREE.Group | null = null;
         let bestD = PICK_R;
         for (const n of ingredientNodes) {
+          if ((n.userData as Record<string, unknown>).done) continue;
           n.getWorldPosition(nodeWorld);
           worldToScreen(nodeWorld, camera, nodeScreen);
           const d = screenDist(pinch, nodeScreen);
@@ -737,29 +763,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         setHover(best);
 
         if (!best) {
-          setHandHud("tracking", "원료 위로 손을 옮겨 보세요");
+          setHandHud("tracking", "원료 그릇 위로 손을 옮겨 보세요");
           return;
         }
+        const id = (best.userData as Record<string, unknown>).id as string;
 
-        const id: string = (best.userData as any).id;
-
-        // 3) 원료 위에서 쥐면 집어 든다
         if (f.justPinched) {
-          const ud = best.userData as any;
-          ud.grabbed = true;
           held = best;
           best.getWorldPosition(nodeWorld);
           heldDepth = camera.getWorldPosition(handOrigin).distanceTo(nodeWorld);
-          // 바구니에 담겨 있던 걸 다시 집었다면 선택에서 빼 준다 (손에 들려 있으니까)
-          if (S.selected.has(id)) {
-            S.selected.delete(id);
-            cardOf(id)?.setAttribute("aria-pressed", "false");
-            syncIngredient(undefined, true);
-          }
-          setHandHud("holding", `${nameOf(id)}을(를) 집었어요`);
+          setHandHud("holding", `${nameOf(id)}을(를) 집었어요 · 기울여 부으세요`);
           return;
         }
-
         setHandHud("hover", `${nameOf(id)} · 엄지와 검지를 붙여 집으세요`);
       };
     }

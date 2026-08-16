@@ -33,23 +33,41 @@ export function brewName(rounds: number): string {
  * 무대 모델
  * ──────────────────────────────────────────────────────────────────────*/
 
-/** 어느 술이든 쓰는 무대 모델 — 받침대, 담금 항아리, 원료 그릇 */
+/** 어느 술이든 쓰는 무대 모델 — 받침대와 발효 항아리 */
 export function commonStageModels(): ModelDef[] {
   return [
     { id: "low_wooden_bench", file: `${AR_ASSETS}/low_wooden_bench.glb`, step: "common", height: 0.14, y: 0.03 },
     { id: "water_jar", file: `${AR_ASSETS}/water_jar.glb`, step: "ferment", height: 0.17, y: 0.03 },
-    { id: "bamboo_basket", file: `${AR_ASSETS}/bamboo_basket.glb`, step: "ingredient", height: 0.12, y: 0.03 },
+  ];
+}
+
+/**
+ * 1막 — 원료가 담긴 그릇 넷과, 그것을 부어 넣을 담금 대야.
+ *
+ * 자리는 buildIngredients 가 직접 잡는다. 집어서 기울이는 물건들이라
+ * 어디에 무엇이 있는지가 조작에 걸리기 때문에, 자동 원형 배치를 쓰지 않는다.
+ */
+export function ingredientModels(): ModelDef[] {
+  return [
+    { id: "mix_basin", file: `${AR_ASSETS}/large-basin.glb`, step: "ingredient", height: 0.075, y: 0.03 },
+    { id: "bowl_rice", file: `${AR_ASSETS}/rice_bowl.glb`, step: "ingredient", height: 0.07, y: 0.03 },
+    { id: "bowl_water", file: `${AR_ASSETS}/water_jar.glb`, step: "ingredient", height: 0.095, y: 0.03 },
+    { id: "bowl_nuruk", file: `${AR_ASSETS}/basin.glb`, step: "ingredient", height: 0.05, y: 0.03 },
+    { id: "bowl_mil", file: `${AR_ASSETS}/wheat_bowl.glb`, step: "ingredient", height: 0.07, y: 0.03 },
+    { id: "nuruk_lump", file: `${AR_ASSETS}/nuruk_lump.glb`, step: "ingredient", height: 0.028, y: 0.03 },
   ];
 }
 
 /**
  * 고두밥 단계에서 갈아 끼우는 모델.
- *   세미·침수·탈수 → 그릇 / 증자 → 솥 / 냉각 → 채반
+ *   세미·침수 → 이남박 / 탈수 → 소쿠리 / 증자 → 솥과 뚜껑 / 냉각 → 채반
  */
 export function godubapStageModels(): ModelDef[] {
   return [
-    { id: "rice_bowl", file: `${AR_ASSETS}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
-    { id: "kitchen_pot", file: `${AR_ASSETS}/kitchen_pot.glb`, step: "godubap", height: 0.22, y: 0.03 },
+    { id: "rice_bowl", file: `${AR_ASSETS}/rice_washing_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
+    { id: "bamboo_basket", file: `${AR_ASSETS}/bamboo_basket.glb`, step: "godubap", height: 0.12, y: 0.03 },
+    { id: "steamer_pot", file: `${AR_ASSETS}/steamer_pot.glb`, step: "godubap", height: 0.15, y: 0.03 },
+    { id: "steamer_lid", file: `${AR_ASSETS}/steamer_lid.glb`, step: "godubap", height: 0.045, y: 0.03 },
     { id: "metal_food_tray", file: `${AR_ASSETS}/metal_food_tray.glb`, step: "godubap", height: 0.05, y: 0.03 },
   ];
 }
