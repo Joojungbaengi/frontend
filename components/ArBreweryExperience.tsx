@@ -238,7 +238,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     scene.add(reticle);
 
     const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(1.1, 48).rotateX(-Math.PI / 2),
+      new THREE.CircleGeometry(1.1, 24).rotateX(-Math.PI / 2),
       new THREE.ShadowMaterial({ opacity: 0.35 })
     );
     floor.receiveShadow = true;
@@ -644,7 +644,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (ing.id === "water" && node) {
           const jar = new THREE.Box3().setFromObject(node).getSize(new THREE.Vector3());
           const water = new THREE.Mesh(
-            new THREE.CircleGeometry(jar.x * 0.34, 32).rotateX(-Math.PI / 2),
+            new THREE.CircleGeometry(jar.x * 0.34, 16).rotateX(-Math.PI / 2),
             new THREE.MeshStandardMaterial({
               color: 0x9fd4ec,
               transparent: true,
@@ -673,12 +673,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       /* ── 쏟아지는 알갱이 ────────────────────────────────────────────────
        * 그릇 입에서 대야로 떨어지는 것만 보이면 되므로 모델 없이 점으로 그린다.
        * 아래로 갈수록 빨라지게 해서 흘러내리는 것으로 읽히게 한다.
+       * 최적화: pouring 중일 때만 업데이트 (지속적 needsUpdate 제거)
        */
-      const POUR_N = 150; // 파티클 수 둠릀게 증가
+      const POUR_N = 50; // 극단 감소 (150→50) 성능 우선
       const pourGeo = new THREE.BufferGeometry();
       pourGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(POUR_N * 3), 3));
       const pourMat = new THREE.PointsMaterial({
-        size: 0.032,
+        size: 0.038, // 작은 파티클 수를 보완하기 위해 크기 증가
         transparent: true,
         opacity: 1.0,
         depthWrite: false,
@@ -698,7 +699,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        */
       const basinR = basin ? new THREE.Box3().setFromObject(basin).getSize(new THREE.Vector3()).x * 0.36 : 0.05;
       const fill = new THREE.Mesh(
-        new THREE.CylinderGeometry(basinR, basinR * 0.92, 1, 28),
+        new THREE.CylinderGeometry(basinR, basinR * 0.92, 1, 12), // 28 -> 12 (세그먼트 극단 감소)
         new THREE.MeshStandardMaterial({ color: 0xe8e0cf, roughness: 0.85, metalness: 0.02 })
       );
       fill.visible = false;
@@ -719,8 +720,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         (fill.material as THREE.MeshStandardMaterial).color.copy(fillColor);
       }
 
-      /** 그릇 입에서 대야로 흐르는 줄기를 갱신한다 */
+      /** 그릇 입에서 대야로 흐르는 줄기를 갱신한다 (pouring 중일 때만 호출) */
+      let lastStreamUpdate = -Infinity;
       function streamTo(node: THREE.Group, t: number) {
+        // 매 프레임이 아니라 50ms마다만 업데이트 → GPU 부하 극단 감소
+        if (t - lastStreamUpdate < 0.05) return;
+        lastStreamUpdate = t;
+        
         from.copy(node.position);
         from.y += 0.05;
         const arr = (pourGeo.attributes.position as THREE.BufferAttribute).array as Float32Array;
@@ -1025,7 +1031,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (potGroup) {
         const pot = new THREE.Box3().setFromObject(potGroup).getSize(new THREE.Vector3());
         const inPot = new THREE.Mesh(
-          new THREE.CircleGeometry(pot.x * 0.3, 32).rotateX(-Math.PI / 2),
+          new THREE.CircleGeometry(pot.x * 0.3, 16).rotateX(-Math.PI / 2),
           new THREE.MeshStandardMaterial({ color: 0xf4efe2, roughness: 0.95, metalness: 0 })
         );
         inPot.position.y = pot.y * 0.62;
@@ -1093,7 +1099,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           (err) => console.warn("쌀 텍스처 로드 실패:", rp.texture, err));
         tex.colorSpace = THREE.SRGBColorSpace;
         const mesh = new THREE.Mesh(
-          new THREE.CircleGeometry(WATER_R * 0.72, 40).rotateX(-Math.PI / 2),
+          new THREE.CircleGeometry(WATER_R * 0.72, 20).rotateX(-Math.PI / 2),
           new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, transparent: true })
         );
         mesh.position.y = platformTop + 0.055;
