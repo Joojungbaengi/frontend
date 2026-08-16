@@ -921,7 +921,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         setHandHud("tracking", "노란 표시에 손을 가까이 대세요");
       }
 
-      const debugGltf = trayDebug ? LOADED[DEBUG_TRAY_ID] : null;
+      // metal tray는 냉각①/②가 공유한다. riceSpreadDebug 단독 진입에서도 반드시 꺼낸다.
+      const debugGltf = trayDebug || riceSpreadDebug ? LOADED[DEBUG_TRAY_ID] : null;
       if (debugGltf?.scene) {
         trayRig = new THREE.Group();
         trayRig.position.set(0, platformTop + 0.12, 0);
@@ -1014,12 +1015,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       });
       let riceSnapshot = emptyRiceSnapshot();
       let riceRig: THREE.Group | null = null;
+      let riceSurfaceGroup: THREE.Group | null = null;
+      let riceTrayObject: THREE.Object3D | null = null;
       let riceMesh: THREE.Mesh | null = null;
       let riceVisualProgress = 0;
       let riceTargetWidth = 0;
       let riceTargetDepth = 0;
       let riceTrayTop = 0;
       let riceSpreadPulseUntil = -Infinity;
+      let riceSceneLogged = false;
       const riceZoneMaterials: THREE.MeshBasicMaterial[] = [];
 
       function applyRiceVisual(progress: number) {
@@ -1066,6 +1070,45 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           marker.style.top = `${riceSnapshot.palm.y * 100}%`;
           marker.classList.toggle("visible", frame?.present === true);
         }
+        updateRiceSceneDebug();
+      }
+
+      function updateRiceSceneDebug() {
+        if (!riceSpreadDebug) return;
+        const trayReady = riceTrayObject !== null;
+        const riceReady = riceMesh !== null;
+        const gridReady = riceZoneMaterials.length === RICE_SPREAD.ZONE_COLUMNS * RICE_SPREAD.ZONE_ROWS;
+        setDebugText("#rice-debug-tray-model", debugGltf?.scene ? "READY" : "MISSING");
+        setDebugText("#rice-debug-tray-visible", trayReady && riceRig?.visible ? "YES" : "NO");
+        setDebugText("#rice-debug-rice-ready", riceReady ? "READY" : "MISSING");
+        setDebugText("#rice-debug-grid-ready", gridReady ? "READY" : "MISSING");
+
+        if (!riceSurfaceGroup || !riceRig) {
+          setDebugText("#rice-debug-tray-pos", "—");
+          return;
+        }
+        riceRig.updateWorldMatrix(true, true);
+        const trayPosition = riceSurfaceGroup.getWorldPosition(new THREE.Vector3());
+        setDebugText(
+          "#rice-debug-tray-pos",
+          `${trayPosition.x.toFixed(2)}, ${trayPosition.y.toFixed(2)}, ${trayPosition.z.toFixed(2)}`
+        );
+
+        if (!riceSceneLogged && trayReady && riceReady && gridReady && riceRig.visible) {
+          riceSceneLogged = true;
+          const trayBounds = new THREE.Box3().setFromObject(riceTrayObject!);
+          const ricePosition = riceMesh!.getWorldPosition(new THREE.Vector3());
+          console.info("[riceSpreadDebug] scene ready", {
+            trayPosition: trayPosition.toArray(),
+            trayBounds: {
+              min: trayBounds.min.toArray(),
+              max: trayBounds.max.toArray(),
+            },
+            ricePosition: ricePosition.toArray(),
+            platformTop,
+            cameraPosition: camera.getWorldPosition(new THREE.Vector3()).toArray(),
+          });
+        }
       }
 
       function resetRiceSpread() {
@@ -1082,7 +1125,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       if (riceSpreadDebug && debugGltf?.scene) {
         riceRig = new THREE.Group();
-        riceRig.position.set(0, platformTop + 0.04, 0);
+        // Galaxy에서 검증된 Tray Pull rack 높이와 완료 거리 그대로 재사용한다.
+        riceRig.position.set(0, platformTop + 0.12, 0);
         stageGroup.add(riceRig);
 
         // 사용자가 작업하기 편하도록 tray의 앞(+Z)이 카메라를 향하고 조금 꺼내진 위치에 둔다.
@@ -1091,8 +1135,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const towardCamera = cameraLocal.sub(riceRig.position).setY(0).normalize();
         if (towardCamera.lengthSq() > 1e-6) {
           riceRig.rotation.y = Math.atan2(towardCamera.x, towardCamera.z);
-          riceRig.position.addScaledVector(towardCamera, 0.1);
         }
+
+        riceSurfaceGroup = new THREE.Group();
+        riceSurfaceGroup.position.set(0, 0.02, TRAY_PULL.TRAY_PULL_DISTANCE);
+        riceRig.add(riceSurfaceGroup);
 
         const riceTray = skinnedClone(debugGltf.scene) as THREE.Object3D;
         riceTray.traverse((o: THREE.Object3D) => {
@@ -1105,11 +1152,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         });
         const rawBox = new THREE.Box3().setFromObject(riceTray);
         const rawCenter = rawBox.getCenter(new THREE.Vector3());
+        const traySize = rawBox.getSize(new THREE.Vector3());
         riceTray.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
-        riceRig.add(riceTray);
+        riceSurfaceGroup.add(riceTray);
+        riceTrayObject = riceTray;
 
-        const normalizedBox = new THREE.Box3().setFromObject(riceTray);
-        const traySize = normalizedBox.getSize(new THREE.Vector3());
         riceTrayTop = traySize.y;
         riceTargetWidth = traySize.x * RICE_SPREAD.TARGET_SURFACE_RATIO;
         riceTargetDepth = traySize.z * RICE_SPREAD.TARGET_SURFACE_RATIO;
@@ -1132,7 +1179,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           })
         );
         riceMesh.castShadow = riceMesh.receiveShadow = true;
-        riceRig.add(riceMesh);
+        riceSurfaceGroup.add(riceMesh);
         applyRiceVisual(0);
 
         // 2×3 target grid. 방문한 zone은 청록색에서 녹색으로 바뀐다.
@@ -1154,13 +1201,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               -riceTargetDepth * 0.5 + cellD * (row + 0.5)
             );
             zone.renderOrder = 9;
-            riceRig.add(zone);
+            riceSurfaceGroup.add(zone);
             riceZoneMaterials.push(material);
           }
         }
         riceRig.visible = false;
+        updateRiceSceneDebug();
       } else if (riceSpreadDebug) {
         console.warn("[riceSpreadDebug] metal_tray.glb를 불러오지 못해 rice spread 검증을 비활성화합니다.");
+        updateRiceSceneDebug();
       }
 
       const riceResetButton = $("#rice-debug-reset") as HTMLButtonElement | null;
@@ -1253,7 +1302,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           groups.forEach((g) => (g.visible = on));
         });
         if (trayRig) trayRig.visible = trayDebug && cur?.dark === true;
-        if (riceRig) riceRig.visible = riceSpreadDebug && cur?.dark === true;
+        if (riceRig) {
+          // 손 상태나 model list가 아니라 debug mode + cooling index만으로 표시한다.
+          riceRig.visible = riceSpreadDebug && S.godubap === GB_LAST;
+          updateRiceSceneDebug();
+        }
+        steam.visible = !(skipToRiceSpread && S.godubap === GB_LAST);
         const dark = cur?.dark === true;
         if (!dark) coolT = 0;
         uiRoot!.classList.toggle("cooling", dark); // 가장자리 비네트
@@ -1405,7 +1459,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
 
       function handleRiceSpread(f: HandFrame) {
-        if (!riceGesture || !riceRig) return;
+        if (!riceGesture || !riceRig || !riceSurfaceGroup) return;
 
         const rawPalm = palmCenter(f);
         const palm = rawPalm ? toScreen(rawPalm, handFit) : riceSnapshot.palm;
@@ -1413,10 +1467,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const targetPoint = { x: 0.5, y: 0.5 };
 
         if (rawPalm && riceTargetWidth > 0 && riceTargetDepth > 0) {
-          riceRig.updateWorldMatrix(true, true);
-          riceRig.localToWorld(riceCenterWorld.set(0, riceTrayTop + 0.03, 0));
-          riceRig.localToWorld(riceRightWorld.set(riceTargetWidth * 0.5, riceTrayTop + 0.03, 0));
-          riceRig.localToWorld(riceFrontWorld.set(0, riceTrayTop + 0.03, riceTargetDepth * 0.5));
+          riceSurfaceGroup.updateWorldMatrix(true, true);
+          riceSurfaceGroup.localToWorld(riceCenterWorld.set(0, riceTrayTop + 0.03, 0));
+          riceSurfaceGroup.localToWorld(riceRightWorld.set(riceTargetWidth * 0.5, riceTrayTop + 0.03, 0));
+          riceSurfaceGroup.localToWorld(riceFrontWorld.set(0, riceTrayTop + 0.03, riceTargetDepth * 0.5));
           worldToScreen(riceCenterWorld, camera, riceCenterScreen);
           worldToScreen(riceRightWorld, camera, riceRightScreen);
           worldToScreen(riceFrontWorld, camera, riceFrontScreen);
@@ -2516,6 +2570,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         <div>VISITED ZONES <b id="rice-debug-visited">0/6</b></div>
         <div>SPREAD PROGRESS <b id="rice-debug-progress">0%</b></div>
         <div>STATE <b id="rice-debug-state">IDLE</b></div>
+        <div>TRAY MODEL <b id="rice-debug-tray-model">LOADING</b></div>
+        <div>TRAY VISIBLE <b id="rice-debug-tray-visible">NO</b></div>
+        <div>RICE <b id="rice-debug-rice-ready">MISSING</b></div>
+        <div>GRID <b id="rice-debug-grid-ready">MISSING</b></div>
+        <div>TRAY POS <b id="rice-debug-tray-pos">—</b></div>
         <em id="rice-debug-spread">SPREAD!</em>
         <strong id="rice-debug-ok">RICE SPREAD OK</strong>
         <button type="button" id="rice-debug-reset">RESET RICE</button>
