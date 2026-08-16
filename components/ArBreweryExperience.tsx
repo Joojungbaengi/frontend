@@ -24,6 +24,7 @@ import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type Co
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
+import { TRAY_PULL, TrayPullGesture, type TrayPullSnapshot } from "@/lib/hand/trayPullGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
@@ -44,6 +45,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const $ = <T extends Element = HTMLElement>(s: string) =>
       uiRoot.querySelector(s) as T | null;
     const $$ = (s: string) => Array.from(uiRoot.querySelectorAll(s));
+    const trayDebug = new URLSearchParams(window.location.search).get("trayDebug") === "1";
+    uiRoot.classList.toggle("tray-debug", trayDebug);
 
     /* =====================================================================
      * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
@@ -255,9 +258,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
     const LOADED: Record<string, any> = {};
     const gltfLoader = new GLTFLoader();
+    const DEBUG_TRAY_ID = "__tray_pull_debug";
+    const DEBUG_TRAY_FILE = "/ar/3d-assets/metal_tray.glb";
 
     async function preloadModels() {
-      await Promise.all(
+      const recipeLoads = Promise.all(
         [...MODELS, ...GODUBAP_MODELS, ...(FINISH_MODEL ? [FINISH_MODEL] : [])].map(async (m) => {
           try {
             LOADED[m.id] = await gltfLoader.loadAsync(m.file);
@@ -266,6 +271,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
         })
       );
+      const debugTrayLoad = trayDebug
+        ? gltfLoader.loadAsync(DEBUG_TRAY_FILE)
+            .then((gltf) => { LOADED[DEBUG_TRAY_ID] = gltf; })
+            .catch((e: unknown) => console.warn(
+              "debug tray 로드 실패:",
+              DEBUG_TRAY_FILE,
+              e instanceof Error ? e.message : e
+            ))
+        : Promise.resolve();
+      await Promise.all([recipeLoads, debugTrayLoad]);
     }
 
     function spawnModel(def: ModelDef): THREE.Object3D | null {
@@ -850,6 +865,123 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         stage[def.id] = groups;
       });
 
+      /* ── 냉각① tray pull 기술 검증 (?trayDebug=1 전용) ───────────────
+       * 실제 metal_tray.glb scene 전체를 하나의 물체로 취급한다. 임시 레일은
+       * 방향과 이동량을 읽기 위한 debug geometry이며 production 에셋이 아니다.
+       */
+      const trayGesture = trayDebug ? new TrayPullGesture() : null;
+      let traySnapshot: TrayPullSnapshot = {
+        state: "IDLE", grabbed: false, startSpan: null,
+        currentSpan: 0, spanRatio: 1, progress: 0,
+      };
+      let trayRig: THREE.Group | null = null;
+      let trayMover: THREE.Group | null = null;
+      let trayModel: THREE.Object3D | null = null;
+      let trayTarget: THREE.Object3D | null = null;
+      let trayVisualProgress = 0;
+
+      const setDebugText = (id: string, value: string) => {
+        const el = $(id);
+        if (el) el.textContent = value;
+      };
+
+      function updateTrayDebugPanel(frame: HandFrame | null, hovering: boolean) {
+        if (!trayDebug) return;
+        setDebugText("#tray-debug-hand", frame?.present ? "FOUND" : "LOST");
+        setDebugText("#tray-debug-pinch", frame?.pinching ? "CLOSED" : "OPEN");
+        setDebugText("#tray-debug-target", hovering ? "HOVER" : "NONE");
+        setDebugText("#tray-debug-grab", traySnapshot.grabbed ? "YES" : "NO");
+        setDebugText("#tray-debug-start", traySnapshot.startSpan?.toFixed(4) ?? "—");
+        setDebugText("#tray-debug-current", traySnapshot.currentSpan.toFixed(4));
+        setDebugText("#tray-debug-ratio", traySnapshot.spanRatio.toFixed(3));
+        setDebugText("#tray-debug-progress", `${Math.round(traySnapshot.progress * 100)}%`);
+        setDebugText("#tray-debug-state", traySnapshot.state);
+        $("#tray-debug-ok")?.classList.toggle("visible", traySnapshot.state === "COMPLETE");
+      }
+
+      const debugGltf = trayDebug ? LOADED[DEBUG_TRAY_ID] : null;
+      if (debugGltf?.scene) {
+        trayRig = new THREE.Group();
+        trayRig.position.set(0, platformTop + 0.12, 0);
+        stageGroup.add(trayRig);
+
+        trayMover = new THREE.Group();
+        trayMover.position.y = 0.02; // 레일 상단에 트레이 바닥이 얹히도록 띄운다.
+        trayRig.add(trayMover);
+
+        // mesh 이름이나 중간 wrapper 구조에 의존하지 않고 scene 전체를 복제한다.
+        trayModel = skinnedClone(debugGltf.scene) as THREE.Object3D;
+        trayModel.traverse((o: THREE.Object3D) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((m) => m.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          materials.forEach((m) => {
+            if (!(m instanceof THREE.MeshStandardMaterial)) return;
+            m.userData.trayBaseEmissive = m.emissive.getHex();
+            m.userData.trayBaseEmissiveIntensity = m.emissiveIntensity;
+          });
+        });
+        const rawTrayBox = new THREE.Box3().setFromObject(trayModel);
+        const rawTrayCenter = rawTrayBox.getCenter(new THREE.Vector3());
+        trayModel.position.set(-rawTrayCenter.x, -rawTrayBox.min.y, -rawTrayCenter.z);
+        trayMover.add(trayModel);
+
+        const trayBox = new THREE.Box3().setFromObject(trayModel);
+        const traySize = trayBox.getSize(new THREE.Vector3());
+
+        // 카메라 쪽(+Z)이 실제로 손을 대는 앞 테두리다.
+        const targetMarker = new THREE.Mesh(
+          new THREE.SphereGeometry(0.012, 16, 12),
+          new THREE.MeshBasicMaterial({ color: 0xffd45c, depthTest: false })
+        );
+        targetMarker.position.set(0, traySize.y + 0.018, traySize.z * 0.5 - 0.025);
+        targetMarker.renderOrder = 8;
+        trayMover.add(targetMarker);
+        trayTarget = targetMarker;
+
+        // 최종 선반 에셋이 오기 전까지만 쓰는 얇은 레일/프레임.
+        const railMat = new THREE.MeshStandardMaterial({
+          color: 0x4b6470, metalness: 0.72, roughness: 0.38,
+          transparent: true, opacity: 0.72,
+        });
+        const addRail = (size: THREE.Vector3, position: THREE.Vector3) => {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), railMat);
+          rail.position.copy(position);
+          rail.castShadow = rail.receiveShadow = true;
+          trayRig!.add(rail);
+        };
+        const railX = traySize.x * 0.5 + 0.017;
+        addRail(new THREE.Vector3(0.018, 0.025, traySize.z + 0.06), new THREE.Vector3(-railX, 0.006, 0));
+        addRail(new THREE.Vector3(0.018, 0.025, traySize.z + 0.06), new THREE.Vector3(railX, 0.006, 0));
+        addRail(new THREE.Vector3(traySize.x + 0.052, 0.025, 0.018), new THREE.Vector3(0, 0.006, -traySize.z * 0.5 - 0.021));
+        addRail(new THREE.Vector3(0.018, 0.12, 0.018), new THREE.Vector3(-railX, -0.047, -traySize.z * 0.5));
+        addRail(new THREE.Vector3(0.018, 0.12, 0.018), new THREE.Vector3(railX, -0.047, -traySize.z * 0.5));
+
+        // 레일 방향(+Z)과 완료 위치를 폰 화면에서 바로 확인한다.
+        const arrow = new THREE.ArrowHelper(
+          new THREE.Vector3(0, 0, 1),
+          new THREE.Vector3(0, traySize.y + 0.045, traySize.z * 0.5),
+          TRAY_PULL.TRAY_PULL_DISTANCE,
+          0x52d8ff,
+          0.045,
+          0.024
+        );
+        trayRig.add(arrow);
+        const endMarker = new THREE.Mesh(
+          new THREE.RingGeometry(0.018, 0.026, 24).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: 0x52d8ff, side: THREE.DoubleSide })
+        );
+        endMarker.position.set(0, traySize.y + 0.006, TRAY_PULL.TRAY_PULL_DISTANCE);
+        trayRig.add(endMarker);
+        trayRig.visible = false;
+      } else if (trayDebug) {
+        console.warn("[trayDebug] metal_tray.glb를 불러오지 못해 tray pull 검증을 비활성화합니다.");
+      }
+
       // 냉각 때 채반 위에 까는 고두밥(쌀) 텍스처 평면 — 채반 크기에 맞춰 덮는다.
       if (recipe.godubapRicePlane) {
         const rp = recipe.godubapRicePlane;
@@ -930,9 +1062,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
         const show = new Set(cur?.models ?? []);
         Object.entries(stage).forEach(([id, groups]) => {
-          const on = show.has(id);
+          // debug 냉각에서는 기존 metal_food_tray를 새 metal_tray로 완전히 교체한다.
+          const debugReplacement = trayDebug && cur?.dark &&
+            (id === "metal_food_tray" || id === "rice_plane");
+          const on = show.has(id) && !debugReplacement;
           groups.forEach((g) => (g.visible = on));
         });
+        if (trayRig) trayRig.visible = trayDebug && cur?.dark === true;
         const dark = cur?.dark === true;
         if (!dark) coolT = 0;
         uiRoot!.classList.toggle("cooling", dark); // 가장자리 비네트
@@ -941,6 +1077,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       live.tick = (t, dt) => {
         const cur = GODUBAP_STEPS[S.godubap];
+
+        if (trayMover) {
+          trayVisualProgress += (traySnapshot.progress - trayVisualProgress) * 0.18;
+          trayMover.position.z = trayVisualProgress * TRAY_PULL.TRAY_PULL_DISTANCE;
+        }
 
         // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
         if (soakActive()) {
@@ -1016,8 +1157,60 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        */
       const fan = new FanGesture();
       const stir = new StirGesture();
+      const trayWorld = new THREE.Vector3();
+      const trayCameraLocal = new THREE.Vector3();
+      const trayScreen = { x: 0, y: 0 };
 
-      live.onHand = (f) => {
+      function updateTrayHighlight(hovering: boolean) {
+        trayModel?.traverse((o: THREE.Object3D) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          materials.forEach((m) => {
+            if (!(m instanceof THREE.MeshStandardMaterial)) return;
+            m.emissive.setHex(hovering ? 0x5a4210 : (m.userData.trayBaseEmissive ?? 0));
+            m.emissiveIntensity = hovering ? 0.75 : (m.userData.trayBaseEmissiveIntensity ?? 1);
+          });
+        });
+      }
+
+      function handleTrayPull(f: HandFrame, hand: HandVisual) {
+        if (!trayGesture || !trayRig || !trayTarget) return;
+
+        // grab 전에는 임시 레일의 +Z가 현재 사용자/카메라를 향하게 한다.
+        // grab 순간부터는 방향을 잠가 손의 좌우·상하 움직임이 tray 경로를 바꾸지 못한다.
+        if (!traySnapshot.grabbed && traySnapshot.state !== "COMPLETE") {
+          camera.getWorldPosition(trayCameraLocal);
+          stageGroup.worldToLocal(trayCameraLocal);
+          trayCameraLocal.sub(trayRig.position).setY(0);
+          if (trayCameraLocal.lengthSq() > 1e-6) {
+            trayRig.rotation.y = Math.atan2(trayCameraLocal.x, trayCameraLocal.z);
+          }
+        }
+
+        trayRig.updateWorldMatrix(true, true);
+        trayTarget.getWorldPosition(trayWorld);
+        worldToScreen(trayWorld, camera, trayScreen);
+        const hovering = f.present && screenDist(hand.pinchScreen, trayScreen) <= TRAY_PULL.GRAB_RADIUS;
+        traySnapshot = trayGesture.update(f, hovering);
+
+        updateTrayHighlight(hovering || traySnapshot.grabbed);
+        updateTrayDebugPanel(f, hovering);
+
+        if (traySnapshot.state === "COMPLETE") setHandHud("dropped", "TRAY PULL OK");
+        else if (traySnapshot.grabbed) setHandHud("holding", "잡은 채 손을 몸 쪽으로 당겨 주세요");
+        else if (hovering) setHandHud("hover", "앞쪽 테두리에서 엄지와 검지를 붙이세요");
+        else if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+        else setHandHud("tracking", "노란 표시에 손을 가까이 대세요");
+      }
+
+      live.onHand = (f, hand) => {
+        // 이 spike는 냉각 production progression과 분리한다. debug에서만 부채질 대신 실행된다.
+        if (trayDebug && S.godubap === GB_LAST) {
+          handleTrayPull(f, hand);
+          return;
+        }
+
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
         if (rinseActive()) {
           const turns = stir.update(f);
@@ -1997,6 +2190,21 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       <canvas ref={canvasRef} id="gl" />
       {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
       <div className="vignette" />
+
+      {/* ?trayDebug=1 전용 — production flow에서는 CSS로 완전히 숨긴다 */}
+      <aside className="tray-debug-panel" aria-label="Tray pull debug values">
+        <div className="tray-debug-title">COOLING① · TRAY PULL</div>
+        <div>HAND <b id="tray-debug-hand">LOST</b></div>
+        <div>PINCH <b id="tray-debug-pinch">OPEN</b></div>
+        <div>TARGET <b id="tray-debug-target">NONE</b></div>
+        <div>GRAB <b id="tray-debug-grab">NO</b></div>
+        <div>START SPAN <b id="tray-debug-start">—</b></div>
+        <div>CURRENT SPAN <b id="tray-debug-current">0.0000</b></div>
+        <div>SPAN RATIO <b id="tray-debug-ratio">1.000</b></div>
+        <div>PULL PROGRESS <b id="tray-debug-progress">0%</b></div>
+        <div>STATE <b id="tray-debug-state">IDLE</b></div>
+        <strong id="tray-debug-ok">TRAY PULL OK</strong>
+      </aside>
 
       {/* 11 · AR 시작 */}
       <div className="panel-step" id="p-place">

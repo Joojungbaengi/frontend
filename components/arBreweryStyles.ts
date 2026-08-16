@@ -16,6 +16,20 @@ export const styles = `
 .ar-ui.cooling .vignette{opacity:1}
 .ar-ui > *{position:relative; z-index:1}
 
+/* 냉각① tray pull 기술 검증 패널 — URL에 ?trayDebug=1이 있을 때만 root class가 붙는다. */
+.ar-ui .tray-debug-panel{display:none}
+.ar-ui.tray-debug .tray-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(205px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(82,216,255,.52); border-radius:10px;
+  background:rgba(8,16,20,.86); color:rgba(235,247,250,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.38); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .tray-debug-panel > div:not(.tray-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .tray-debug-panel b{color:#f5fbfc; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .tray-debug-title{margin-bottom:3px; color:#52d8ff; font-weight:800; letter-spacing:.04em}
+.ar-ui #tray-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
+  background:#3f7a4e; color:#fff; text-align:center; letter-spacing:.05em}
+.ar-ui #tray-debug-ok.visible{display:block}
+
 .ar-ui.ar-mode{background:transparent}
 .ar-ui.ar-mode canvas#gl{background:transparent}
 .ar-ui.ar-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
