@@ -26,6 +26,7 @@ import { LM } from "@/lib/hand/types";
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
+import { ShakeGesture } from "@/lib/hand/shakeGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
@@ -180,7 +181,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * 1. 렌더러 / 씬
      * ===================================================================*/
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
@@ -529,9 +530,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (!S.xr) {
         const c = anchor.position;
         const sc = anchor.scale.x;
-        // 그릇 넷이 대야를 둘러싸고 있어 예전보다 넓게 잡아야 다 들어온다
-        camera.position.set(c.x, c.y + 1.02 * sc, c.z + 0.86 * sc);
-        controls.target.set(c.x, c.y + (platformTop + 0.05) * sc, c.z);
+        // 3D 미리보기에서는 재료가 화면에 너무 작게 나와서 손으로 잡기 힘들다.
+        // 대야와 재료가 한 번에 보이게 하려면 약간 더 가까이, 약간 더 크게 잡아야 한다.
+        camera.position.set(c.x, c.y + 1.18 * sc, c.z + 0.72 * sc);
+        controls.target.set(c.x, c.y + (platformTop + 0.06) * sc, c.z);
         controls.update();
       }
 
@@ -549,14 +551,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       // 원료 그릇 — 주원료만, 대야를 둘러싸게
       // 누룩만 그릇이 없다 — 덩어리를 그대로 쌓아 둔다. 원래 그렇게 다룬다.
-      const BOWL: Record<string, { model: string | null; color: number }> = {
+      // 누룩만 덩어리다. 그릇이 없으니 기울일 것도 없고, 집어다 넣으면 된다.
+      const BOWL: Record<string, { model: string | null; color: number; drop?: boolean }> = {
         rice: { model: "bowl_rice", color: 0xf2ece0 },
         water: { model: "bowl_water", color: 0x8ec6e8 },
-        nuruk: { model: null, color: 0xd9c79b },
+        nuruk: { model: null, color: 0xd9c79b, drop: true },
         mil: { model: "bowl_mil", color: 0xc9b58d },
       };
       const picks = INGREDIENTS.filter((i) => i.essential && BOWL[i.id]);
-      const ringR = 0.2; // 너무 벌리면 손이 닿지 않는다
+      const ringR = 0.3; // 손이 닿을 수 있게 약간 더 넓게 벌려 두어도 재료를 한 번에 볼 수 있다
 
       ingredientNodes = picks.map((ing, i) => {
         const spec = BOWL[ing.id];
@@ -606,6 +609,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           home,
           homeRotY: -ang,
           color: spec.color,
+          drop: Boolean(spec.drop),
           done: false,
           tilt: new TiltGesture(),
         };
@@ -706,7 +710,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const nodeWorld = new THREE.Vector3();
       const nodeScreen = { x: 0.5, y: 0.5 };
       const grabTarget = new THREE.Vector3();
+      const basinLocal = new THREE.Vector3(0, basinTop, 0);
+      const basinWorld = new THREE.Vector3();
+      const basinScreen = { x: 0.5, y: 0.5 };
       const PICK_R = 0.15;
+      /** 대야 위로 인정하는 반경 — 넣기는 넉넉하게 봐준다 */
+      const OVER_R = 0.2;
 
       const nameOf = (id: string) => INGREDIENTS.find((i) => i.id === id)?.name ?? "원료";
       const cardOf = (id: string) => $(`#grid .card[data-id="${id}"]`);
@@ -716,6 +725,19 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (hovered) (hovered.userData as Record<string, unknown>).hover = false;
         hovered = n;
         if (hovered) (hovered.userData as Record<string, unknown>).hover = true;
+      };
+
+      /** 대야에 담고 그 재료를 무대에서 치운다 */
+      const addToBasin = (ud: Record<string, unknown>, msg: string) => {
+        ud.done = true;
+        filled++;
+        fillColor.lerp(new THREE.Color(ud.color as number), 0.5);
+        redrawFill();
+        S.selected.add(ud.id as string);
+        cardOf(ud.id as string)?.setAttribute("aria-pressed", "true");
+        syncIngredient(INGREDIENTS.find((i) => i.id === ud.id), true);
+        setHandHud("dropped", msg);
+        release();
       };
 
       const release = () => {
@@ -756,6 +778,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           stageGroup.worldToLocal(grabTarget);
           held.position.lerp(grabTarget, 0.5);
 
+          // 누룩 — 대야 위에서 손을 펴면 들어간다
+          if (ud.drop) {
+            stageGroup.localToWorld(basinWorld.copy(basinLocal));
+            worldToScreen(basinWorld, camera, basinScreen);
+            const over = screenDist(pinch, basinScreen) < OVER_R;
+            if (f.justReleased) {
+              if (over) addToBasin(ud, `${nameOf(ud.id as string)}을(를) 대야에 넣었어요`);
+              else {
+                setHandHud("tracking", `${nameOf(ud.id as string)}을(를) 놓쳤어요`);
+                release();
+              }
+              return;
+            }
+            setHandHud(
+              "holding",
+              over
+                ? `${nameOf(ud.id as string)} · 손을 펴서 대야에 넣으세요`
+                : `${nameOf(ud.id as string)}을(를) 대야 위로 옮기세요`
+            );
+            return;
+          }
+
           const st = (ud.tilt as TiltGesture).update(
             f.landmarks[LM.WRIST],
             f.landmarks[LM.MIDDLE_MCP],
@@ -767,16 +811,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (st.pouring) pourMat.color.setHex(ud.color as number);
 
           if (st.justEmptied) {
-            ud.done = true;
-            // 대야에 담기고, 가져온 그릇은 자리를 뜬다
-            filled++;
-            fillColor.lerp(new THREE.Color(ud.color as number), 0.5);
-            redrawFill();
-            S.selected.add(ud.id as string);
-            cardOf(ud.id as string)?.setAttribute("aria-pressed", "true");
-            syncIngredient(INGREDIENTS.find((i) => i.id === ud.id), true);
-            setHandHud("dropped", `${nameOf(ud.id as string)}을(를) 다 부었어요`);
-            release();
+            addToBasin(ud, `${nameOf(ud.id as string)}을(를) 다 부었어요`);
             return;
           }
 
@@ -1098,8 +1133,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        */
       const fan = new FanGesture();
       const stir = new StirGesture();
+      const shake = new ShakeGesture();
+      let drainShakes = 0;
 
       live.onHand = (f) => {
+        const stepDt = 1 / 60;
+
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
         if (rinseActive()) {
           const turns = stir.update(f);
@@ -1124,6 +1163,39 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               "tracking",
               `그릇 안에서 손을 둥글게 돌려 주세요 · ${S.rinseTurns}/${REQUIRED_RINSE_TURNS}바퀴`
             );
+          return;
+        }
+
+        if (S.godubap === 2) {
+          if (!f.present) {
+            setHandHud("idle", "소쿠리를 잡고 위아래로 털어 물을 빼 주세요");
+            return;
+          }
+
+          const wristY = f.landmarks[LM.WRIST].y;
+          const state = shake.update(wristY, stepDt);
+          if (state.justCounted) {
+            drainShakes = Math.min(6, drainShakes + 1);
+            setHandHud("holding", `소쿠리를 위아래로 털어 물을 빼 주세요 · ${drainShakes}/6`);
+          }
+
+          if (drainShakes >= 6) {
+            shake.reset();
+            drainShakes = 0;
+            S.godubap = 3;
+            syncGodubap();
+            return;
+          }
+
+          if (state.moving) {
+            const shakeRatio = Math.min(1, drainShakes / 6);
+            const basket = (stage["bamboo_basket"] ?? [])[0];
+            const swayTime = performance.now() / 1000;
+            if (basket) {
+              basket.rotation.z = Math.sin(swayTime * 18) * (0.2 + shakeRatio * 0.5);
+              basket.position.x = Math.sin(swayTime * 15) * 0.025 * (0.4 + shakeRatio);
+            }
+          }
           return;
         }
 
@@ -1328,6 +1400,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       uiRoot!.classList.add("ar-mode");
       controls.enabled = false;
       floor.visible = false;
+      // 그림자도 프레임마다 렌더 타깃을 한 번 더 바꾼다. 폰 AR 에서는 그 값이
+      // 비용에 비해 크지 않고, 타깃을 덜 건드릴수록 화면이 안정적이다.
+      renderer.shadowMap.enabled = false;
 
       renderer.xr.setReferenceSpaceType("local");
       await renderer.xr.setSession(xrSession as any);
@@ -1353,6 +1428,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         uiRoot!.classList.remove("ar-mode");
         controls.enabled = true;
         floor.visible = true;
+        renderer.shadowMap.enabled = true;
         surfaceReady = false;
         resize();
         syncPlaceButton();
@@ -1457,6 +1533,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         onFermentTick();
       }
 
+      /**
+       * 카메라 영상 한 장을 뜨는 일은 **이번 프레임을 다 그린 뒤에** 한다.
+       *
+       * 그 작업은 렌더 타깃을 잠깐 딴 데로 돌린다. 무대를 그리기 **전에** 하면
+       * 그리는 도중에 타깃이 바뀐 셈이 되어 화면이 프레임 단위로 찢긴다.
+       * AR 물체가 없을 때 멀쩡해 보였던 건 두 프레임이 똑같아 티가 안 났을 뿐이다.
+       */
+      let takeShot: (() => void) | null = null;
+
       // 손 갱신은 3D 갱신보다 먼저 — 이번 프레임의 손 위치를 보고 물건이 따라와야 한다
       if (S.hand && handTracker && xrFeed && frame) {
         const xrCam = (frame as any).getViewerPose?.(localSpace)?.views?.[0]?.camera;
@@ -1466,9 +1551,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (now - lastDetectAt >= AR_DETECT_MS) {
             lastDetectAt = now;
             const tex = renderer.xr.getCameraTexture(xrCam);
+            const feed = xrFeed;
+            const tracker = handTracker;
+            const w = xrCam.width;
+            const h = xrCam.height;
             if (tex) {
-              const shot = xrFeed.capture(renderer, tex as any, xrCam.width, xrCam.height);
-              if (shot) handTracker.detect(shot, now);
+              takeShot = () => {
+                const shot = feed.capture(renderer, tex as any, w, h);
+                if (shot) tracker.detect(shot, performance.now());
+              };
             }
           }
           handFit = coverFit(xrCam.width, xrCam.height, canvas!.clientWidth, canvas!.clientHeight);
@@ -1504,6 +1595,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       renderer.render(scene, camera);
       renderer.autoClear = false; // 손은 무대 위에 덧그리는 것이라 지우면 안 된다
       if (S.hand) handVisual.render(renderer, camera);
+
+      takeShot?.(); // 다 그린 뒤에야 카메라 영상을 뜬다
     });
 
     /* =====================================================================
@@ -1547,7 +1640,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
     /** 선택한 크기(실제 / 미니어처)를 배치 그룹에 반영 */
     function applySurfaceScale() {
-      anchor.scale.setScalar(S.surface === "table" ? 0.55 : 1);
+      // 바닥 모드는 더 크게 보여야 손이 멀리 뻗지 않아도 잡을 수 있고,
+      // 책상 모드는 너무 작아지지 않도록 보정한다.
+      anchor.scale.setScalar(S.surface === "table" ? 0.94 : 1.18);
     }
 
     $$(".seg button").forEach((btn) => {
