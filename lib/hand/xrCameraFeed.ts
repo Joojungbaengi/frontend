@@ -97,9 +97,6 @@ export class XrCameraFeed {
     if (!srcW || !srcH || !this.ctx) return null;
     this.ensureTarget(srcW, srcH);
     if (!this.rt || !this.buffer || !this.imageData) return null;
-    // 앞서 시작한 읽기가 아직 안 끝났으면 이번 프레임은 건너뛴다.
-    // 같은 버퍼를 두 번 겹쳐 읽지 않으려는 것이다.
-    if (this.reading) return this.fresh ? this.canvas : null;
 
     this.size.w = srcW;
     this.size.h = srcH;
@@ -116,30 +113,11 @@ export class XrCameraFeed {
       renderer.setRenderTarget(this.rt);
       renderer.render(this.scene, this.camera);
 
-      // GPU 에서 픽셀을 내리는 동안 그리기가 멈춘다. 초당 열몇 번이면 화면이
-      // 눈에 띄게 튄다. 그래서 기다리지 않고 맡겨 두었다가 끝나면 받는다.
-      // 한 프레임 늦게 오지만, 손 검출은 어차피 60ms 마다라 차이가 없다.
-      const async_ = (
-        renderer as unknown as {
-          readRenderTargetPixelsAsync?: (
-            rt: THREE.WebGLRenderTarget, x: number, y: number, w: number, h: number, buf: Uint8Array
-          ) => Promise<unknown>;
-        }
-      ).readRenderTargetPixelsAsync;
-
-      if (async_) {
-        this.reading = true;
-        void async_
-          .call(renderer, this.rt, 0, 0, this.rt.width, this.rt.height, this.buffer)
-          .then(() => this.publish())
-          .catch(() => undefined)
-          .finally(() => {
-            this.reading = false;
-          });
-      } else {
-        renderer.readRenderTargetPixels(this.rt, 0, 0, this.rt.width, this.rt.height, this.buffer);
-        this.publish();
-      }
+      // 픽셀을 내리는 동안 그리기가 멈추긴 하지만, 여기서 기다리지 않고
+      // 비동기로 받으면 그리는 도중에 프레임버퍼가 다시 묶여 화면이 검게 튄다.
+      // 60ms 에 한 번 서는 편이 낫다.
+      renderer.readRenderTargetPixels(this.rt, 0, 0, this.rt.width, this.rt.height, this.buffer);
+      this.publish();
     } catch {
       // 기기에 따라 카메라 텍스처를 읽지 못할 수 있다. 이 프레임은 건너뛴다.
       this.reading = false;

@@ -542,29 +542,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const basin = basinDef ? spawnModel(basinDef) : null;
       const basinTop = baseY + (basinDef?.height ?? 0.12);
       if (basin) {
-        // 그릇들보다 앞에 둔다 — 어디에 붓는지가 한눈에 보여야 한다
-        basin.position.set(0, baseY, 0.07);
+        basin.position.set(0, baseY, 0); // 한가운데 — 재료들이 이걸 둘러싼다
         stageGroup.add(basin);
         live.models.push(basin);
       }
 
       // 원료 그릇 — 주원료만, 대야를 둘러싸게
-      const BOWL: Record<string, { model: string; color: number }> = {
+      // 누룩만 그릇이 없다 — 덩어리를 그대로 쌓아 둔다. 원래 그렇게 다룬다.
+      const BOWL: Record<string, { model: string | null; color: number }> = {
         rice: { model: "bowl_rice", color: 0xf2ece0 },
         water: { model: "bowl_water", color: 0x8ec6e8 },
-        nuruk: { model: "bowl_nuruk", color: 0xd9c79b },
+        nuruk: { model: null, color: 0xd9c79b },
         mil: { model: "bowl_mil", color: 0xc9b58d },
       };
       const picks = INGREDIENTS.filter((i) => i.essential && BOWL[i.id]);
-      const ringR = 0.23;
+      const ringR = 0.27; // 대야가 커졌으니 그만큼 벌려 놓는다
 
       ingredientNodes = picks.map((ing, i) => {
         const spec = BOWL[ing.id];
         const def = MODELS.find((m) => m.id === spec.model);
         const g = new THREE.Group();
-        // 화면 아래쪽은 원료 카드가 덮으므로, 그릇은 대야 **뒤쪽 호**에 늘어놓는다.
-        // 빙 둘러 놓으면 앞의 하나가 카드에 가려 집을 수가 없다.
-        const ang = THREE.MathUtils.degToRad(-160 + (i * 140) / Math.max(picks.length - 1, 1));
+        // 가운데 대야를 재료들이 둘러싼다
+        const ang = (i / picks.length) * Math.PI * 2 - Math.PI / 2;
         const home = new THREE.Vector3(Math.cos(ang) * ringR, baseY, Math.sin(ang) * ringR);
         g.position.copy(home);
         g.rotation.y = -ang;
@@ -572,18 +571,34 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const node = def ? spawnModel(def) : null;
         if (node) g.add(node);
 
-        // 누룩은 대야에 덩어리를 얹어 둔다 — 빈 대야만 있으면 뭐가 든 건지 안 보인다
+        // 누룩 — 덩어리 셋을 비스듬히 겹쳐 쌓는다
         const lumpDef = MODELS.find((m) => m.id === "nuruk_lump");
         if (ing.id === "nuruk" && lumpDef) {
           for (let k = 0; k < 3; k++) {
             const lump = spawnModel(lumpDef);
             if (!lump) break;
-            const a = (k / 3) * Math.PI * 2;
-            // 대야 전 높이만큼 올려야 테두리 위로 덩어리가 보인다
-            lump.position.set(Math.cos(a) * 0.018, (def?.height ?? 0.05) * 0.9, Math.sin(a) * 0.018);
-            lump.rotation.set(0, a, 0);
+            const a = (k / 3) * Math.PI * 2 + 0.4;
+            lump.position.set(Math.cos(a) * 0.028, k * 0.012, Math.sin(a) * 0.028);
+            lump.rotation.set(0.25, a, 0.12);
             g.add(lump);
           }
+        }
+
+        // 물 항아리는 안이 비어 보인다 — 수면을 하나 깔아 물이 담긴 걸 보인다
+        if (ing.id === "water" && node) {
+          const jar = new THREE.Box3().setFromObject(node).getSize(new THREE.Vector3());
+          const water = new THREE.Mesh(
+            new THREE.CircleGeometry(jar.x * 0.34, 32).rotateX(-Math.PI / 2),
+            new THREE.MeshStandardMaterial({
+              color: 0x9fd4ec,
+              transparent: true,
+              opacity: 0.88,
+              roughness: 0.15,
+              metalness: 0.1,
+            })
+          );
+          water.position.y = jar.y * 0.74;
+          g.add(water);
         }
 
         (g.userData as Record<string, unknown>) = {
@@ -618,7 +633,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(pour);
       const pourSeed = Array.from({ length: POUR_N }, () => Math.random());
       const from = new THREE.Vector3();
-      const to = new THREE.Vector3(0, basinTop - 0.02, 0.07);
+      const to = new THREE.Vector3(0, basinTop - 0.02, 0);
 
       /** 그릇 입에서 대야로 흐르는 줄기를 갱신한다 */
       function streamTo(node: THREE.Group, t: number) {

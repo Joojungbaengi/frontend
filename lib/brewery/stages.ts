@@ -49,12 +49,12 @@ export function commonStageModels(): ModelDef[] {
  */
 export function ingredientModels(): ModelDef[] {
   return [
-    { id: "mix_basin", file: `${AR_ASSETS}/large-basin.glb`, step: "ingredient", height: 0.075, y: 0.03 },
+    { id: "mix_basin", file: `${AR_ASSETS}/large-basin.glb`, step: "ingredient", height: 0.11, y: 0.03 },
     { id: "bowl_rice", file: `${AR_ASSETS}/rice_bowl.glb`, step: "ingredient", height: 0.07, y: 0.03 },
     { id: "bowl_water", file: `${AR_ASSETS}/water_jar.glb`, step: "ingredient", height: 0.095, y: 0.03 },
     { id: "bowl_nuruk", file: `${AR_ASSETS}/basin.glb`, step: "ingredient", height: 0.05, y: 0.03 },
     { id: "bowl_mil", file: `${AR_ASSETS}/wheat_bowl.glb`, step: "ingredient", height: 0.07, y: 0.03 },
-    { id: "nuruk_lump", file: `${AR_ASSETS}/nuruk_lump.glb`, step: "ingredient", height: 0.028, y: 0.03 },
+    { id: "nuruk_lump", file: `${AR_ASSETS}/nuruk_lump.glb`, step: "ingredient", height: 0.055, y: 0.03 },
   ];
 }
 
@@ -64,7 +64,7 @@ export function ingredientModels(): ModelDef[] {
  */
 export function godubapStageModels(): ModelDef[] {
   return [
-    { id: "rice_bowl", file: `${AR_ASSETS}/rice_washing_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
+    { id: "rice_bowl", file: `${AR_ASSETS}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
     { id: "bamboo_basket", file: `${AR_ASSETS}/bamboo_basket.glb`, step: "godubap", height: 0.12, y: 0.03 },
     { id: "steamer_pot", file: `${AR_ASSETS}/steamer_pot.glb`, step: "godubap", height: 0.15, y: 0.03 },
     { id: "steamer_lid", file: `${AR_ASSETS}/steamer_lid.glb`, step: "godubap", height: 0.045, y: 0.03 },
@@ -114,13 +114,13 @@ export function godubapSteps(o: GodubapOptions = {}): ProcessStep[] {
       id: "talsu",
       name: "탈수",
       caption: c.talsu ?? `${drain}시간 동안 물을 빼줘요`,
-      models: ["rice_bowl", "bowl_rice"],
+      models: ["bamboo_basket"],
     },
     {
       id: "jeungja",
       name: "증자",
       caption: c.jeungja ?? "강한 증기로 쪄 고두밥을 지어요",
-      models: ["kitchen_pot"],
+      models: ["steamer_pot", "steamer_lid"],
       steam: true,
     },
     {
