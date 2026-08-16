@@ -208,10 +208,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     controls.maxPolarAngle = Math.PI * 0.49; // 바닥 아래로는 내려가지 않게
 
     scene.add(new THREE.HemisphereLight(0xdfe8e0, 0x1b2118, 1.0)); // 라이트 강도 낮춰서 성능 향상
-    const keyLight = new THREE.DirectionalLight(0xfff2d8, 1.9);
+    const keyLight = new THREE.DirectionalLight(0xfff2d8, 1.4); // 강도 더 낮춤
     keyLight.position.set(0.9, 1.6, 0.7);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.set(1024, 1024);
+    keyLight.shadow.mapSize.set(512, 512); // 쉐도우맵 크기 축소
     keyLight.shadow.camera.near = 0.1;
     keyLight.shadow.camera.far = 6;
     keyLight.shadow.camera.left = -1.2;
@@ -1479,7 +1479,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * AR 모드 손 검출 간격(ms). 카메라 이미지를 GPU 에서 내려받는 비용이 있어
      * 매 프레임 하면 3D 가 눈에 띄게 느려진다. 이 정도면 집는 조작에 충분하다.
      */
-    const AR_DETECT_MS = 120;
+    const AR_DETECT_MS = 150; // 손 감지 빈도 더 낮춤 (더 적은 MediaPipe 호출)
 
     // 손 상태 표시는 단계마다 하나씩 있다 (원료·고두밥). 전부 같이 갱신한다.
     function setHandHud(state: "idle" | "tracking" | "hover" | "holding" | "dropped", text: string) {
