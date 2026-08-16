@@ -29,6 +29,10 @@ export const styles = `
 .ar-ui #tray-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
   background:#3f7a4e; color:#fff; text-align:center; letter-spacing:.05em}
 .ar-ui #tray-debug-ok.visible{display:block}
+.ar-ui #tray-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px; border:1px solid rgba(82,216,255,.55);
+  border-radius:6px; background:rgba(82,216,255,.12); color:#bdefff; font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace;
+  letter-spacing:.04em; cursor:pointer; -webkit-tap-highlight-color:transparent}
+.ar-ui #tray-debug-reset:active{background:rgba(82,216,255,.28)}
 
 .ar-ui.ar-mode{background:transparent}
 .ar-ui.ar-mode canvas#gl{background:transparent}
