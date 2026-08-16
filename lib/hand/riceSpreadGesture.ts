@@ -13,13 +13,14 @@ export const RICE_SPREAD = {
   MAX_STROKE_MS: 1200,
   ZONE_COLUMNS: 3,
   ZONE_ROWS: 2,
+  COVERAGE_PER_ZONE: 2,
   /** 현재 stroke만 취소할 hand-lost 시간 */
   HAND_LOST_TIMEOUT: 350,
   /** rice visual progress EMA 비율 */
   VISUAL_SMOOTHING: 0.16,
   /** 펼치기 전/후 rice 면적 비율과 두께(m) */
   START_SURFACE_RATIO: 0.46,
-  FINAL_SURFACE_RATIO: 0.82,
+  FINAL_SURFACE_RATIO: 0.95,
   START_THICKNESS: 0.045,
   FINAL_THICKNESS: 0.014,
 } as const;
@@ -41,7 +42,8 @@ export interface RiceSpreadSnapshot {
   onRice: boolean;
   moveDistance: number;
   currentZone: number | null;
-  visitedZones: number[];
+  zoneCoverage: number[];
+  totalCoverage: number;
   progress: number;
   justSpread: boolean;
 }
@@ -71,8 +73,14 @@ function zoneAt(p: { x: number; y: number }): number {
 
 export class RiceSpreadGesture {
   private stateValue: RiceSpreadState = "IDLE";
-  private visited = new Set<number>();
+  private coverage = Array.from(
+    { length: RICE_SPREAD.ZONE_COLUMNS * RICE_SPREAD.ZONE_ROWS },
+    () => 0
+  );
+  /** 현재 continuous stroke가 지나간 zone */
   private strokeZones = new Set<number>();
+  /** 현재 continuous stroke에서 이미 +1을 받은 zone — rice 밖으로 나갈 때만 비운다 */
+  private creditedThisStroke = new Set<number>();
   private anchor: { x: number; y: number } | null = null;
   private previous: { x: number; y: number } | null = null;
   private strokeStartedAt = 0;
@@ -118,7 +126,11 @@ export class RiceSpreadGesture {
 
     const elapsed = now - this.strokeStartedAt;
     if (elapsed > RICE_SPREAD.MAX_STROKE_MS) {
-      this.beginStroke(input.palm, zone, now);
+      // 시간 초과된 미인정 경로는 버리되, 이미 이 continuous stroke에서
+      // 가산된 zone은 중복 방지를 위해 계속 기억한다.
+      this.strokeZones.clear();
+      for (const creditedZone of this.creditedThisStroke) this.strokeZones.add(creditedZone);
+      this.restartSegment(input.palm, zone, now);
       this.stateValue = "ON_RICE";
       return this.snapshot(false);
     }
@@ -136,12 +148,19 @@ export class RiceSpreadGesture {
 
     let added = false;
     for (const strokeZone of this.strokeZones) {
-      if (!this.visited.has(strokeZone)) added = true;
-      this.visited.add(strokeZone);
+      if (this.creditedThisStroke.has(strokeZone)) continue;
+      this.creditedThisStroke.add(strokeZone);
+      if (this.coverage[strokeZone] < RICE_SPREAD.COVERAGE_PER_ZONE) {
+        this.coverage[strokeZone]++;
+        added = true;
+      }
     }
-    this.beginStroke(input.palm, zone, now);
+    // 다음 유효 구간을 재되, continuous stroke의 중복 방지 Set은 유지한다.
+    this.restartSegment(input.palm, zone, now);
 
-    if (this.visited.size >= RICE_SPREAD.ZONE_COLUMNS * RICE_SPREAD.ZONE_ROWS) {
+    const totalCoverage = this.coverage.reduce((sum, value) => sum + value, 0);
+    const requiredCoverage = this.coverage.length * RICE_SPREAD.COVERAGE_PER_ZONE;
+    if (totalCoverage >= requiredCoverage) {
       this.stateValue = "COMPLETE";
     } else if (added) {
       this.stateValue = "SPREADING";
@@ -154,7 +173,7 @@ export class RiceSpreadGesture {
 
   reset() {
     this.stateValue = "IDLE";
-    this.visited.clear();
+    this.coverage.fill(0);
     this.cancelStroke();
     this.lastSeenAt = -Infinity;
     this.palmValue = { x: 0.5, y: 0.5 };
@@ -162,11 +181,16 @@ export class RiceSpreadGesture {
   }
 
   private beginStroke(palm: { x: number; y: number }, zone: number, now: number) {
+    this.strokeZones.clear();
+    this.creditedThisStroke.clear();
+    this.restartSegment(palm, zone, now);
+  }
+
+  private restartSegment(palm: { x: number; y: number }, zone: number, now: number) {
     this.anchor = { ...palm };
     this.previous = { ...palm };
     this.strokeStartedAt = now;
     this.moveDistanceValue = 0;
-    this.strokeZones.clear();
     this.strokeZones.add(zone);
   }
 
@@ -176,19 +200,22 @@ export class RiceSpreadGesture {
     this.strokeStartedAt = 0;
     this.moveDistanceValue = 0;
     this.strokeZones.clear();
+    this.creditedThisStroke.clear();
     this.currentZoneValue = null;
   }
 
   private snapshot(justSpread: boolean): RiceSpreadSnapshot {
-    const zoneCount = RICE_SPREAD.ZONE_COLUMNS * RICE_SPREAD.ZONE_ROWS;
+    const totalCoverage = this.coverage.reduce((sum, value) => sum + value, 0);
+    const requiredCoverage = this.coverage.length * RICE_SPREAD.COVERAGE_PER_ZONE;
     return {
       state: this.stateValue,
       palm: { ...this.palmValue },
       onRice: this.stateValue !== "IDLE" && this.currentZoneValue !== null,
       moveDistance: this.moveDistanceValue,
       currentZone: this.currentZoneValue,
-      visitedZones: [...this.visited].sort((a, b) => a - b),
-      progress: this.visited.size / zoneCount,
+      zoneCoverage: [...this.coverage],
+      totalCoverage,
+      progress: totalCoverage / requiredCoverage,
       justSpread,
     };
   }

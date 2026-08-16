@@ -16,6 +16,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
@@ -1011,7 +1012,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const riceGesture = riceSpreadDebug ? new RiceSpreadGesture() : null;
       const emptyRiceSnapshot = (): RiceSpreadSnapshot => ({
         state: "IDLE", palm: { x: 0.5, y: 0.5 }, onRice: false,
-        moveDistance: 0, currentZone: null, visitedZones: [], progress: 0, justSpread: false,
+        moveDistance: 0, currentZone: null, zoneCoverage: [0, 0, 0, 0, 0, 0],
+        totalCoverage: 0, progress: 0, justSpread: false,
       });
       let riceSnapshot = emptyRiceSnapshot();
       let riceRig: THREE.Group | null = null;
@@ -1041,11 +1043,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
 
       function updateRiceZones() {
-        const visited = new Set(riceSnapshot.visitedZones);
         riceZoneMaterials.forEach((material, zone) => {
-          const done = visited.has(zone);
-          material.color.setHex(done ? 0x69d98a : 0x52d8ff);
-          material.opacity = done ? 0.32 : 0.08;
+          const coverage = riceSnapshot.zoneCoverage[zone] ?? 0;
+          material.color.setHex(coverage === 2 ? 0x69d98a : coverage === 1 ? 0xffc857 : 0x52d8ff);
+          material.opacity = coverage === 2 ? 0.34 : coverage === 1 ? 0.22 : 0.08;
         });
       }
 
@@ -1057,10 +1058,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         setDebugText("#rice-debug-palm-y", riceSnapshot.palm.y.toFixed(3));
         setDebugText("#rice-debug-move", riceSnapshot.moveDistance.toFixed(3));
         setDebugText("#rice-debug-zone", riceSnapshot.currentZone === null ? "—" : String(riceSnapshot.currentZone + 1));
-        setDebugText(
-          "#rice-debug-visited",
-          `${riceSnapshot.visitedZones.length}/6${riceSnapshot.visitedZones.length ? ` [${riceSnapshot.visitedZones.map((z) => z + 1).join(",")}]` : ""}`
-        );
+        const requiredCoverage =
+          RICE_SPREAD.ZONE_COLUMNS * RICE_SPREAD.ZONE_ROWS * RICE_SPREAD.COVERAGE_PER_ZONE;
+        const firstRow = riceSnapshot.zoneCoverage.slice(0, RICE_SPREAD.ZONE_COLUMNS).join(",");
+        const secondRow = riceSnapshot.zoneCoverage.slice(RICE_SPREAD.ZONE_COLUMNS).join(",");
+        setDebugText("#rice-debug-coverage", `${riceSnapshot.totalCoverage} / ${requiredCoverage}`);
+        setDebugText("#rice-debug-zone-coverage", `${firstRow} / ${secondRow}`);
         setDebugText("#rice-debug-progress", `${Math.round(riceSnapshot.progress * 100)}%`);
         setDebugText("#rice-debug-state", riceSnapshot.state);
         $("#rice-debug-ok")?.classList.toggle("visible", riceSnapshot.state === "COMPLETE");
@@ -1171,7 +1174,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             )
           : null;
         riceMesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.5, 0.46, 1, 48, 3),
+          new RoundedBoxGeometry(1, 1, 1, 5, 0.12),
           new THREE.MeshStandardMaterial({
             color: 0xf1ead7,
             map: riceTexture,
@@ -2567,7 +2570,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         <div>PALM Y <b id="rice-debug-palm-y">0.500</b></div>
         <div>MOVE DIST <b id="rice-debug-move">0.000</b></div>
         <div>CURRENT ZONE <b id="rice-debug-zone">—</b></div>
-        <div>VISITED ZONES <b id="rice-debug-visited">0/6</b></div>
+        <div>COVERAGE <b id="rice-debug-coverage">0 / 12</b></div>
+        <div>ZONE COVERAGE <b id="rice-debug-zone-coverage">0,0,0 / 0,0,0</b></div>
         <div>SPREAD PROGRESS <b id="rice-debug-progress">0%</b></div>
         <div>STATE <b id="rice-debug-state">IDLE</b></div>
         <div>TRAY MODEL <b id="rice-debug-tray-model">LOADING</b></div>
