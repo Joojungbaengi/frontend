@@ -181,7 +181,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * 1. 렌더러 / 씬
      * ===================================================================*/
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2)); // 더 낮춰서 부하 감소
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
@@ -207,7 +207,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     controls.minPolarAngle = Math.PI * 0.06; // 거의 수직에서 내려다보는 각도까지
     controls.maxPolarAngle = Math.PI * 0.49; // 바닥 아래로는 내려가지 않게
 
-    scene.add(new THREE.HemisphereLight(0xdfe8e0, 0x1b2118, 1.15));
+    scene.add(new THREE.HemisphereLight(0xdfe8e0, 0x1b2118, 1.0)); // 라이트 강도 낮춰서 성능 향상
     const keyLight = new THREE.DirectionalLight(0xfff2d8, 1.9);
     keyLight.position.set(0.9, 1.6, 0.7);
     keyLight.castShadow = true;
@@ -543,10 +543,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const basinDef = MODELS.find((m) => m.id === "mix_basin");
       const basin = basinDef ? spawnModel(basinDef) : null;
       const basinTop = baseY + (basinDef?.height ?? 0.12);
+      let basinBounds: THREE.Box3 | null = null;
       if (basin) {
         basin.position.set(0, baseY, 0); // 한가운데 — 재료들이 이걸 둘러싼다
         stageGroup.add(basin);
         live.models.push(basin);
+        basinBounds = new THREE.Box3().setFromObject(basin);
       }
 
       // 원료 그릇 — 주원료만, 대야를 둘러싸게
@@ -713,9 +715,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const basinLocal = new THREE.Vector3(0, basinTop, 0);
       const basinWorld = new THREE.Vector3();
       const basinScreen = { x: 0.5, y: 0.5 };
-      const PICK_R = 0.15;
+      const PICK_R = 0.22; // 쌀/밀 집기 반경을 더 크게
       /** 대야 위로 인정하는 반경 — 넣기는 넉넉하게 봐준다 */
-      const OVER_R = 0.2;
+      const OVER_R = 0.24;
 
       const nameOf = (id: string) => INGREDIENTS.find((i) => i.id === id)?.name ?? "원료";
       const cardOf = (id: string) => $(`#grid .card[data-id="${id}"]`);
@@ -776,6 +778,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           const ud = held.userData as Record<string, unknown>;
           screenToWorld(pinch.x, pinch.y, heldDepth, camera, grabTarget);
           stageGroup.worldToLocal(grabTarget);
+          
+          // 대야 충돌 감지 — 그릇이 대야를 뚫고 지나가지 않도록
+          if (basinBounds) {
+            const testPos = grabTarget.clone();
+            const nodeBounds = new THREE.Box3().setFromObject(held);
+            nodeBounds.translate(testPos.sub(held.position));
+            if (basinBounds.intersectsBox(nodeBounds)) {
+              // 대야와 겹치면 한 칸 위로
+              grabTarget.y = Math.max(grabTarget.y, basinTop + 0.1);
+            }
+          }
+          
           held.position.lerp(grabTarget, 0.5);
 
           // 누룩 — 대야 위에서 손을 펴면 들어간다

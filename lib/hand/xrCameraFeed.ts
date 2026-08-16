@@ -15,8 +15,8 @@
  */
 import * as THREE from "three";
 
-/** 내려받을 이미지 가로 크기. AR 무대가 복잡할수록 더 작은 캡처가 덜 떨린다. */
-const CAPTURE_W = 160;
+/** 내려받을 이미지 가로 크기. 가능한 작게. */
+const CAPTURE_W = 120;
 
 export class XrCameraFeed {
   private rt: THREE.WebGLRenderTarget | null = null;
@@ -88,6 +88,9 @@ export class XrCameraFeed {
   /** 캔버스에 쓸 만한 그림이 한 번이라도 올라왔는가 */
   private fresh = false;
 
+  private lastCaptureAt = 0;
+  private captureInterval = 67; // ~15fps 캡처 (매 프레임 아니라 제한)
+
   capture(
     renderer: THREE.WebGLRenderer,
     texture: THREE.Texture,
@@ -102,6 +105,13 @@ export class XrCameraFeed {
     this.size.h = srcH;
     this.material.uniforms.map.value = texture;
 
+    // 캡처 빈도를 제한해서 GPU 파이프라인 정체 방지
+    const now = performance.now();
+    if (now - this.lastCaptureAt < this.captureInterval) {
+      return this.fresh ? this.canvas : null;
+    }
+    this.lastCaptureAt = now;
+
     const prevTarget = renderer.getRenderTarget();
     const prevXr = renderer.xr.enabled;
     const prevAutoClear = renderer.autoClear;
@@ -115,9 +125,10 @@ export class XrCameraFeed {
       renderer.setRenderTarget(this.rt);
       renderer.render(this.scene, this.camera);
 
-      // 픽셀을 내리는 동안 그리기가 멈추긴 하지만, 여기서 기다리지 않고
-      // 비동기로 받으면 그리는 도중에 프레임버퍼가 다시 묶여 화면이 검게 튄다.
-      // 60ms 에 한 번 서는 편이 낫다.
+      // 동기 readRenderTargetPixels는 GPU 파이프라인을 멈춰 검은 프레임을 유발한다.
+      // GPU.flush()를 호출해 파이프라인을 먼저 비우고 읽는 것이 조금 낫다.
+      // WebGL에는 명시적 flush가 없지만, getParameter 호출이 동기 포인트 역할을 한다.
+      renderer.getContext().getParameter(renderer.getContext().COLOR_WRITEMASK);
       renderer.readRenderTargetPixels(this.rt, 0, 0, this.rt.width, this.rt.height, this.buffer);
       this.publish();
     } catch {
