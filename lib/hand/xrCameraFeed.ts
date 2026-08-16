@@ -89,7 +89,7 @@ export class XrCameraFeed {
   private fresh = false;
 
   private lastCaptureAt = 0;
-  private captureInterval = 100; // ~10fps GPU 읽기 (프레임 드롭 최소화)
+  private captureInterval = 150; // ~6.7fps GPU 읽기 (극단적 성능 최우선)
 
   capture(
     renderer: THREE.WebGLRenderer,

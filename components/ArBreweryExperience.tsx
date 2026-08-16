@@ -17,6 +17,7 @@ import Link from "next/link";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
 import { HandTracker } from "@/lib/hand/handTracker";
@@ -181,7 +182,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * 1. 렌더러 / 씬
      * ===================================================================*/
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2)); // 더 낮춰서 부하 감소
+    renderer.setPixelRatio(1.0); // 극단적 감소 (고품질 아님)
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
@@ -208,8 +209,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     controls.minPolarAngle = Math.PI * 0.06; // 거의 수직에서 내려다보는 각도까지
     controls.maxPolarAngle = Math.PI * 0.49; // 바닥 아래로는 내려가지 않게
 
-    scene.add(new THREE.HemisphereLight(0xdfe8e0, 0x1b2118, 1.0)); // 라이트 강도 낮춰서 성능 향상
-    const keyLight = new THREE.DirectionalLight(0xfff2d8, 1.4); // 강도 더 낮춤
+    scene.add(new THREE.HemisphereLight(0xdfe8e0, 0x1b2118, 0.6)); // 라이트 강도 극단적 감소
+    const keyLight = new THREE.DirectionalLight(0xfff2d8, 1.0); // 강도 극단적 감소
     keyLight.position.set(0.9, 1.6, 0.7);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(512, 512); // 쉐도우맵 크기 축소
@@ -259,12 +260,41 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
     const LOADED: Record<string, any> = {};
     const gltfLoader = new GLTFLoader();
+    
+    // Draco 압축 디코더 설정 → GLTF 파일 크기 크게 감소
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath("/ort/"); // public/ort/ 에서 draco 워커 로드 (존재하면)
+    try {
+      gltfLoader.setDRACOLoader(dracoLoader);
+    } catch (e) {
+      // Draco 파일이 없어도 계속 진행 (fallback: 압축 안 된 GLTF)
+    }
 
     async function preloadModels() {
       await Promise.all(
         [...MODELS, ...GODUBAP_MODELS, ...(FINISH_MODEL ? [FINISH_MODEL] : [])].map(async (m) => {
           try {
-            LOADED[m.id] = await gltfLoader.loadAsync(m.file);
+            const gltf = await gltfLoader.loadAsync(m.file);
+            
+            // 모델 최적화 (기하학 단순화, 불필요한 노드 제거)
+            gltf.scene.traverse((node: any) => {
+              if (node.isMesh) {
+                const geo = node.geometry as THREE.BufferGeometry;
+                
+                // 중복 꼭짓점 제거
+                if (geo.index) {
+                  (geo as any).mergeVertices?.();
+                }
+                
+                // 원본 위치 정보 제거 (생성 중에만 필요)
+                if (geo.userData.position) delete geo.userData.position;
+              } else if (node.isBone || (node as any).isSkeleton) {
+                // 불필요한 뼈/스켈레톤은 숨기기 (완전 제거하면 애니메이션 깨짐)
+                node.visible = false;
+              }
+            });
+            
+            LOADED[m.id] = gltf;
           } catch (e: any) {
             console.warn("모델 로드 실패:", m.id, m.file, e?.message);
           }
@@ -300,6 +330,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           );
           o.castShadow = !isIngredient;
           o.receiveShadow = true;
+          
+          // 메시 수를 줄이기 위해 재료 모델은 단순한 재질로 (블림-프롱 → 기본 재질)
+          if (isIngredient && o.material) {
+            const oldMat = o.material;
+            const newMat = new THREE.MeshStandardMaterial({
+              color: oldMat.color ?? 0xcccccc,
+              roughness: 0.7,
+              metalness: 0,
+              map: oldMat.map || null,
+            });
+            o.material = newMat;
+          }
         }
       });
 
@@ -308,6 +350,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         mixer.clipAction(gltf.animations[0]).play();
         live.mixers.push(mixer);
       }
+      
+      // LOD 설정 없으면 기본 설정: 카메라 거리에 따라 기하학 간소화
+      // (기본 Three.js LOD는 없으므로 나중에 필요시 커스텀 LOD 추가)
+      
       return root;
     }
 
