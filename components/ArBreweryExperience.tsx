@@ -559,7 +559,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         mil: { model: "bowl_mil", color: 0xc9b58d },
       };
       const picks = INGREDIENTS.filter((i) => i.essential && BOWL[i.id]);
-      const ringR = 0.3; // 손이 닿을 수 있게 약간 더 넓게 벌려 두어도 재료를 한 번에 볼 수 있다
+      const ringR = 0.17; // 네 재료가 한 화면 안에 들어오도록 더 가깝게 배치
 
       ingredientNodes = picks.map((ing, i) => {
         const spec = BOWL[ing.id];
@@ -1465,7 +1465,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * AR 모드 손 검출 간격(ms). 카메라 이미지를 GPU 에서 내려받는 비용이 있어
      * 매 프레임 하면 3D 가 눈에 띄게 느려진다. 이 정도면 집는 조작에 충분하다.
      */
-    const AR_DETECT_MS = 60;
+    const AR_DETECT_MS = 120;
 
     // 손 상태 표시는 단계마다 하나씩 있다 (원료·고두밥). 전부 같이 갱신한다.
     function setHandHud(state: "idle" | "tracking" | "hover" | "holding" | "dropped", text: string) {

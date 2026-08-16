@@ -15,8 +15,8 @@
  */
 import * as THREE from "three";
 
-/** 내려받을 이미지 가로 크기. 복잡한 AR 무대는 이보다 조금 더 작은 캡처가 더 안정적이다. */
-const CAPTURE_W = 192;
+/** 내려받을 이미지 가로 크기. AR 무대가 복잡할수록 더 작은 캡처가 덜 떨린다. */
+const CAPTURE_W = 160;
 
 export class XrCameraFeed {
   private rt: THREE.WebGLRenderTarget | null = null;
@@ -104,12 +104,14 @@ export class XrCameraFeed {
 
     const prevTarget = renderer.getRenderTarget();
     const prevXr = renderer.xr.enabled;
+    const prevAutoClear = renderer.autoClear;
     try {
       // XR 세션 중에는 render() 가 무조건 XR 카메라로 갈아끼우고, 넘긴 카메라의 near/far 로
       // session.updateRenderState() 까지 불러 버린다. 그대로 두면 이 정사영 카메라의
       // near/far(0~1)가 AR 장면의 깊이 범위로 밀려들어가 무대가 깨진다.
       // 이 한 장을 뜨는 동안만 XR 경로를 꺼서 평범한 렌더로 처리한다.
       renderer.xr.enabled = false;
+      renderer.autoClear = true;
       renderer.setRenderTarget(this.rt);
       renderer.render(this.scene, this.camera);
 
@@ -124,6 +126,7 @@ export class XrCameraFeed {
       return null;
     } finally {
       renderer.xr.enabled = prevXr;
+      renderer.autoClear = prevAutoClear;
       renderer.setRenderTarget(prevTarget);
     }
 
