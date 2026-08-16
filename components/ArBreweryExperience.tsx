@@ -20,11 +20,17 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
 import { HandTracker } from "@/lib/hand/handTracker";
-import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
+import { HandVisual, coverFit, screenDist, screenToWorld, toScreen, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
 import { TRAY_PULL, TrayPullGesture, type TrayPullSnapshot } from "@/lib/hand/trayPullGesture";
+import {
+  RICE_SPREAD,
+  RiceSpreadGesture,
+  palmCenter,
+  type RiceSpreadSnapshot,
+} from "@/lib/hand/riceSpreadGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
@@ -47,8 +53,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const $$ = (s: string) => Array.from(uiRoot.querySelectorAll(s));
     const query = new URLSearchParams(window.location.search);
     const trayDebug = query.get("trayDebug") === "1";
+    const riceSpreadDebug = query.get("riceSpreadDebug") === "1";
     const skipToCooling = trayDebug && query.get("skipTo") === "cooling";
+    const skipToRiceSpread = riceSpreadDebug && query.get("skipTo") === "riceSpread";
     uiRoot.classList.toggle("tray-debug", trayDebug);
+    uiRoot.classList.toggle("rice-spread-debug", riceSpreadDebug);
 
     /* =====================================================================
      * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
@@ -273,7 +282,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
         })
       );
-      const debugTrayLoad = trayDebug
+      const debugTrayLoad = trayDebug || riceSpreadDebug
         ? gltfLoader.loadAsync(DEBUG_TRAY_FILE)
             .then((gltf) => { LOADED[DEBUG_TRAY_ID] = gltf; })
             .catch((e: unknown) => console.warn(
@@ -997,6 +1006,166 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const trayResetButton = $("#tray-debug-reset") as HTMLButtonElement | null;
       if (trayResetButton) trayResetButton.onclick = resetTrayPull;
 
+      /* ── 냉각② rice spread 기술 검증 (?riceSpreadDebug=1 전용) ───── */
+      const riceGesture = riceSpreadDebug ? new RiceSpreadGesture() : null;
+      const emptyRiceSnapshot = (): RiceSpreadSnapshot => ({
+        state: "IDLE", palm: { x: 0.5, y: 0.5 }, onRice: false,
+        moveDistance: 0, currentZone: null, visitedZones: [], progress: 0, justSpread: false,
+      });
+      let riceSnapshot = emptyRiceSnapshot();
+      let riceRig: THREE.Group | null = null;
+      let riceMesh: THREE.Mesh | null = null;
+      let riceVisualProgress = 0;
+      let riceTargetWidth = 0;
+      let riceTargetDepth = 0;
+      let riceTrayTop = 0;
+      let riceSpreadPulseUntil = -Infinity;
+      const riceZoneMaterials: THREE.MeshBasicMaterial[] = [];
+
+      function applyRiceVisual(progress: number) {
+        if (!riceMesh) return;
+        const startLinear = Math.sqrt(RICE_SPREAD.START_SURFACE_RATIO);
+        const finalLinear = Math.sqrt(RICE_SPREAD.FINAL_SURFACE_RATIO);
+        const linear = THREE.MathUtils.lerp(startLinear, finalLinear, progress);
+        const thickness = THREE.MathUtils.lerp(
+          RICE_SPREAD.START_THICKNESS,
+          RICE_SPREAD.FINAL_THICKNESS,
+          progress
+        );
+        riceMesh.scale.set(riceTargetWidth / RICE_SPREAD.TARGET_SURFACE_RATIO * linear, thickness, riceTargetDepth / RICE_SPREAD.TARGET_SURFACE_RATIO * linear);
+        riceMesh.position.y = riceTrayTop + 0.004 + thickness * 0.5;
+      }
+
+      function updateRiceZones() {
+        const visited = new Set(riceSnapshot.visitedZones);
+        riceZoneMaterials.forEach((material, zone) => {
+          const done = visited.has(zone);
+          material.color.setHex(done ? 0x69d98a : 0x52d8ff);
+          material.opacity = done ? 0.32 : 0.08;
+        });
+      }
+
+      function updateRiceDebugPanel(frame: HandFrame | null) {
+        if (!riceSpreadDebug) return;
+        setDebugText("#rice-debug-hand", frame?.present ? "FOUND" : "LOST");
+        setDebugText("#rice-debug-on", riceSnapshot.onRice ? "YES" : "NO");
+        setDebugText("#rice-debug-palm-x", riceSnapshot.palm.x.toFixed(3));
+        setDebugText("#rice-debug-palm-y", riceSnapshot.palm.y.toFixed(3));
+        setDebugText("#rice-debug-move", riceSnapshot.moveDistance.toFixed(3));
+        setDebugText("#rice-debug-zone", riceSnapshot.currentZone === null ? "—" : String(riceSnapshot.currentZone + 1));
+        setDebugText(
+          "#rice-debug-visited",
+          `${riceSnapshot.visitedZones.length}/6${riceSnapshot.visitedZones.length ? ` [${riceSnapshot.visitedZones.map((z) => z + 1).join(",")}]` : ""}`
+        );
+        setDebugText("#rice-debug-progress", `${Math.round(riceSnapshot.progress * 100)}%`);
+        setDebugText("#rice-debug-state", riceSnapshot.state);
+        $("#rice-debug-ok")?.classList.toggle("visible", riceSnapshot.state === "COMPLETE");
+        const marker = $("#rice-debug-palm-marker") as HTMLElement | null;
+        if (marker) {
+          marker.style.left = `${riceSnapshot.palm.x * 100}%`;
+          marker.style.top = `${riceSnapshot.palm.y * 100}%`;
+          marker.classList.toggle("visible", frame?.present === true);
+        }
+      }
+
+      function resetRiceSpread() {
+        riceGesture?.reset();
+        riceSnapshot = emptyRiceSnapshot();
+        riceVisualProgress = 0;
+        riceSpreadPulseUntil = -Infinity;
+        applyRiceVisual(0);
+        updateRiceZones();
+        updateRiceDebugPanel(null);
+        $("#rice-debug-spread")?.classList.remove("visible");
+        setHandHud("tracking", "채반 위 여러 영역을 손바닥으로 쓸어주세요");
+      }
+
+      if (riceSpreadDebug && debugGltf?.scene) {
+        riceRig = new THREE.Group();
+        riceRig.position.set(0, platformTop + 0.04, 0);
+        stageGroup.add(riceRig);
+
+        // 사용자가 작업하기 편하도록 tray의 앞(+Z)이 카메라를 향하고 조금 꺼내진 위치에 둔다.
+        const cameraLocal = camera.getWorldPosition(new THREE.Vector3());
+        stageGroup.worldToLocal(cameraLocal);
+        const towardCamera = cameraLocal.sub(riceRig.position).setY(0).normalize();
+        if (towardCamera.lengthSq() > 1e-6) {
+          riceRig.rotation.y = Math.atan2(towardCamera.x, towardCamera.z);
+          riceRig.position.addScaledVector(towardCamera, 0.1);
+        }
+
+        const riceTray = skinnedClone(debugGltf.scene) as THREE.Object3D;
+        riceTray.traverse((o: THREE.Object3D) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((m) => m.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+        });
+        const rawBox = new THREE.Box3().setFromObject(riceTray);
+        const rawCenter = rawBox.getCenter(new THREE.Vector3());
+        riceTray.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
+        riceRig.add(riceTray);
+
+        const normalizedBox = new THREE.Box3().setFromObject(riceTray);
+        const traySize = normalizedBox.getSize(new THREE.Vector3());
+        riceTrayTop = traySize.y;
+        riceTargetWidth = traySize.x * RICE_SPREAD.TARGET_SURFACE_RATIO;
+        riceTargetDepth = traySize.z * RICE_SPREAD.TARGET_SURFACE_RATIO;
+
+        const riceTexturePath = recipe.godubapRicePlane?.texture;
+        const riceTexture = riceTexturePath
+          ? new THREE.TextureLoader().load(
+              riceTexturePath,
+              (texture) => { texture.colorSpace = THREE.SRGBColorSpace; },
+              undefined,
+              (error) => console.warn("rice spread texture 로드 실패:", riceTexturePath, error)
+            )
+          : null;
+        riceMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.5, 0.46, 1, 48, 3),
+          new THREE.MeshStandardMaterial({
+            color: 0xf1ead7,
+            map: riceTexture,
+            roughness: 0.96,
+          })
+        );
+        riceMesh.castShadow = riceMesh.receiveShadow = true;
+        riceRig.add(riceMesh);
+        applyRiceVisual(0);
+
+        // 2×3 target grid. 방문한 zone은 청록색에서 녹색으로 바뀐다.
+        const cellW = riceTargetWidth / RICE_SPREAD.ZONE_COLUMNS;
+        const cellD = riceTargetDepth / RICE_SPREAD.ZONE_ROWS;
+        for (let row = 0; row < RICE_SPREAD.ZONE_ROWS; row++) {
+          for (let col = 0; col < RICE_SPREAD.ZONE_COLUMNS; col++) {
+            const material = new THREE.MeshBasicMaterial({
+              color: 0x52d8ff, transparent: true, opacity: 0.08,
+              depthTest: false, side: THREE.DoubleSide,
+            });
+            const zone = new THREE.Mesh(
+              new THREE.PlaneGeometry(cellW * 0.94, cellD * 0.94).rotateX(-Math.PI / 2),
+              material
+            );
+            zone.position.set(
+              -riceTargetWidth * 0.5 + cellW * (col + 0.5),
+              riceTrayTop + 0.06,
+              -riceTargetDepth * 0.5 + cellD * (row + 0.5)
+            );
+            zone.renderOrder = 9;
+            riceRig.add(zone);
+            riceZoneMaterials.push(material);
+          }
+        }
+        riceRig.visible = false;
+      } else if (riceSpreadDebug) {
+        console.warn("[riceSpreadDebug] metal_tray.glb를 불러오지 못해 rice spread 검증을 비활성화합니다.");
+      }
+
+      const riceResetButton = $("#rice-debug-reset") as HTMLButtonElement | null;
+      if (riceResetButton) riceResetButton.onclick = resetRiceSpread;
+
       // 냉각 때 채반 위에 까는 고두밥(쌀) 텍스처 평면 — 채반 크기에 맞춰 덮는다.
       if (recipe.godubapRicePlane) {
         const rp = recipe.godubapRicePlane;
@@ -1078,12 +1247,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const show = new Set(cur?.models ?? []);
         Object.entries(stage).forEach(([id, groups]) => {
           // debug 냉각에서는 기존 metal_food_tray를 새 metal_tray로 완전히 교체한다.
-          const debugReplacement = trayDebug && cur?.dark &&
+          const debugReplacement = (trayDebug || riceSpreadDebug) && cur?.dark &&
             (id === "metal_food_tray" || id === "rice_plane");
           const on = show.has(id) && !debugReplacement;
           groups.forEach((g) => (g.visible = on));
         });
         if (trayRig) trayRig.visible = trayDebug && cur?.dark === true;
+        if (riceRig) riceRig.visible = riceSpreadDebug && cur?.dark === true;
         const dark = cur?.dark === true;
         if (!dark) coolT = 0;
         uiRoot!.classList.toggle("cooling", dark); // 가장자리 비네트
@@ -1096,6 +1266,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (trayMover) {
           trayVisualProgress += (traySnapshot.progress - trayVisualProgress) * 0.18;
           trayMover.position.z = trayVisualProgress * TRAY_PULL.TRAY_PULL_DISTANCE;
+        }
+        if (riceMesh) {
+          riceVisualProgress +=
+            (riceSnapshot.progress - riceVisualProgress) * RICE_SPREAD.VISUAL_SMOOTHING;
+          applyRiceVisual(riceVisualProgress);
+          $("#rice-debug-spread")?.classList.toggle(
+            "visible",
+            performance.now() < riceSpreadPulseUntil
+          );
         }
 
         // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
@@ -1175,6 +1354,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const trayWorld = new THREE.Vector3();
       const trayCameraLocal = new THREE.Vector3();
       const trayScreen = { x: 0, y: 0 };
+      const riceCenterWorld = new THREE.Vector3();
+      const riceRightWorld = new THREE.Vector3();
+      const riceFrontWorld = new THREE.Vector3();
+      const riceCenterScreen = { x: 0, y: 0 };
+      const riceRightScreen = { x: 0, y: 0 };
+      const riceFrontScreen = { x: 0, y: 0 };
 
       function updateTrayHighlight(hovering: boolean) {
         trayModel?.traverse((o: THREE.Object3D) => {
@@ -1219,7 +1404,62 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         else setHandHud("tracking", "노란 표시에 손을 가까이 대세요");
       }
 
+      function handleRiceSpread(f: HandFrame) {
+        if (!riceGesture || !riceRig) return;
+
+        const rawPalm = palmCenter(f);
+        const palm = rawPalm ? toScreen(rawPalm, handFit) : riceSnapshot.palm;
+        let onRice = false;
+        const targetPoint = { x: 0.5, y: 0.5 };
+
+        if (rawPalm && riceTargetWidth > 0 && riceTargetDepth > 0) {
+          riceRig.updateWorldMatrix(true, true);
+          riceRig.localToWorld(riceCenterWorld.set(0, riceTrayTop + 0.03, 0));
+          riceRig.localToWorld(riceRightWorld.set(riceTargetWidth * 0.5, riceTrayTop + 0.03, 0));
+          riceRig.localToWorld(riceFrontWorld.set(0, riceTrayTop + 0.03, riceTargetDepth * 0.5));
+          worldToScreen(riceCenterWorld, camera, riceCenterScreen);
+          worldToScreen(riceRightWorld, camera, riceRightScreen);
+          worldToScreen(riceFrontWorld, camera, riceFrontScreen);
+
+          // 회전·원근이 적용된 tray의 두 화면 basis를 풀어 target 내부 좌표를 구한다.
+          const ax = riceRightScreen.x - riceCenterScreen.x;
+          const ay = riceRightScreen.y - riceCenterScreen.y;
+          const bx = riceFrontScreen.x - riceCenterScreen.x;
+          const by = riceFrontScreen.y - riceCenterScreen.y;
+          const px = palm.x - riceCenterScreen.x;
+          const py = palm.y - riceCenterScreen.y;
+          const det = ax * by - ay * bx;
+          if (Math.abs(det) > 1e-6) {
+            const localX = (px * by - py * bx) / det;
+            const localZ = (ax * py - ay * px) / det;
+            onRice = Math.abs(localX) <= 1 && Math.abs(localZ) <= 1;
+            targetPoint.x = THREE.MathUtils.clamp((localX + 1) * 0.5, 0, 1);
+            targetPoint.y = THREE.MathUtils.clamp((localZ + 1) * 0.5, 0, 1);
+          }
+        }
+
+        riceSnapshot = riceGesture.update({
+          present: f.present && rawPalm !== null,
+          onRice,
+          palm,
+          targetPoint,
+        });
+        if (riceSnapshot.justSpread) riceSpreadPulseUntil = performance.now() + 420;
+        updateRiceZones();
+        updateRiceDebugPanel(f);
+
+        if (riceSnapshot.state === "COMPLETE") setHandHud("dropped", "RICE SPREAD OK");
+        else if (riceSnapshot.state === "SPREADING") setHandHud("holding", "SPREAD! · 다른 영역도 넓게 쓸어주세요");
+        else if (riceSnapshot.onRice) setHandHud("hover", "손바닥으로 고두밥 표면을 넓게 쓸어주세요");
+        else if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+        else setHandHud("tracking", "채반 위 고두밥에 손바닥을 올려주세요");
+      }
+
       live.onHand = (f, hand) => {
+        if (riceSpreadDebug && S.godubap === GB_LAST) {
+          handleRiceSpread(f);
+          return;
+        }
         // 이 spike는 냉각 production progression과 분리한다. debug에서만 부채질 대신 실행된다.
         if (trayDebug && S.godubap === GB_LAST) {
           handleTrayPull(f, hand);
@@ -1693,7 +1933,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         applySurfaceScale();
         S.placed = true;
         if (!S.xr) controls.target.copy(anchor.position).add(new THREE.Vector3(0, 0.2, 0));
-        if (skipToCooling) {
+        if (skipToRiceSpread) {
+          S.godubap = GB_LAST;
+          S.rinseTurns = 0;
+          S.rinsePartial = 0;
+          S.soakAt = 0;
+          S.quizDone = true;
+          S.coolDone = false;
+          S.coolFans = 0;
+          setStep("godubap");
+          $("#quiz")?.classList.add("hidden");
+          syncGodubap();
+        } else if (skipToCooling) {
           // 공간 배치까지만 정상 수행한 뒤 tray pull에 필요한 냉각 상태만 준비한다.
           S.godubap = GB_LAST;
           S.rinseTurns = 0;
@@ -1820,7 +2071,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         pct = Math.round(Math.min(1, soaked / SOAK_MS) * 100);
         done = pct >= 100;
         text = done ? "쌀이 다 불었어요" : "물에 담근 채로 잠시 기다려요";
-      } else if (skipToCooling && S.godubap === GB_LAST) {
+      } else if ((skipToCooling || skipToRiceSpread) && S.godubap === GB_LAST) {
         // 빠른 링크에서는 production fan UI/count를 tray test와 함께 노출하지 않는다.
         $("#godubap-game")?.classList.add("hidden");
         return;
@@ -1857,8 +2108,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const hint = $("#godubap-hint");
       if (hint) {
         hint.textContent =
-          skipToCooling && S.godubap === GB_LAST
-            ? "노란 표시를 pinch한 뒤 손을 몸 쪽으로 당겨주세요"
+          skipToRiceSpread && S.godubap === GB_LAST
+            ? "채반 위 여러 영역을 손바닥으로 넓게 쓸어주세요"
+            : skipToCooling && S.godubap === GB_LAST
+              ? "노란 표시를 pinch한 뒤 손을 몸 쪽으로 당겨주세요"
             : S.godubap >= GB_N
             ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
             : S.godubap === GB_LAST
@@ -1875,8 +2128,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const cap = $("#cap-godubap");
       if (cap)
         cap.textContent =
-          skipToCooling && S.godubap === GB_LAST
-            ? "냉각① Metal Tray Pull Debug"
+          skipToRiceSpread && S.godubap === GB_LAST
+            ? "냉각② Rice Spread Debug"
+            : skipToCooling && S.godubap === GB_LAST
+              ? "냉각① Metal Tray Pull Debug"
             : S.godubap >= GB_N
             ? "고두밥 완성 · 채반에서 차게 식었어요"
             : S.godubap === GB_LAST && S.quizDone
@@ -1892,8 +2147,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         b.classList.toggle("waiting", !ready);
         b.textContent = ready
           ? "누룩 섞고 항아리에 담기"
-          : skipToCooling && S.godubap === GB_LAST
-            ? "Tray pull 기술 검증 중"
+          : skipToRiceSpread && S.godubap === GB_LAST
+            ? "Rice spread 기술 검증 중"
+            : skipToCooling && S.godubap === GB_LAST
+              ? "Tray pull 기술 검증 중"
             : S.godubap === GB_LAST && S.quizDone
             ? "손을 좌우로 흔들어 식혀 주세요"
             : "공정을 순서대로 진행하세요";
@@ -2246,6 +2503,24 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         <strong id="tray-debug-ok">TRAY PULL OK</strong>
         <button type="button" id="tray-debug-reset">RESET TRAY</button>
       </aside>
+
+      {/* ?riceSpreadDebug=1 전용 */}
+      <aside className="rice-debug-panel" aria-label="Rice spread debug values">
+        <div className="rice-debug-title">COOLING② · RICE SPREAD</div>
+        <div>HAND <b id="rice-debug-hand">LOST</b></div>
+        <div>ON RICE <b id="rice-debug-on">NO</b></div>
+        <div>PALM X <b id="rice-debug-palm-x">0.500</b></div>
+        <div>PALM Y <b id="rice-debug-palm-y">0.500</b></div>
+        <div>MOVE DIST <b id="rice-debug-move">0.000</b></div>
+        <div>CURRENT ZONE <b id="rice-debug-zone">—</b></div>
+        <div>VISITED ZONES <b id="rice-debug-visited">0/6</b></div>
+        <div>SPREAD PROGRESS <b id="rice-debug-progress">0%</b></div>
+        <div>STATE <b id="rice-debug-state">IDLE</b></div>
+        <em id="rice-debug-spread">SPREAD!</em>
+        <strong id="rice-debug-ok">RICE SPREAD OK</strong>
+        <button type="button" id="rice-debug-reset">RESET RICE</button>
+      </aside>
+      <i id="rice-debug-palm-marker" aria-hidden="true" />
 
       {/* 11 · AR 시작 */}
       <div className="panel-step" id="p-place">

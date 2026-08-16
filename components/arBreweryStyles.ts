@@ -34,6 +34,29 @@ export const styles = `
   letter-spacing:.04em; cursor:pointer; -webkit-tap-highlight-color:transparent}
 .ar-ui #tray-debug-reset:active{background:rgba(82,216,255,.28)}
 
+/* 냉각② rice spread 기술 검증 UI — URL의 riceSpreadDebug root class에서만 노출. */
+.ar-ui .rice-debug-panel,.ar-ui #rice-debug-palm-marker{display:none}
+.ar-ui.rice-spread-debug .rice-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(218px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(105,217,138,.55); border-radius:10px;
+  background:rgba(8,18,13,.88); color:rgba(237,249,240,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.38); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .rice-debug-panel > div:not(.rice-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .rice-debug-panel b{color:#f5fcf7; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .rice-debug-title{margin-bottom:3px; color:#69d98a; font-weight:800; letter-spacing:.04em}
+.ar-ui #rice-debug-spread,.ar-ui #rice-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
+  color:#fff; text-align:center; font-style:normal; font-weight:800; letter-spacing:.05em}
+.ar-ui #rice-debug-spread{background:#317b92}
+.ar-ui #rice-debug-ok{background:#3f7a4e}
+.ar-ui #rice-debug-spread.visible,.ar-ui #rice-debug-ok.visible{display:block}
+.ar-ui #rice-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px; border:1px solid rgba(105,217,138,.58);
+  border-radius:6px; background:rgba(105,217,138,.12); color:#c7f3d2; font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace;
+  letter-spacing:.04em; cursor:pointer; -webkit-tap-highlight-color:transparent}
+.ar-ui #rice-debug-reset:active{background:rgba(105,217,138,.28)}
+.ar-ui.rice-spread-debug #rice-debug-palm-marker.visible{display:block; position:absolute; z-index:11;
+  width:14px; height:14px; margin:-7px 0 0 -7px; border:2px solid #69d98a; border-radius:50%;
+  background:rgba(105,217,138,.24); box-shadow:0 0 10px rgba(105,217,138,.9); pointer-events:none}
+
 .ar-ui.ar-mode{background:transparent}
 .ar-ui.ar-mode canvas#gl{background:transparent}
 .ar-ui.ar-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
