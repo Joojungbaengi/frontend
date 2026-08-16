@@ -49,7 +49,7 @@ export function commonStageModels(): ModelDef[] {
  */
 export function ingredientModels(): ModelDef[] {
   return [
-    { id: "mix_basin", file: `${AR_ASSETS}/large-basin.glb`, step: "ingredient", height: 0.11, y: 0.03 },
+    { id: "mix_basin", file: `${AR_ASSETS}/large-basin.glb`, step: "ingredient", height: 0.095, y: 0.03 },
     { id: "bowl_rice", file: `${AR_ASSETS}/rice_bowl.glb`, step: "ingredient", height: 0.07, y: 0.03 },
     { id: "bowl_water", file: `${AR_ASSETS}/water_jar.glb`, step: "ingredient", height: 0.095, y: 0.03 },
     { id: "bowl_nuruk", file: `${AR_ASSETS}/basin.glb`, step: "ingredient", height: 0.05, y: 0.03 },
@@ -66,8 +66,8 @@ export function godubapStageModels(): ModelDef[] {
   return [
     { id: "rice_bowl", file: `${AR_ASSETS}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
     { id: "bamboo_basket", file: `${AR_ASSETS}/bamboo_basket.glb`, step: "godubap", height: 0.12, y: 0.03 },
-    { id: "steamer_pot", file: `${AR_ASSETS}/steamer_pot.glb`, step: "godubap", height: 0.15, y: 0.03 },
-    { id: "steamer_lid", file: `${AR_ASSETS}/steamer_lid.glb`, step: "godubap", height: 0.045, y: 0.03 },
+    { id: "steamer_pot", file: `${AR_ASSETS}/steamer_pot.glb`, step: "godubap", height: 0.22, y: 0.03 },
+    { id: "steamer_lid", file: `${AR_ASSETS}/steamer_lid.glb`, step: "godubap", height: 0.07, y: 0.03 },
     { id: "metal_food_tray", file: `${AR_ASSETS}/metal_food_tray.glb`, step: "godubap", height: 0.05, y: 0.03 },
   ];
 }

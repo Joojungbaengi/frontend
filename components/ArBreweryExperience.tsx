@@ -556,7 +556,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         mil: { model: "bowl_mil", color: 0xc9b58d },
       };
       const picks = INGREDIENTS.filter((i) => i.essential && BOWL[i.id]);
-      const ringR = 0.27; // 대야가 커졌으니 그만큼 벌려 놓는다
+      const ringR = 0.2; // 너무 벌리면 손이 닿지 않는다
 
       ingredientNodes = picks.map((ing, i) => {
         const spec = BOWL[ing.id];
@@ -633,7 +633,34 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(pour);
       const pourSeed = Array.from({ length: POUR_N }, () => Math.random());
       const from = new THREE.Vector3();
-      const to = new THREE.Vector3(0, basinTop - 0.02, 0);
+      const to = new THREE.Vector3(0, baseY + 0.012, 0);
+
+      /* ── 대야에 쌓이는 내용물 ────────────────────────────────────────
+       * 부었으면 담겨 있어야 한다. 부은 만큼 차오르고, 색은 마지막에 부은
+       * 재료 쪽으로 섞인다.
+       */
+      const basinR = basin ? new THREE.Box3().setFromObject(basin).getSize(new THREE.Vector3()).x * 0.36 : 0.05;
+      const fill = new THREE.Mesh(
+        new THREE.CylinderGeometry(basinR, basinR * 0.92, 1, 28),
+        new THREE.MeshStandardMaterial({ color: 0xe8e0cf, roughness: 0.85, metalness: 0.02 })
+      );
+      fill.visible = false;
+      stageGroup.add(fill);
+      const fillColor = new THREE.Color(0xe8e0cf);
+      let filled = 0; // 다 부은 재료 수
+
+      /** 대야에 담긴 높이를 다시 그린다 */
+      function redrawFill() {
+        const h = (filled / Math.max(picks.length, 1)) * (basinDef?.height ?? 0.11) * 0.62;
+        if (h <= 0) {
+          fill.visible = false;
+          return;
+        }
+        fill.visible = true;
+        fill.scale.set(1, h, 1);
+        fill.position.set(0, baseY + h / 2 + 0.004, 0);
+        (fill.material as THREE.MeshStandardMaterial).color.copy(fillColor);
+      }
 
       /** 그릇 입에서 대야로 흐르는 줄기를 갱신한다 */
       function streamTo(node: THREE.Group, t: number) {
@@ -662,9 +689,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           n.position.lerp(ud.home as THREE.Vector3, 0.14); // 놓으면 제자리로
           n.rotation.z = THREE.MathUtils.lerp(n.rotation.z, 0, 0.18);
           n.rotation.y = THREE.MathUtils.lerp(n.rotation.y, ud.homeRotY as number, 0.18);
-          const want = ud.done ? 0.82 : ud.hover ? 1.12 : 1;
+          // 다 부은 재료는 사라진다 — 대야에 담겼는데 제자리에 그대로 있으면 안 된다
+          const want = ud.done ? 0 : ud.hover ? 1.12 : 1;
           ud.vis = THREE.MathUtils.lerp((ud.vis as number) ?? 1, want, 0.18);
-          n.scale.setScalar(ud.vis as number);
+          n.scale.setScalar(Math.max(ud.vis as number, 0.0001));
+          n.visible = (ud.vis as number) > 0.02;
         });
         if (pouringNode) streamTo(pouringNode, t);
         pour.visible = Boolean(pouringNode);
@@ -739,6 +768,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
           if (st.justEmptied) {
             ud.done = true;
+            // 대야에 담기고, 가져온 그릇은 자리를 뜬다
+            filled++;
+            fillColor.lerp(new THREE.Color(ud.color as number), 0.5);
+            redrawFill();
             S.selected.add(ud.id as string);
             cardOf(ud.id as string)?.setAttribute("aria-pressed", "true");
             syncIngredient(INGREDIENTS.find((i) => i.id === ud.id), true);
@@ -879,6 +912,25 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
         stage[def.id] = groups;
       });
+
+      /* ── 증자 자리 잡기 ──────────────────────────────────────────────
+       * 무대 모델은 모두 받침 한가운데 놓이는데, 그러면 뚜껑이 솥 안에 박힌다.
+       * 계획서대로 **뚜껑은 옆에** 두어야 집어 와서 덮는 동작이 성립하고,
+       * 이 단계로 오면 솥에는 **찔 것이 이미 담겨** 있어야 한다.
+       */
+      for (const g of stage["steamer_lid"] ?? []) {
+        g.position.set(0.2, platformTop + 0.03, 0.04);
+      }
+      const potGroup = (stage["steamer_pot"] ?? [])[0];
+      if (potGroup) {
+        const pot = new THREE.Box3().setFromObject(potGroup).getSize(new THREE.Vector3());
+        const inPot = new THREE.Mesh(
+          new THREE.CircleGeometry(pot.x * 0.3, 32).rotateX(-Math.PI / 2),
+          new THREE.MeshStandardMaterial({ color: 0xf4efe2, roughness: 0.95, metalness: 0 })
+        );
+        inPot.position.y = pot.y * 0.62;
+        potGroup.add(inPot); // 솥과 함께 보였다 숨었다 한다
+      }
 
       // 냉각 때 채반 위에 까는 고두밥(쌀) 텍스처 평면 — 채반 크기에 맞춰 덮는다.
       if (recipe.godubapRicePlane) {
@@ -1442,8 +1494,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       //   L0  카메라 영상 — WebXR 이 캔버스 뒤에 깔아 준다 (바닥·책상)
       //   L1  AR 에셋     — 아래 scene
       //   L2+ 손          — 그림자 → 장갑 손 → 집는 고리 (handVisual.render 안에서)
-      renderer.clear();
+      // 지우는 일은 **반드시 three 안에서** 하게 둔다.
+      //
+      // XR 에서는 프레임마다 쓰는 프레임버퍼가 바뀌고, 그것을 묶는 건 render()
+      // 안에서다. 여기서 먼저 clear() 를 부르면 아직 지난 프레임 버퍼가 묶여
+      // 있어서, 지난 것을 지우고 이번 것은 안 지운 채로 그리게 된다. 그래서
+      // 지지난 프레임이 비쳐 화면이 검게 튀고 잔상이 줄줄 남았다.
+      renderer.autoClear = true;
       renderer.render(scene, camera);
+      renderer.autoClear = false; // 손은 무대 위에 덧그리는 것이라 지우면 안 된다
       if (S.hand) handVisual.render(renderer, camera);
     });
 
