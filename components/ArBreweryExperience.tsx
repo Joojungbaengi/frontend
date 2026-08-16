@@ -16,7 +16,6 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep } from "@/lib/brewery/types";
@@ -1020,26 +1019,139 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       let riceSurfaceGroup: THREE.Group | null = null;
       let riceTrayObject: THREE.Object3D | null = null;
       let riceMesh: THREE.Mesh | null = null;
+      let riceGeometry: THREE.BufferGeometry | null = null;
+      let riceTexture: THREE.Texture | null = null;
       let riceVisualProgress = 0;
       let riceTargetWidth = 0;
       let riceTargetDepth = 0;
+      let riceTrayWidth = 0;
+      let riceTrayDepth = 0;
       let riceTrayTop = 0;
       let riceSpreadPulseUntil = -Infinity;
       let riceSceneLogged = false;
       const riceZoneMaterials: THREE.MeshBasicMaterial[] = [];
+      const riceZoneMeshes: THREE.Mesh[] = [];
+
+      const RICE_VISUAL = {
+        startAreaRatio: 0.36,
+        finalAreaRatio: 0.95,
+        startThickness: 0.042,
+        middleThickness: 0.023,
+        finalThickness: 0.009,
+        startExponent: 2,
+        finalExponent: 10,
+        textureTileMeters: 0.09,
+        segments: 64,
+        rings: 10,
+      } as const;
+
+      type RiceVertex = { radial: number; angle: number; top: boolean };
+      const riceVertices: RiceVertex[] = [];
+
+      function createRiceGeometry() {
+        const positions: number[] = [];
+        const uvs: number[] = [];
+        const indices: number[] = [];
+        const addVertex = (radial: number, angle: number, top: boolean) => {
+          const index = riceVertices.length;
+          riceVertices.push({ radial, angle, top });
+          positions.push(0, 0, 0);
+          uvs.push(0.5, 0.5);
+          return index;
+        };
+
+        const topCenter = addVertex(0, 0, true);
+        const ringStarts: number[] = [];
+        for (let ring = 1; ring <= RICE_VISUAL.rings; ring++) {
+          ringStarts.push(riceVertices.length);
+          const radial = ring / RICE_VISUAL.rings;
+          for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+            addVertex(radial, segment / RICE_VISUAL.segments * Math.PI * 2, true);
+          }
+        }
+
+        const firstRing = ringStarts[0];
+        for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+          const next = (segment + 1) % RICE_VISUAL.segments;
+          indices.push(topCenter, firstRing + next, firstRing + segment);
+        }
+        for (let ring = 0; ring < ringStarts.length - 1; ring++) {
+          const inner = ringStarts[ring];
+          const outer = ringStarts[ring + 1];
+          for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+            const next = (segment + 1) % RICE_VISUAL.segments;
+            indices.push(inner + segment, inner + next, outer + segment);
+            indices.push(inner + next, outer + next, outer + segment);
+          }
+        }
+
+        const outerTop = ringStarts[ringStarts.length - 1];
+        const bottomRing = riceVertices.length;
+        for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+          addVertex(1, segment / RICE_VISUAL.segments * Math.PI * 2, false);
+        }
+        const bottomCenter = addVertex(0, 0, false);
+        for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+          const next = (segment + 1) % RICE_VISUAL.segments;
+          indices.push(outerTop + segment, outerTop + next, bottomRing + segment);
+          indices.push(outerTop + next, bottomRing + next, bottomRing + segment);
+          indices.push(bottomCenter, bottomRing + segment, bottomRing + next);
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+        geometry.setIndex(indices);
+        return geometry;
+      }
 
       function applyRiceVisual(progress: number) {
-        if (!riceMesh) return;
-        const startLinear = Math.sqrt(RICE_SPREAD.START_SURFACE_RATIO);
-        const finalLinear = Math.sqrt(RICE_SPREAD.FINAL_SURFACE_RATIO);
-        const linear = THREE.MathUtils.lerp(startLinear, finalLinear, progress);
-        const thickness = THREE.MathUtils.lerp(
-          RICE_SPREAD.START_THICKNESS,
-          RICE_SPREAD.FINAL_THICKNESS,
-          progress
+        if (!riceMesh || !riceGeometry) return;
+        const p = THREE.MathUtils.clamp(progress, 0, 1);
+        const shapeT = THREE.MathUtils.smoothstep(p, 0, 1);
+        const startLinear = Math.sqrt(RICE_VISUAL.startAreaRatio);
+        const finalLinear = Math.sqrt(RICE_VISUAL.finalAreaRatio);
+        const linear = THREE.MathUtils.lerp(startLinear, finalLinear, shapeT);
+        const width = riceTrayWidth * linear;
+        const depth = riceTrayDepth * linear;
+        const exponent = THREE.MathUtils.lerp(
+          RICE_VISUAL.startExponent,
+          RICE_VISUAL.finalExponent,
+          shapeT
         );
-        riceMesh.scale.set(riceTargetWidth / RICE_SPREAD.TARGET_SURFACE_RATIO * linear, thickness, riceTargetDepth / RICE_SPREAD.TARGET_SURFACE_RATIO * linear);
-        riceMesh.position.y = riceTrayTop + 0.004 + thickness * 0.5;
+        const thickness = p <= 0.5
+          ? THREE.MathUtils.lerp(RICE_VISUAL.startThickness, RICE_VISUAL.middleThickness, p * 2)
+          : THREE.MathUtils.lerp(RICE_VISUAL.middleThickness, RICE_VISUAL.finalThickness, (p - 0.5) * 2);
+        const edgeRatio = THREE.MathUtils.lerp(0.52, 0.88, shapeT);
+        const edgeHeight = thickness * edgeRatio;
+
+        const position = riceGeometry.getAttribute("position") as THREE.BufferAttribute;
+        const uv = riceGeometry.getAttribute("uv") as THREE.BufferAttribute;
+        riceVertices.forEach((vertex, index) => {
+          const cos = Math.cos(vertex.angle);
+          const sin = Math.sin(vertex.angle);
+          const boundaryX = Math.sign(cos) * Math.pow(Math.abs(cos), 2 / exponent) * width * 0.5;
+          const boundaryZ = Math.sign(sin) * Math.pow(Math.abs(sin), 2 / exponent) * depth * 0.5;
+          const x = boundaryX * vertex.radial;
+          const z = boundaryZ * vertex.radial;
+          const mound = Math.pow(Math.max(0, 1 - vertex.radial * vertex.radial), 1.35);
+          const y = vertex.top ? edgeHeight + (thickness - edgeHeight) * mound : 0;
+          position.setXYZ(index, x, y, z);
+          // 미터 기준 UV로 새로 드러난 면에 texture가 반복되어 밥알 크기가 늘어나지 않는다.
+          uv.setXY(
+            index,
+            0.5 + x / RICE_VISUAL.textureTileMeters,
+            0.5 + z / RICE_VISUAL.textureTileMeters
+          );
+        });
+        position.needsUpdate = true;
+        uv.needsUpdate = true;
+        riceGeometry.computeVertexNormals();
+        riceGeometry.computeBoundingBox();
+        riceMesh.position.y = riceTrayTop + 0.004;
+        riceZoneMeshes.forEach((zone) => {
+          zone.position.y = riceTrayTop + 0.004 + thickness + 0.006;
+        });
       }
 
       function updateRiceZones() {
@@ -1161,20 +1273,29 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         riceTrayObject = riceTray;
 
         riceTrayTop = traySize.y;
+        riceTrayWidth = traySize.x;
+        riceTrayDepth = traySize.z;
         riceTargetWidth = traySize.x * RICE_SPREAD.TARGET_SURFACE_RATIO;
         riceTargetDepth = traySize.z * RICE_SPREAD.TARGET_SURFACE_RATIO;
 
         const riceTexturePath = recipe.godubapRicePlane?.texture;
-        const riceTexture = riceTexturePath
+        riceTexture = riceTexturePath
           ? new THREE.TextureLoader().load(
               riceTexturePath,
-              (texture) => { texture.colorSpace = THREE.SRGBColorSpace; },
+              undefined,
               undefined,
               (error) => console.warn("rice spread texture 로드 실패:", riceTexturePath, error)
             )
           : null;
+        if (riceTexture) {
+          riceTexture.colorSpace = THREE.SRGBColorSpace;
+          riceTexture.wrapS = THREE.MirroredRepeatWrapping;
+          riceTexture.wrapT = THREE.MirroredRepeatWrapping;
+          riceTexture.needsUpdate = true;
+        }
+        riceGeometry = createRiceGeometry();
         riceMesh = new THREE.Mesh(
-          new RoundedBoxGeometry(1, 1, 1, 5, 0.12),
+          riceGeometry,
           new THREE.MeshStandardMaterial({
             color: 0xf1ead7,
             map: riceTexture,
@@ -1182,6 +1303,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           })
         );
         riceMesh.castShadow = riceMesh.receiveShadow = true;
+        riceMesh.frustumCulled = false;
         riceSurfaceGroup.add(riceMesh);
         applyRiceVisual(0);
 
@@ -1206,6 +1328,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             zone.renderOrder = 9;
             riceSurfaceGroup.add(zone);
             riceZoneMaterials.push(material);
+            riceZoneMeshes.push(zone);
           }
         }
         riceRig.visible = false;
