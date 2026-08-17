@@ -16,7 +16,7 @@
 import * as THREE from "three";
 
 /** 내려받을 이미지 가로 크기. 손 인식은 이 정도면 충분하고, 키우면 그대로 비용이 된다. */
-const CAPTURE_W = 256;
+const CAPTURE_W = 192;
 
 export class XrCameraFeed {
   private rt: THREE.WebGLRenderTarget | null = null;

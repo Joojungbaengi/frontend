@@ -27,6 +27,7 @@ import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
+import { XrDepthOcclusion } from "@/lib/ar/xrDepthOcclusion";
 import { styles } from "@/components/arBreweryStyles";
 
 /**
@@ -1418,6 +1419,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       else if (step === "godubap") buildGodubap();
       else if (step === "ferment") buildFerment();
       else if (step === "done") buildFinish();
+      // (별) 현재 무대의 Standard / Physical material에
+      // 실제 환경 depth occlusion shader 삽입
+      xrDepthOcclusion.patchObject(stageGroup);
     }
 
     /* =====================================================================
@@ -1426,6 +1430,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let xrSession: XRSession | null = null;
     let hitTestSource: XRHitTestSource | null = null;
     let localSpace: XRReferenceSpace | null = null;
+    const xrDepthOcclusion = new XrDepthOcclusion();
+    
     let arSupported = false;
     let surfaceReady = false;
 
@@ -1479,9 +1485,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           
           optionalFeatures: ["dom-overlay", "camera-access", "depth-sensing"], //(별)
           depthSensing: {
-            usagePreference: ["cpu-optimized", "gpu-optimized"],
+            usagePreference: ["gpu-optimized", "cpu-optimized"],
             dataFormatPreference: ["luminance-alpha", "float32"],
-            depthTypeRequest: ["raw", "smooth"]
+            depthTypeRequest: ["smooth", "raw"]
           },
           
           domOverlay: { root: uiRoot },
@@ -1546,6 +1552,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       renderer.xr.setReferenceSpaceType("local");
       await renderer.xr.setSession(xrSession as any);
+      // (별) WebXR GPU depth occlusion 초기화
+      xrDepthOcclusion.init(xrSession!, renderer);
 
       const viewerSpace = await xrSession!.requestReferenceSpace("viewer");
       localSpace = await xrSession!.requestReferenceSpace("local");
@@ -1604,7 +1612,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * AR 모드 손 검출 간격(ms). 카메라 이미지를 GPU 에서 내려받는 비용이 있어
      * 매 프레임 하면 3D 가 눈에 띄게 느려진다. 이 정도면 집는 조작에 충분하다.
      */
-    const AR_DETECT_MS = 60;
+    const AR_DETECT_MS = 120;
 
     // 손 상태 표시는 단계마다 하나씩 있다 (원료·고두밥). 전부 같이 갱신한다.
     function setHandHud(state: "idle" | "tracking" | "hover" | "holding" | "dropped", text: string) {
@@ -1680,7 +1688,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       /* =========================================================
       * REAL WORLD DEPTH PROBE
       * 화면 중앙 픽셀의 실제 환경 거리를 확인한다. (별)
-      * ======================================================= */
+      * =======================================================
 
       if (
         depthSupported &&
@@ -1754,7 +1762,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             }
           }
         }
-      }
+      }*/
 
 
 
@@ -1779,7 +1787,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const f = handTracker.latest;
 
 
-        // ★ 실제 손 위치의 real-world depth 측정 (별)
+        /* ★ 실제 손 위치의 real-world depth 측정 (별)
         if (
           f.present &&
           currentDepthInfo?.getDepthInMeters
@@ -1875,7 +1883,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           SAMPLES: ${samples.length}`
             );
           }
-        }
+        }*/
 
 
 
@@ -1888,6 +1896,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       } else if (!S.hand) {
         handVisual.hide();
       }
+
+      // ================================================
+      // GPU REAL-WORLD DEPTH
+      // CPU pixel read 없음 (별)
+      // ================================================
+      if (
+        S.xr &&
+        frame &&
+        localSpace
+      ) {
+        xrDepthOcclusion.update(
+          frame,
+          localSpace
+        );
+      }
+
 
       live.mixers.forEach((m) => m.update(dt));
       if (live.tick) live.tick(t, dt);
@@ -2521,6 +2545,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       handTracker?.dispose();
       xrFeed?.dispose();
       handVisual.dispose();
+      xrDepthOcclusion.dispose(); //(별)
       controls.dispose();
       renderer.dispose();
       delete document.documentElement.dataset.arStep;
