@@ -100,7 +100,7 @@ export class HandVisual {
       { length: 21 },
       () => new THREE.Vector3()
     );
-  private readonly realHandOcclusion = false; //(별)
+  private readonly realHandOcclusion = true;
 
   private cursor: THREE.Mesh;
   /** 21개 관절의 월드 좌표 */
@@ -210,7 +210,7 @@ export class HandVisual {
       * 삐져나오는 걸 줄인다.
       */
       const maskDepth =
-        this.depth * 0.97;
+        this.depth * 0.55;
 
 
       for (let i = 0; i < 21; i++) {

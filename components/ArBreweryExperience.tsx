@@ -1388,7 +1388,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       else if (step === "done") buildFinish();
       // (별) 현재 무대의 Standard / Physical material에
       // 실제 환경 depth occlusion shader 삽입
-      xrDepthOcclusion.patchObject(stageGroup);
+      // xrDepthOcclusion.patchObject(stageGroup);
     }
 
     /* =====================================================================
@@ -1899,13 +1899,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 화면에는 아무것도 그리지 않고
       // 손의 깊이만 depth buffer에 기록
       // ========================================================
-      /*(별)
       if (S.hand) {
         handVisual.renderOcclusion(
           renderer,
           camera
         );
-      }*/
+      }
       
 
       // ========================================================
