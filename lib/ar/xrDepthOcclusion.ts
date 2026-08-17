@@ -188,8 +188,15 @@ export class XrDepthOcclusion {
         this.binding.getDepthInformation(
           view
         );
-
       if (!depthInfo) return;
+      
+      console.log(
+        "[GPU DEPTH]",
+        depthInfo.width,
+        depthInfo.height,
+        depthInfo.textureType,
+        depthInfo.rawValueToMeters
+      );  
 
       /**
        * 현재 스마트폰 AR에서는 보통 texture이지만,
