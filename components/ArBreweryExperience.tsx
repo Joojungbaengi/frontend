@@ -32,6 +32,7 @@ import { styles } from "@/components/arBreweryStyles";
 import { rinseActive, soakActive, coolingActive, createBreweryState, arStepForDocument, resetSelectedIngredients } from "@/lib/brewery/state";
 import { REQUIRED_FANS, REQUIRED_RINSE_TURNS, SOAK_MS, CONTENT_LIFT, platformContentY, HAND_STEPS } from "@/lib/brewery/constants";
 import { shouldTrackHand } from "@/lib/hand/handStep";
+import { setDepthDebug } from "@/lib/ar/debug";
 
 /**
  * 공통 엔진 — 술 종류별 데이터는 recipe(Recipe) 하나로만 받는다.
@@ -44,7 +45,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     const uiRoot = rootRef.current;
+    
     if (!canvas || !uiRoot) return;
+    
+    const setDepthDebugText = (text: string) => {
+      setDepthDebug(uiRoot, text);
+    };
 
     const $ = <T extends Element = HTMLElement>(s: string) =>
       uiRoot.querySelector(s) as T | null;
@@ -109,9 +115,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     function resetIngredientSelection() {
       enteredIngredientAt = performance.now();
       resetSelectedIngredients(S.selected);
-      $$("#grid .card").forEach((c) => c.setAttribute("aria-pressed", "false"));
-      const msg = $("#msg-ingredient");
-      if (msg) msg.textContent = recipe.intro; // 진입 시 항상 인트로부터
+      resetIngredientUi();
       syncIngredient(); // 버튼 "주원료 0/N" 로 초기화 (interacted=false → 멘트는 인트로 유지)
     }
 
@@ -132,18 +136,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       buildStageFor(next);
     }
 
+    function resetIngredientUi() {
+      $$("#grid .card").forEach((c) =>
+        c.setAttribute("aria-pressed", "false")
+      );
+
+      const msg = $("#msg-ingredient");
+
+      if (msg) {
+        msg.textContent = recipe.intro;
+      }
+    }
+
+
     /* =========================================================
     * TEMP DEBUG — 출고 직전으로 바로 이동
     * 나중에 삭제
     * ======================================================= */
-    function setDepthDebug(text: string) {
-      const el = $("#depth-debug");
-
-      if (el) {
-        el.textContent = text;
-      }
-    }
-
     function debugSkipToBeforeShip() {
       S.placed = true;
       anchor.visible = true;
@@ -1473,7 +1482,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         depthSupported
       );
 
-      setDepthDebug(
+      setDepthDebugText(
         depthSupported
           ? "DEPTH: supported ✓"
           : "DEPTH: unsupported ✕"
@@ -1495,7 +1504,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           sessionAny.depthType
         );
 
-        setDepthDebug(
+        setDepthDebugText(
           `DEPTH: supported ✓
       TYPE: ${sessionAny.depthType ?? "unknown"}`
         );
@@ -1691,7 +1700,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               ) {
                 lastRealDepth = meters;
 
-                setDepthDebug(
+                setDepthDebugText(
                   `DEPTH: supported ✓\nCENTER: ${meters.toFixed(3)} m`
                 );
 
@@ -1832,7 +1841,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               "m"
             );
 
-            setDepthDebug(
+            setDepthDebugText(
               `DEPTH: supported ✓
           CENTER: ${lastRealDepth.toFixed(3)} m
           HAND: ${handDepth.toFixed(3)} m
