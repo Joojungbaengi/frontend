@@ -179,6 +179,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     * TEMP DEBUG — 출고 직전으로 바로 이동
     * 나중에 삭제
     * ======================================================= */
+    function setDepthDebug(text: string) {
+      const el = $("#depth-debug");
+
+      if (el) {
+        el.textContent = text;
+      }
+    }
+
     function debugSkipToBeforeShip() {
       S.placed = true;
       anchor.visible = true;
@@ -1503,6 +1511,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         depthSupported
       );
 
+      setDepthDebug(
+        depthSupported
+          ? "DEPTH: supported ✓"
+          : "DEPTH: unsupported ✕"
+      );
+
       if (depthSupported) {
         console.log(
           "[AR DEPTH] usage:",
@@ -1708,6 +1722,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               ) {
                 lastRealDepth = meters;
 
+                setDepthDebug(
+                  `DEPTH: supported ✓\nCENTER: ${meters.toFixed(3)} m`
+                );
+
                 if (!depthLogged) {
                   depthLogged = true;
 
@@ -1780,13 +1798,19 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             );
 
           if (
-            Number.isFinite(handDepth) &&
+            Finite(Number.ishandDepth) &&
             handDepth > 0
           ) {
             console.log(
               "[AR DEPTH] HAND:",
               handDepth.toFixed(3),
               "m"
+            );
+
+            setDepthDebug(
+              `DEPTH: supported ✓
+            CENTER: ${lastRealDepth.toFixed(3)} m
+            HAND: ${handDepth.toFixed(3)} m`
             );
           }
         }
@@ -2383,6 +2407,27 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * TEMP DEBUG — 출고 직전 이동 버튼 연결
      * 나중에 삭제
      * ======================================================= */
+    <div
+      id="depth-debug"
+      style={{
+        position: "absolute",
+        top: 12,
+        left: 12,
+        zIndex: 10000,
+        padding: "8px 10px",
+        borderRadius: 8,
+        background: "rgba(0,0,0,.72)",
+        color: "#7CFF9B",
+        fontSize: 12,
+        fontFamily: "monospace",
+        lineHeight: 1.5,
+        pointerEvents: "none",
+        whiteSpace: "pre-line",
+      }}
+    >
+      DEPTH: waiting...
+    </div>
+    
     const debugSkipBtn = $("#debug-skip-before-ship");
 
     if (debugSkipBtn) {
