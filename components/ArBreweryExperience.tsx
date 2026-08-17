@@ -29,6 +29,9 @@ import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { XrDepthOcclusion } from "@/lib/ar/xrDepthOcclusion";
 import { styles } from "@/components/arBreweryStyles";
+import { rinseActive, soakActive, coolingActive, createBreweryState, arStepForDocument, resetSelectedIngredients } from "@/lib/brewery/state";
+import { REQUIRED_FANS, REQUIRED_RINSE_TURNS, SOAK_MS, CONTENT_LIFT, platformContentY, HAND_STEPS } from "@/lib/brewery/constants";
+import { shouldTrackHand } from "@/lib/hand/handStep";
 
 /**
  * 공통 엔진 — 술 종류별 데이터는 recipe(Recipe) 하나로만 받는다.
@@ -71,48 +74,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     // 완성 공정 타임라인 — 발효가 끝난 뒤 손으로 마무리하는 단계들(클릭해 진행).
     const PRESS_STEPS = recipe.pressSteps;
 
-    /** 고두밥을 다 식히는 데 필요한 부채질 횟수 */
-    const REQUIRED_FANS = 5;
-    /** 쌀을 다 헹구는 데 필요한 휘젓기 바퀴 수 */
-    const REQUIRED_RINSE_TURNS = 3;
-    /** 침수 — 이만큼 가만히 두면 다 불었다고 본다 */
-    const SOAK_MS = 4500;
-
-    const S = {
-      step: "place" as "place" | ArStep,
-      /** 배치 크기 — "floor"는 실제 크기, "table"은 책상용 미니어처(55%) */
-      surface: "floor",
-      placed: false,
-      selected: new Set<string>(),
-      godubap: 0,
-      /** 세미 단계에서 지금까지 헹군 바퀴 수 */
-      rinseTurns: 0,
-      /** 지금 돌고 있는 바퀴의 진행분(0~1) — 막대가 뚝뚝 끊기지 않게 */
-      rinsePartial: 0,
-      /** 침수를 시작한 시각 (0이면 아직 안 담갔다) */
-      soakAt: 0,
-      /** 냉각 단계에서 지금까지 부친 횟수 */
-      coolFans: 0,
-      /** 다 식혔나 — 이게 참이 돼야 장인 퀴즈가 열린다 */
-      coolDone: false,
-      quizDone: false,
-      temp: 27,
-      ferment: 0,
-      fstage: 0,
-      press: 0,
-      tempLog: [] as number[],
-      xr: false,
-      /** 손 인식이 돌고 있는가 (AR·카메라 모드 공통) */
-      hand: false,
-      isInitializing: true,
-    };
+    const S = createBreweryState();
     /**
      * 받침대 상판 위에 물건을 올릴 때 띄우는 높이(m).
      * 모든 모델이 이 하나의 기준을 쓴다 — 모델마다 기준이 달라지면
      * 어떤 건 허공에 뜨고 어떤 건 상판(또는 실제 탁자) 속에 파묻힌다.
      */
-    const CONTENT_LIFT = 0.03;
-    const platformContentY = (platformTop: number) => platformTop + CONTENT_LIFT;
 
     // 원료 단계에 막 들어온 시각 — 화면 전환 직후 밀려오는 '유령 클릭'을 걸러내는 데 쓴다.
     let enteredIngredientAt = 0;
@@ -136,22 +103,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * 지금이 손으로 헹궈야 하는 국면인가 (세미).
      * 손을 못 쓰는 기기에서는 예전처럼 탭으로 넘어간다.
      */
-    function rinseActive() {
-      return S.hand && S.godubap === 0 && S.rinseTurns < REQUIRED_RINSE_TURNS;
-    }
 
     /** 지금이 물에 불리는 중인가 (침수) — 손은 필요 없고 시간만 흐르면 된다 */
-    function soakActive() {
-      return S.hand && S.godubap === 1;
-    }
-
-    function coolingActive() {
-      return S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone;
-    }
 
     function resetIngredientSelection() {
       enteredIngredientAt = performance.now();
-      S.selected.clear();
+      resetSelectedIngredients(S.selected);
       $$("#grid .card").forEach((c) => c.setAttribute("aria-pressed", "false"));
       const msg = $("#msg-ingredient");
       if (msg) msg.textContent = recipe.intro; // 진입 시 항상 인트로부터
@@ -159,18 +116,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     /** 손으로 조작하는 단계 — 원료(집기)와 고두밥(부채질) */
-    const HAND_STEPS = new Set<typeof S.step>(["ingredient", "godubap"]);
 
     function setStep(next: typeof S.step) {
       S.step = next;
       uiRoot!.dataset.step = next;
       // 손을 쓰는 단계에서만 검출을 돌린다. 나머지 단계까지 MediaPipe 를 계속 굴리면
       // GPU 를 나눠 쓰느라 발효·완성 연출이 버벅인다.
-      handTracker?.setPaused(!HAND_STEPS.has(next));
+      handTracker?.setPaused(!shouldTrackHand(next));
       // 완료 화면은 한지 배경이라 헤더도 함께 밝아져야 한다.
       // 다만 'done'의 앞 국면(압착~출고 완성 공정 walkthrough)은 AR 카메라를 그대로 두므로,
       // 헤더도 카메라 톤을 유지한다. 한지 축하 화면(.shipped)일 때만 밝은 헤더로 바꾼다.
-      document.documentElement.dataset.arStep = next === "done" ? "ferment" : next;
+      document.documentElement.dataset.arStep = arStepForDocument(next);
       // 원료 단계에 들어올 때마다 선택을 깨끗이 비워 '1개 선택된 채 시작'을 막는다.
       if (next === "ingredient") resetIngredientSelection();
       buildStageFor(next);
@@ -1000,7 +956,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const cur = GODUBAP_STEPS[S.godubap];
 
         // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
-        if (soakActive()) {
+        if (soakActive(S.hand, S.godubap)) {
           if (!S.soakAt) S.soakAt = performance.now();
           const soaked = performance.now() - S.soakAt;
           syncGodubapGame();
@@ -1014,7 +970,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const steaming = cur?.steam === true;
 
         // 냉각 단계에서는 김이 남아 있다가 부칠수록 걷힌다 — 진행도가 눈에 보이게.
-        const cooling = cur?.dark === true && coolingActive();
+        const cooling = cur?.dark === true && coolingActive(S.hand, S.godubap, GB_LAST, S.quizDone, S.coolDone);
         const coolLeft = Math.max(0, 1 - S.coolFans / REQUIRED_FANS);
         fanPulse = Math.max(0, fanPulse - dt * 1.6);
 
@@ -1076,7 +1032,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       live.onHand = (f) => {
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
-        if (rinseActive()) {
+        if (rinseActive(S.hand, S.godubap, S.rinseTurns,REQUIRED_RINSE_TURNS,)) {
           const turns = stir.update(f);
           S.rinsePartial = stir.partial;
           if (turns) {
@@ -1102,7 +1058,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           return;
         }
 
-        if (!coolingActive()) {
+        if (coolingActive(S.hand, S.godubap, GB_LAST, S.quizDone, S.coolDone)) {
           if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
           return;
         }
@@ -2141,7 +2097,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           S.rinseTurns === 0
             ? "그릇 안에서 손을 둥글게 돌려 쌀을 헹구세요"
             : `헹구는 중 · ${S.rinseTurns}/${REQUIRED_RINSE_TURNS}바퀴`;
-      } else if (soakActive()) {
+      } else if (soakActive(S.hand, S.godubap)) {
         const soaked = S.soakAt ? performance.now() - S.soakAt : 0;
         pct = Math.round(Math.min(1, soaked / SOAK_MS) * 100);
         done = pct >= 100;
