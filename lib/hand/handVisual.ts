@@ -16,7 +16,6 @@
  */
 import * as THREE from "three";
 import { GloveHand, HAND_DRAW_DEPTH } from "@/lib/hand/gloveHand";
-import { HandMaskOccluder } from "@/lib/hand/handMaskOccluder";
 import { RiggedHand } from "@/lib/hand/riggedHand";
 import { LM, type HandFrame } from "@/lib/hand/types";
 
@@ -90,17 +89,6 @@ export class HandVisual {
   private readonly handScene = new THREE.Scene();
   private glove: GloveHand;
   private rigged = new RiggedHand();
-  
-  /* 코드 수정 부분 (별) */
-  private readonly occlusionScene = new THREE.Scene();
-  private readonly maskOccluder =
-    new HandMaskOccluder();
-  private occlusionJoints: THREE.Vector3[] =
-    Array.from(
-      { length: 21 },
-      () => new THREE.Vector3()
-    );
-  private readonly realHandOcclusion = true;
 
   private cursor: THREE.Mesh;
   /** 21개 관절의 월드 좌표 */
@@ -123,6 +111,7 @@ export class HandVisual {
   }
 
   private pinchWorld = new THREE.Vector3();
+  private attachedToMainScene = false;
 
   constructor() {
     // 한지빛 면장갑 — 어두운 나무 무대 위에서 또렷하되 튀지 않는다
@@ -140,16 +129,7 @@ export class HandVisual {
     });
     this.glove = new GloveHand(glove, cuff);
 
-    // (별)
-    this.occlusionScene.add(
-      this.maskOccluder.group
-    );
-
-    this.occlusionScene.visible = false;
-    //
-
     this.handScene.add(this.glove.group);
-    this.handScene.add(this.rigged.group);
 
     this.handScene.add(new THREE.HemisphereLight(0xfff6e6, 0x4a3a28, 1.1));
     const key = new THREE.DirectionalLight(0xfff4e2, 2.3);
@@ -168,9 +148,26 @@ export class HandVisual {
       })
     );
     this.cursor.frustumCulled = false;
+    this.cursor.renderOrder = 1000;
     // 고리도 같은 씬에 둔다 — 씬을 나누면 그릴 때마다 XR 이 카메라를 다시 세팅해 비싸다
     this.handScene.add(this.cursor);
     this.handScene.visible = false;
+  }
+
+  /**
+   * XR에서는 한 프레임에 renderer.render()를 한 번만 호출해야 카메라 pose가
+   * 손과 AR 오브젝트에 동일하게 적용된다. 가상 손과 커서를 메인 scene에
+   * 직접 붙여 별도 렌더 패스를 없앤다.
+   */
+  attachTo(scene: THREE.Scene) {
+    if (this.attachedToMainScene) return;
+    scene.add(this.glove.group);
+    scene.add(this.rigged.group);
+    scene.add(this.cursor);
+    this.glove.group.visible = false;
+    this.rigged.group.visible = false;
+    this.cursor.visible = false;
+    this.attachedToMainScene = true;
   }
 
   /**
@@ -179,8 +176,23 @@ export class HandVisual {
   async loadModel() {
     try {
       await this.rigged.load();
+      this.rigged.group.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        // 실제 손 cutout 대신 가상 손을 항상 AR 오브젝트 위에 보여 준다.
+        // 같은 scene의 단일 render pass이므로 XR pose는 한 번만 적용된다.
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        materials.forEach((material) => {
+          material.depthTest = false;
+          material.depthWrite = false;
+          material.needsUpdate = true;
+        });
+        mesh.renderOrder = 900;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+      });
     } catch (e) {
-      console.warn("[ar] 손 모델을 불러오지 못했습니다 — 기본 손으로 대체합니다.", e);
+      console.warn("[ar] 가상 손 모델을 불러오지 못해 기본 손을 사용합니다.", e);
     }
   }
 
@@ -194,58 +206,11 @@ export class HandVisual {
       return;
     }
     this.handScene.visible = true;
+    this.cursor.visible = true;
 
     // 집어 든 물건을 놓을 거리 — 화면에서 손이 클수록 카메라에 가깝다
     const span = Math.max(frame.screenSpan, 1e-4);
     this.depth = THREE.MathUtils.clamp((baseDepth * REF_SPAN) / span, DEPTH_MIN, DEPTH_MAX);
-
-    //(별)
-    if (this.realHandOcclusion) {
-
-      /*
-      * depth를 아주 조금 앞쪽으로 당긴다.
-      *
-      * landmark 추정 오차 때문에
-      * AR object가 손 가장자리에서
-      * 삐져나오는 걸 줄인다.
-      */
-      const maskDepth =
-        this.depth * 0.55;
-
-
-      for (let i = 0; i < 21; i++) {
-
-        const s =
-          toScreen(
-            frame.landmarks[i],
-            fit
-          );
-
-
-        screenToWorld(
-          s.x,
-          s.y,
-
-          maskDepth,
-
-          camera,
-
-          this.occlusionJoints[i]
-        );
-      }
-
-
-      this.maskOccluder.update(
-        this.occlusionJoints,
-        camera
-      );
-
-
-      this.occlusionScene.visible =
-        true;
-    }
-    //
-
 
     // 손 자체는 고정 거리에 그린다. 화면 좌표에서 역산하므로 거리를 바꿔도
     // 화면에 비치는 크기·모양은 똑같고, 에셋 위에 오는 건 그리는 순서가 보장한다.
@@ -266,20 +231,21 @@ export class HandVisual {
     if (this.rigged.loaded) {
       // 왼손·오른손 모델이 따로 있어 프레임의 좌우 정보만 넘기면 된다
       this.rigged.update(this.joints, frame, camera);
+      this.rigged.group.visible = true;
       this.glove.group.visible = false;
-
-      // 집는 지점을 **모델의 실제 손끝**으로 옮긴다.
-      // 인식 좌표는 손을 납작하게 편 값이라 3D 자세로 선 손끝과 어긋난다.
-      // 그대로 두면 고리가 손에서 뚝 떨어져 잡는 느낌이 사라진다.
-      const t = this.rigged.jointAt("thumb-tip");
-      const i = this.rigged.jointAt("index-finger-tip");
-      if (t && i) {
-        this.pinchWorld.addVectors(t, i).multiplyScalar(0.5);
-        worldToScreen(this.pinchWorld, camera, this.pinchScreen);
-      }
     } else {
       this.glove.update(this.joints, worldSpan);
       this.glove.group.visible = true;
+      this.glove.group.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        materials.forEach((material) => {
+          material.depthTest = false;
+          material.depthWrite = false;
+        });
+        mesh.renderOrder = 900;
+      });
     }
 
     this.cursor.position.copy(this.pinchWorld);
@@ -291,84 +257,11 @@ export class HandVisual {
     this.cursor.scale.setScalar(worldSpan * THREE.MathUtils.lerp(0.85, 0.5, frame.pinch));
   }
 
-  //(별)
-  renderOcclusion(
-    renderer: THREE.WebGLRenderer,
-    camera: THREE.Camera
-  ) {
-    if (
-      !this.realHandOcclusion ||
-      !this.occlusionScene.visible
-    ) {
-      return;
-    }
-
-    renderer.render(
-      this.occlusionScene,
-      camera
-    );
-  }
-
-
-  /**
-   * 손을 그린다. 엔진이 무대(L1)를 그린 뒤에 부른다.
-   *
-   * 깊이만 비우고 **한 번에** 그린다. 예전에는 그림자까지 얹느라 한 프레임에 손을
-   * 세 번 그렸는데, XR 세션에서는 render() 를 부를 때마다 카메라를 다시 세우기 때문에
-   * 그 비용이 그대로 프레임 저하로 돌아왔다. 손 인식이 렌더 루프에 물려 있어서
-   * 프레임이 떨어지면 집기·주먹 판정까지 같이 둔해진다.
-   */
-  /*render(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
-    if (!this.handScene.visible) return;
-    renderer.clearDepth(); // 여기부터는 무대보다 앞
-    renderer.render(this.handScene, camera);
-  }(별)*/
-
-  render(
-    renderer: THREE.WebGLRenderer,
-    camera: THREE.Camera
-  ) {
-    if (!this.handScene.visible) return;
-
-    // 기존 상태 기억
-    const gloveVisible =
-      this.glove.group.visible;
-
-    const riggedVisible =
-      this.rigged.group.visible;
-
-
-    if (this.realHandOcclusion) {
-      // 실제 손을 쓰므로
-      // 가상 장갑/rigged hand는 화면에서 제거
-      this.glove.group.visible = false;
-      this.rigged.group.visible = false;
-    }
-
-
-    // cursor는 AR object 위에 보여야 한다.
-    renderer.clearDepth();
-
-    renderer.render(
-      this.handScene,
-      camera
-    );
-
-
-    // 다음 update를 위해 원상복구
-    this.glove.group.visible =
-      gloveVisible;
-
-    this.rigged.group.visible =
-      riggedVisible;
-  }
-
-  //(별)까지
-
   hide() {
     this.handScene.visible = false;
-    this.occlusionScene.visible = false; //(별)
-    this.maskOccluder.hide(); //(별)
+    this.cursor.visible = false;
+    this.rigged.group.visible = false;
+    this.glove.group.visible = false;
     // 다시 잡혔을 때 사라진 자리에서 화면을 가로질러 쓸고 오지 않게 비운다
     this.rigged.reset();
   }
@@ -377,31 +270,15 @@ export class HandVisual {
   dispose() {
     this.glove.dispose();
     this.rigged.dispose();
-    this.maskOccluder.dispose();
-    for (
-      const sc of [
-        this.handScene,
-        this.occlusionScene
-      ]
-    ) {
+    this.cursor.geometry.dispose();
+    (this.cursor.material as THREE.Material).dispose();
+    for (const sc of [this.handScene]) {
 
       sc.traverse(
         (o: THREE.Object3D) => {
 
           const mesh =
             o as THREE.Mesh;
-
-          /*
-          * maskOccluder는 위에서 이미
-          * 직접 dispose했으므로
-          * 중복 dispose를 막는다.
-          */
-          if (
-            sc ===
-            this.occlusionScene
-          ) {
-            return;
-          }
 
           mesh.geometry?.dispose?.();
 

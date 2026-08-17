@@ -27,7 +27,6 @@ import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
-import { XrDepthOcclusion } from "@/lib/ar/xrDepthOcclusion";
 import { styles } from "@/components/arBreweryStyles";
 import { rinseActive, soakActive, coolingActive, createBreweryState, arStepForDocument, resetSelectedIngredients, getIngredientSelectionState
   ,getIngredientButtonText, isIngredientSelectionComplete, getIngredientCoachText
@@ -448,7 +447,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       models: THREE.Object3D[];
       tick: ((t: number, dt: number) => void) | null;
       /** 손 모드에서 매 프레임 손 상태를 받는 훅. 단계별 build 함수가 채운다. */
-      onHand: ((frame: HandFrame, hand: HandVisual) => void) | null;
+      onHand: ((frame: HandFrame, hand: HandVisual, interactionCamera: THREE.Camera) => void) | null;
     } = { particles: [], mixers: [], models: [], tick: null, onHand: null };
 
     function clearStage() {
@@ -665,6 +664,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const PICK_R = 0.13;
       /** 바구니 위로 인정하는 반경 — 놓기는 넉넉하게 봐준다 */
       const DROP_R = 0.18;
+      /** 가상 rigged hand가 안정적으로 보일 때만 pinch 기반 조작을 허용한다. */
+      const HAND_GRAB_ENABLED = true;
 
       let hovered: THREE.Group | null = null;
       let held: THREE.Group | null = null;
@@ -696,7 +697,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       let lastSeenAt = performance.now();
       const LOST_HINT_MS = 6000;
 
-      live.onHand = (f, hand) => {
+      live.onHand = (f, hand, interactionCamera) => {
         if (!f.present) {
           dropHeld();
           setHover(null);
@@ -710,18 +711,25 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
         lastSeenAt = performance.now();
 
+        if (!HAND_GRAB_ENABLED) {
+          dropHeld();
+          setHover(null);
+          setHandHud("tracking", "손 가림 확인 중 · 원료는 아래 카드를 눌러 선택해 주세요");
+          return;
+        }
+
         const pinch = hand.pinchScreen;
 
         // 1) 들고 있는 중 — 손끝을 따라오게 하고, 펴면 놓는다
         if (held) {
           const ud = held.userData as any;
           // 화면상 손끝을 따라간다. 거리는 집었을 때 그대로 — 크기가 들쭉날쭉하지 않게.
-          screenToWorld(pinch.x, pinch.y, heldDepth, camera, grabTarget);
+          screenToWorld(pinch.x, pinch.y, heldDepth, interactionCamera, grabTarget);
           stageGroup.worldToLocal(grabTarget);
           held.position.lerp(grabTarget, 0.5);
 
           stageGroup.localToWorld(basketWorld.copy(basketLocal));
-          worldToScreen(basketWorld, camera, basketScreen);
+          worldToScreen(basketWorld, interactionCamera, basketScreen);
           const overBasket = screenDist(pinch, basketScreen) < DROP_R;
 
           if (f.justReleased) {
@@ -751,7 +759,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         let bestD = PICK_R;
         for (const n of ingredientNodes) {
           n.getWorldPosition(nodeWorld);
-          worldToScreen(nodeWorld, camera, nodeScreen);
+          worldToScreen(nodeWorld, interactionCamera, nodeScreen);
           const d = screenDist(pinch, nodeScreen);
           if (d < bestD) {
             bestD = d;
@@ -773,7 +781,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           ud.grabbed = true;
           held = best;
           best.getWorldPosition(nodeWorld);
-          heldDepth = camera.getWorldPosition(handOrigin).distanceTo(nodeWorld);
+          heldDepth = interactionCamera.getWorldPosition(handOrigin).distanceTo(nodeWorld);
           // 바구니에 담겨 있던 걸 다시 집었다면 선택에서 빼 준다 (손에 들려 있으니까)
           if (S.selected.has(id)) {
             S.selected.delete(id);
@@ -1386,9 +1394,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       else if (step === "godubap") buildGodubap();
       else if (step === "ferment") buildFerment();
       else if (step === "done") buildFinish();
-      // (별) 현재 무대의 Standard / Physical material에
-      // 실제 환경 depth occlusion shader 삽입
-      // xrDepthOcclusion.patchObject(stageGroup);
+      // 환경 occlusion은 three r185의 WebXRDepthSensing pass가 renderer.render()
+      // 앞에서 자동으로 depth buffer에 기록한다. material별 shader patch는 필요 없다.
     }
 
     /* =====================================================================
@@ -1397,7 +1404,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let xrSession: XRSession | null = null;
     let hitTestSource: XRHitTestSource | null = null;
     let localSpace: XRReferenceSpace | null = null;
-    const xrDepthOcclusion = new XrDepthOcclusion();
     
     let arSupported = false;
     let surfaceReady = false;
@@ -1452,9 +1458,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           
           optionalFeatures: ["dom-overlay", "camera-access", "depth-sensing"], //(별)
           depthSensing: {
-            usagePreference: ["gpu-optimized", "cpu-optimized"],
-            dataFormatPreference: ["luminance-alpha", "float32"],
-            depthTypeRequest: ["smooth", "raw"]
+            // three r185는 XRWebGLBinding의 GPU depth texture를 렌더 패스에
+            // 직접 합성한다. CPU fallback은 그 내장 경로에서 처리되지 않는다.
+            usagePreference: ["gpu-optimized"],
+            dataFormatPreference: ["float32", "luminance-alpha"]
           },
           
           domOverlay: { root: uiRoot },
@@ -1519,9 +1526,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       renderer.xr.setReferenceSpaceType("local");
       await renderer.xr.setSession(xrSession as any);
-      // (별) WebXR GPU depth occlusion 초기화
-      xrDepthOcclusion.init(xrSession!, renderer);
-
+      // render loop에서 정확히 한 번 갱신한다. 여러 render pass가 서로 다른
+      // XR pose를 쓰며 모델이 미끄러져 보이는 현상을 차단한다.
+      renderer.xr.cameraAutoUpdate = false;
       const viewerSpace = await xrSession!.requestReferenceSpace("viewer");
       localSpace = await xrSession!.requestReferenceSpace("local");
       hitTestSource = await (xrSession as any).requestHitTestSource({ space: viewerSpace });
@@ -1539,6 +1546,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         handTracker?.dispose();
         handTracker = null;
         xrSession = null;
+        renderer.xr.cameraAutoUpdate = true;
         hitTestSource = null;
         uiRoot!.classList.remove("ar-mode");
         controls.enabled = true;
@@ -1570,6 +1578,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * ===================================================================*/
     let handTracker: HandTracker | null = null;
     const handVisual = new HandVisual();
+    handVisual.attachTo(scene);
     // 영상이 화면에 cover 로 잘리는 것을 보정하는 값 — 매 프레임 화면 크기로 다시 잰다
     let handFit: CoverFit = { scaleX: 1, scaleY: 1, offX: 0, offY: 0 };
     // AR 모드에서 XR 카메라 이미지를 내려받는 도구 (camera-access 를 받았을 때만 만든다)
@@ -1579,7 +1588,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * AR 모드 손 검출 간격(ms). 카메라 이미지를 GPU 에서 내려받는 비용이 있어
      * 매 프레임 하면 3D 가 눈에 띄게 느려진다. 이 정도면 집는 조작에 충분하다.
      */
-    const AR_DETECT_MS = 120;
+    // 120ms + segmentation EMA caused the screen-space mask to visibly trail the
+    // live camera. The model is only ~0.6MB, so keep the capture cadence near 14Hz.
+    const AR_DETECT_MS = 72;
 
     // 손 상태 표시는 단계마다 하나씩 있다 (원료·고두밥). 전부 같이 갱신한다.
     function setHandHud(state: "idle" | "tracking" | "hover" | "holding" | "dropped", text: string) {
@@ -1734,6 +1745,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
 
 
+      // renderer.render()가 내부에서 사용하는 실제 XR 카메라를 먼저 갱신한다.
+      // 앱의 기본 PerspectiveCamera로 screenToWorld를 하면 기기 pose/projection이
+      // 빠져 손 마스크가 보이는 손과 어긋난다.
+      let handCamera: THREE.Camera = camera;
+      if (S.xr && renderer.xr.isPresenting) {
+        renderer.xr.updateCamera(camera);
+        handCamera = renderer.xr.getCamera().cameras[0] ?? camera;
+      }
+
       // 손 갱신은 3D 갱신보다 먼저 — 이번 프레임의 손 위치를 보고 물건이 따라와야 한다
       if (S.hand && handTracker && xrFeed && frame) {
         const xrCam = (frame as any).getViewerPose?.(localSpace)?.views?.[0]?.camera;
@@ -1745,7 +1765,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             const tex = renderer.xr.getCameraTexture(xrCam);
             if (tex) {
               const shot = xrFeed.capture(renderer, tex as any, xrCam.width, xrCam.height);
-              if (shot) handTracker.detect(shot, now);
+              if (shot) {
+                handTracker.detect(shot, now);
+              }
             }
           }
           handFit = coverFit(xrCam.width, xrCam.height, canvas!.clientWidth, canvas!.clientHeight);
@@ -1855,81 +1877,24 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
 
         // 무대까지의 거리 — 오클루더를 그 앞에 놓고, 집어 든 물건 거리의 기준으로도 쓴다
-        const stageAt = camera.getWorldPosition(handOrigin).distanceTo(anchor.position);
-        handVisual.update(f, camera, handFit, Math.max(stageAt, 0.2));
+        const stageAt = handCamera.getWorldPosition(handOrigin).distanceTo(anchor.position);
+        handVisual.update(f, handCamera, handFit, Math.max(stageAt, 0.2));
         // 손이 사라진 프레임도 그대로 넘긴다 — 잡고 있던 물건을 놓아야 하기 때문
-        live.onHand?.(f, handVisual);
+        live.onHand?.(f, handVisual, handCamera);
         handTracker.consumeEdges();
       } else if (!S.hand) {
         handVisual.hide();
       }
-
-      // ================================================
-      // GPU REAL-WORLD DEPTH
-      // CPU pixel read 없음 (별)
-      // ================================================
-      if (
-        S.xr &&
-        frame &&
-        localSpace
-      ) {
-        xrDepthOcclusion.update(
-          frame,
-          localSpace
-        );
-      }
-
 
       live.mixers.forEach((m) => m.update(dt));
       if (live.tick) live.tick(t, dt);
       live.particles.forEach((p) => updateParticles(p, dt));
       if (!S.xr) controls.update();
 
-      // 레이어 순서대로 쌓아 올린다.
-      //   L0  카메라 영상 — WebXR 이 캔버스 뒤에 깔아 준다 (바닥·책상)
-      //   L1  AR 에셋     — 아래 scene
-      //   L2+ 손          — 그림자 → 장갑 손 → 집는 고리 (handVisual.render 안에서)
+      // 손 depth occluder, AR 콘텐츠, 커서를 같은 XR camera pose로 한 번만 그린다.
+      // 렌더 순서는 HandVisual의 renderOrder(-1000 / 1000)가 정한다.
       renderer.clear();
-      /*renderer.render(scene, camera);
-      if (S.hand) handVisual.render(renderer, camera);*/
-      
-      // ========================================================
-      // L0.5 REAL HAND OCCLUSION
-      //
-      // 화면에는 아무것도 그리지 않고
-      // 손의 깊이만 depth buffer에 기록
-      // ========================================================
-      if (S.hand) {
-        handVisual.renderOcclusion(
-          renderer,
-          camera
-        );
-      }
-      
-
-      // ========================================================
-      // L1 AR CONTENT
-      //
-      // 앞에서 기록한 실제 손 depth보다 뒤에 있으면
-      // GPU depth test에서 자동으로 잘린다.
-      // ========================================================
-
-      renderer.render(
-        scene,
-        camera
-      );
-
-
-      // ========================================================
-      // L2 interaction cursor
-      // ========================================================
-
-      if (S.hand) {
-        handVisual.render(
-          renderer,
-          camera
-        );
-      }
+      renderer.render(scene, camera);
     });
 
     /* =====================================================================
@@ -2515,7 +2480,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       handTracker?.dispose();
       xrFeed?.dispose();
       handVisual.dispose();
-      xrDepthOcclusion.dispose(); //(별)
       controls.dispose();
       renderer.dispose();
       delete document.documentElement.dataset.arStep;
