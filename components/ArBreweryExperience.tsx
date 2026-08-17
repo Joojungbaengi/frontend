@@ -32,7 +32,7 @@ import { styles } from "@/components/arBreweryStyles";
 import { rinseActive, soakActive, coolingActive, createBreweryState, arStepForDocument, resetSelectedIngredients, getIngredientSelectionState
   ,getIngredientButtonText, isIngredientSelectionComplete, getIngredientCoachText
  } from "@/lib/brewery/state";
-import { REQUIRED_FANS, REQUIRED_RINSE_TURNS, SOAK_MS, CONTENT_LIFT, platformContentY, HAND_STEPS } from "@/lib/brewery/constants";
+import { REQUIRED_FANS, REQUIRED_RINSE_TURNS, SOAK_MS, platformContentY } from "@/lib/brewery/constants";
 import { shouldTrackHand } from "@/lib/hand/handStep";
 import { setDepthDebug } from "@/lib/ar/debug";
 
@@ -1043,7 +1043,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       live.onHand = (f) => {
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
-        if (rinseActive(S.hand, S.godubap, S.rinseTurns,REQUIRED_RINSE_TURNS,)) {
+        if (rinseActive(S.hand, S.godubap, S.rinseTurns, REQUIRED_RINSE_TURNS)) {
           const turns = stir.update(f);
           S.rinsePartial = stir.partial;
           if (turns) {
@@ -1981,7 +1981,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       (btn as HTMLElement).onclick = () => {
         $$(".seg button").forEach((b) => b.setAttribute("aria-pressed", "false"));
         btn.setAttribute("aria-pressed", "true");
-        S.surface = (btn as HTMLElement).dataset.surface!;
+        S.surface = (btn as HTMLElement).dataset.surface as typeof S.surface;
         applySurfaceScale();
       };
     });
@@ -2105,7 +2105,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       let text = "";
       let done = false;
 
-      if (rinseActive()) {
+      if (rinseActive(S.hand, S.godubap, S.rinseTurns, REQUIRED_RINSE_TURNS)) {
         const prog = (S.rinseTurns + S.rinsePartial) / REQUIRED_RINSE_TURNS;
         pct = Math.round(Math.min(1, prog) * 100);
         text =
@@ -2156,9 +2156,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               ? !S.quizDone
                 ? "장인의 질문에 먼저 답해주세요"
                 : "손을 좌우로 흔들어 고두밥을 식혀주세요"
-              : rinseActive()
+              : rinseActive(S.hand, S.godubap, S.rinseTurns, REQUIRED_RINSE_TURNS)
                 ? "손을 둥글게 돌려 쌀을 헹궈주세요"
-                : soakActive()
+                : soakActive(S.hand, S.godubap)
                   ? "쌀이 물을 머금는 동안 잠시 기다려요"
                   : "";
       }
