@@ -1421,6 +1421,35 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let arSupported = false;
     let surfaceReady = false;
 
+
+
+    /* =========================================================
+     * WebXR Real Depth 테스트 (별)
+     * ======================================================= */
+
+    type XRDepthInfoLike = {
+      width: number;
+      height: number;
+
+      getDepthInMeters?: (
+        x: number,
+        y: number
+      ) => number;
+    };
+
+    let depthSupported = false;
+    let depthLogged = false;
+
+    /**
+     * 마지막으로 확인된 화면 중앙 실제 거리.
+     * 디버그용.
+     */
+    let lastRealDepth = 0;
+
+    // 이번 XR frame에서 얻은 실제 환경 depth 정보 (별)
+    let currentDepthInfo: XRDepthInfoLike | null = null;
+
+
     async function checkAR() {
       const xr = (navigator as any).xr;
       if (!xr) return false;
@@ -1439,7 +1468,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           requiredFeatures: ["hit-test", "local"],
           // camera-access 가 있으면 ARCore 가 쓰는 카메라 이미지를 그대로 받아 손을 인식한다.
           // 이게 평면 인식(hit-test)과 손 인식을 한 세션에서 같이 하는 유일한 길이다.
-          optionalFeatures: ["dom-overlay", "camera-access"],
+          
+          optionalFeatures: ["dom-overlay", "camera-access", "depth-sensing"], //(별)
+          depthSensing: {
+            usagePreference: ["cpu-optimized", "gpu-optimized"],
+            dataFormatPreference: ["luminance-alpha", "float32"],
+            depthTypeRequest: ["smooth", "raw"]
+          },
+          
           domOverlay: { root: uiRoot },
         });
       } catch (e: any) {
@@ -1452,6 +1488,40 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       S.xr = true;
       uiRoot!.classList.add("ar-mode");
+      
+      //(별)
+      const sessionAny =
+        xrSession as any;
+
+      depthSupported =
+        sessionAny.enabledFeatures?.includes(
+          "depth-sensing"
+        ) === true;
+
+      console.log(
+        "[AR DEPTH] 지원 여부:",
+        depthSupported
+      );
+
+      if (depthSupported) {
+        console.log(
+          "[AR DEPTH] usage:",
+          sessionAny.depthUsage
+        );
+
+        console.log(
+          "[AR DEPTH] format:",
+          sessionAny.depthDataFormat
+        );
+
+        console.log(
+          "[AR DEPTH] type:",
+          sessionAny.depthType
+        );
+      }
+      //(별)까지 추가
+
+
       controls.enabled = false;
       floor.visible = false;
 
@@ -1548,6 +1618,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * ===================================================================*/
     const clock = new THREE.Clock();
     renderer.setAnimationLoop((_time, frame) => {
+      
+      
+      
+      
       const dt = Math.min(clock.getDelta(), 0.05);
       const t = clock.elapsedTime;
 
@@ -1583,6 +1657,85 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         onFermentTick();
       }
 
+
+      /* =========================================================
+      * REAL WORLD DEPTH PROBE
+      * 화면 중앙 픽셀의 실제 환경 거리를 확인한다. (별)
+      * ======================================================= */
+
+      if (
+        depthSupported &&
+        frame &&
+        localSpace
+      ) {
+        const xrFrame = frame as any;
+
+        const pose =
+          xrFrame.getViewerPose?.(
+            localSpace
+          );
+
+        const view =
+          pose?.views?.[0];
+
+        if (
+          view &&
+          typeof xrFrame.getDepthInformation ===
+            "function"
+        ) {
+          try {
+            const depthInfo =
+              xrFrame.getDepthInformation(
+                view
+              ) as XRDepthInfoLike | null;
+
+            currentDepthInfo = depthInfo;
+            
+            if (
+              depthInfo &&
+              typeof depthInfo.getDepthInMeters ===
+                "function"
+            ) {
+              const meters =
+                depthInfo.getDepthInMeters(
+                  0.5,
+                  0.5
+                );
+
+              if (
+                Number.isFinite(meters) &&
+                meters > 0
+              ) {
+                lastRealDepth = meters;
+
+                if (!depthLogged) {
+                  depthLogged = true;
+
+                  console.log(
+                    "[AR DEPTH] REAL DEPTH OK",
+                    {
+                      meters,
+                      width: depthInfo.width,
+                      height: depthInfo.height,
+                    }
+                  );
+                }
+              }
+            }
+          } catch (e) {
+            if (!depthLogged) {
+              console.warn(
+                "[AR DEPTH] depth read failed",
+                e
+              );
+            }
+          }
+        }
+      }
+
+
+
+
       // 손 갱신은 3D 갱신보다 먼저 — 이번 프레임의 손 위치를 보고 물건이 따라와야 한다
       if (S.hand && handTracker && xrFeed && frame) {
         const xrCam = (frame as any).getViewerPose?.(localSpace)?.views?.[0]?.camera;
@@ -1601,6 +1754,46 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
 
         const f = handTracker.latest;
+
+
+        // ★ 실제 손 위치의 real-world depth 측정 (별)
+        if (
+          f.present &&
+          currentDepthInfo?.getDepthInMeters
+        ) {
+          const px = THREE.MathUtils.clamp(
+            f.pinchPoint.x,
+            0,
+            1
+          );
+
+          const py = THREE.MathUtils.clamp(
+            f.pinchPoint.y,
+            0,
+            1
+          );
+
+          const handDepth =
+            currentDepthInfo.getDepthInMeters(
+              px,
+              py
+            );
+
+          if (
+            Number.isFinite(handDepth) &&
+            handDepth > 0
+          ) {
+            console.log(
+              "[AR DEPTH] HAND:",
+              handDepth.toFixed(3),
+              "m"
+            );
+          }
+        }
+
+
+
+
         // 무대까지의 거리 — 오클루더를 그 앞에 놓고, 집어 든 물건 거리의 기준으로도 쓴다
         const stageAt = camera.getWorldPosition(handOrigin).distanceTo(anchor.position);
         handVisual.update(f, camera, handFit, Math.max(stageAt, 0.2));
@@ -1630,12 +1823,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 화면에는 아무것도 그리지 않고
       // 손의 깊이만 depth buffer에 기록
       // ========================================================
+      /*(별)
       if (S.hand) {
         handVisual.renderOcclusion(
           renderer,
           camera
         );
-      }
+      }*/
+      
 
       // ========================================================
       // L1 AR CONTENT
