@@ -29,7 +29,9 @@ import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { XrDepthOcclusion } from "@/lib/ar/xrDepthOcclusion";
 import { styles } from "@/components/arBreweryStyles";
-import { rinseActive, soakActive, coolingActive, createBreweryState, arStepForDocument, resetSelectedIngredients } from "@/lib/brewery/state";
+import { rinseActive, soakActive, coolingActive, createBreweryState, arStepForDocument, resetSelectedIngredients, getIngredientSelectionState
+  ,getIngredientButtonText, isIngredientSelectionComplete, getIngredientCoachText
+ } from "@/lib/brewery/state";
 import { REQUIRED_FANS, REQUIRED_RINSE_TURNS, SOAK_MS, CONTENT_LIFT, platformContentY, HAND_STEPS } from "@/lib/brewery/constants";
 import { shouldTrackHand } from "@/lib/hand/handStep";
 import { setDepthDebug } from "@/lib/ar/debug";
@@ -529,8 +531,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     /* --- 12 · 원료 --- */
-    let ingredientNodes: THREE.Group[] = [];
-
+    let ingredientNodes: THREE.Group[] = []; 
+    
     function buildIngredients() {
       const platformTop = addPlatform();       // 실제 상판 높이를 받음
       placeModelsForStep("ingredient", stageGroup, platformTop);
@@ -2028,30 +2030,33 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         grid.appendChild(b);
       });
     }
+    
     function syncIngredient(justAdded?: (typeof INGREDIENTS)[number], interacted = false) {
-      const needed = INGREDIENTS.filter((i) => i.essential && !S.selected.has(i.id));
-      const extras = INGREDIENTS.filter((i) => !i.essential && S.selected.has(i.id));
+      const { needed, extras } = getIngredientSelectionState(
+        INGREDIENTS,
+        S.selected,
+      );
       const b = $("#btn-ingredient") as HTMLButtonElement | null;
       if (!b) return;
-      b.disabled = needed.length > 0;
-      b.textContent = needed.length
-        ? `주원료 ${ESS_N - needed.length}/${ESS_N} 선택`
-        : extras.length
-          ? `주원료 ${ESS_N}종 · 부재료 ${extras.length}종`
-          : `주원료 ${ESS_N}개 선택 완료`;
+      b.disabled = !isIngredientSelectionComplete(needed.length,);
+      b.textContent = getIngredientButtonText(
+        ESS_N,
+        needed.length,
+        extras.length,
+      );
       // 부팅·초기화 때는 인트로 안내문을 유지하고, 사용자가 재료를 만졌을 때만 멘트를 바꾼다.
       if (!interacted) return;
-      if (justAdded && !justAdded.essential) {
-        coach("#msg-ingredient", justAdded.flavorNote ?? "부재료를 더하면 향이 한결 깊어진다네.");
-      } else if (needed.length) {
-        coach("#msg-ingredient", `${ESS_NAMES}이 주원료라네. ${needed.map((i) => i.name).join("·")}을(를) 마저 담아보게.`);
-      } else {
-        coach(
-          "#msg-ingredient",
-          (extras.length ? "좋아, 주원료에 부재료까지 갖췄네. " : "좋아, 주원료가 다 모였네. ") + recipe.ingredientsReady
-        );
-      }
+      coach("#msg-ingredient", 
+        getIngredientCoachText(
+          justAdded,
+          needed,
+          extras.length,
+          ESS_NAMES,
+          recipe.ingredientsReady,
+        ),
+      );
     }
+    
     function coach(sel: string, text: string) {
       const el = $(sel);
       if (!el) return;
@@ -2063,6 +2068,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         card.style.animation = "";
       }
     }
+    
     const btnIngredient = $("#btn-ingredient");
     if (btnIngredient) (btnIngredient as HTMLElement).onclick = () => setStep("godubap");
 

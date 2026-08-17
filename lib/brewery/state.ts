@@ -96,3 +96,70 @@ export function resetSelectedIngredients(
 ) {
   selected.clear();
 }
+
+export function getIngredientSelectionState<
+  T extends { id: string; essential: boolean }
+>(
+  ingredients: T[],
+  selected: Set<string>,
+) {
+  const needed = ingredients.filter(
+    (i) => i.essential && !selected.has(i.id)
+  );
+
+  const extras = ingredients.filter(
+    (i) => !i.essential && selected.has(i.id)
+  );
+
+  return { needed, extras };
+}
+
+export function getIngredientButtonText(
+  essentialCount: number,
+  neededCount: number,
+  extrasCount: number,
+) {
+  if (neededCount > 0) {
+    return `주원료 ${essentialCount - neededCount}/${essentialCount} 선택`;
+  }
+
+  if (extrasCount > 0) {
+    return `주원료 ${essentialCount}종 · 부재료 ${extrasCount}종`;
+  }
+
+  return `주원료 ${essentialCount}개 선택 완료`;
+}
+
+export function isIngredientSelectionComplete(
+  neededCount: number,
+) {
+  return neededCount === 0;
+}
+
+export function getIngredientCoachText<T extends {
+  name: string;
+  essential: boolean;
+  flavorNote?: string;
+}>(
+  justAdded: T | undefined,
+  needed: T[],
+  extrasCount: number,
+  essentialNames: string,
+  ingredientsReady: string,
+) {
+  if (justAdded && !justAdded.essential) {
+    return justAdded.flavorNote ?? "부재료를 더하면 향이 한결 깊어진다네.";
+  }
+
+  if (needed.length > 0) {
+    return `${essentialNames}이 주원료라네. ${needed
+      .map((i) => i.name)
+      .join("·")}을(를) 마저 담아보게.`;
+  }
+
+  return (
+    (extrasCount > 0
+      ? "좋아, 주원료에 부재료까지 갖췄네. "
+      : "좋아, 주원료가 다 모였네. ") + ingredientsReady
+  );
+}
