@@ -1481,7 +1481,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           depthSensing: {
             usagePreference: ["cpu-optimized", "gpu-optimized"],
             dataFormatPreference: ["luminance-alpha", "float32"],
-            depthTypeRequest: ["smooth", "raw"]
+            depthTypeRequest: ["raw", "smooth"]
           },
           
           domOverlay: { root: uiRoot },
@@ -1531,6 +1531,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         console.log(
           "[AR DEPTH] type:",
           sessionAny.depthType
+        );
+
+        setDepthDebug(
+          `DEPTH: supported ✓
+      TYPE: ${sessionAny.depthType ?? "unknown"}`
         );
       }
       //(별)까지 추가
@@ -1791,16 +1796,72 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             1
           );
 
-          const handDepth =
-            currentDepthInfo.getDepthInMeters(
-              px,
-              py
+          //(별)
+          const offsets = [
+            [0, 0],
+
+            [-0.04, 0],
+            [0.04, 0],
+
+            [0, -0.04],
+            [0, 0.04],
+
+            [-0.04, -0.04],
+            [0.04, -0.04],
+
+            [-0.04, 0.04],
+            [0.04, 0.04],
+          ];
+
+          const samples: number[] = [];
+
+          for (const [ox, oy] of offsets) {
+            const sx = THREE.MathUtils.clamp(
+              px + ox,
+              0,
+              1
             );
 
-          if (
-            Finite(Number.ishandDepth) &&
-            handDepth > 0
-          ) {
+            const sy = THREE.MathUtils.clamp(
+              py + oy,
+              0,
+              1
+            );
+
+            const d =
+              currentDepthInfo.getDepthInMeters(
+                sx,
+                sy
+              );
+
+            if (
+              Number.isFinite(d) &&
+              d > 0
+            ) {
+              samples.push(d);
+            }
+          }
+
+          // 가까운 값부터 정렬
+          samples.sort((a, b) => a - b);
+
+          if (samples.length > 0) {
+            // 전체 샘플 중 가까운 쪽 25%만 사용
+            const nearCount = Math.max(
+              1,
+              Math.floor(samples.length * 0.25)
+            );
+
+            const nearSamples =
+              samples.slice(0, nearCount);
+
+            // 가까운 값들 중 중앙값 사용
+            const mid =
+              Math.floor(nearSamples.length / 2);
+
+            const handDepth =
+              nearSamples[mid];
+
             console.log(
               "[AR DEPTH] HAND:",
               handDepth.toFixed(3),
@@ -1809,12 +1870,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
             setDepthDebug(
               `DEPTH: supported ✓
-            CENTER: ${lastRealDepth.toFixed(3)} m
-            HAND: ${handDepth.toFixed(3)} m`
+          CENTER: ${lastRealDepth.toFixed(3)} m
+          HAND: ${handDepth.toFixed(3)} m
+          SAMPLES: ${samples.length}`
             );
           }
         }
-
 
 
 
@@ -2407,27 +2468,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * TEMP DEBUG — 출고 직전 이동 버튼 연결
      * 나중에 삭제
      * ======================================================= */
-    <div
-      id="depth-debug"
-      style={{
-        position: "absolute",
-        top: 12,
-        left: 12,
-        zIndex: 10000,
-        padding: "8px 10px",
-        borderRadius: 8,
-        background: "rgba(0,0,0,.72)",
-        color: "#7CFF9B",
-        fontSize: 12,
-        fontFamily: "monospace",
-        lineHeight: 1.5,
-        pointerEvents: "none",
-        whiteSpace: "pre-line",
-      }}
-    >
-      DEPTH: waiting...
-    </div>
-    
+  
     const debugSkipBtn = $("#debug-skip-before-ship");
 
     if (debugSkipBtn) {
@@ -2491,6 +2532,29 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
       <canvas ref={canvasRef} id="gl" />
+
+      {/* REAL DEPTH DEBUG */}
+      <div
+        id="depth-debug"
+        style={{
+          position: "absolute",
+          top: 12,
+          left: 12,
+          zIndex: 10000,
+          padding: "8px 10px",
+          borderRadius: 8,
+          background: "rgba(0,0,0,.72)",
+          color: "#7CFF9B",
+          fontSize: 12,
+          fontFamily: "monospace",
+          lineHeight: 1.5,
+          pointerEvents: "none",
+          whiteSpace: "pre-line",
+        }}
+      >
+        DEPTH: waiting...
+      </div>
+
 
       {/* TEMP DEBUG — 개발 완료 후 삭제 */}
       <button
