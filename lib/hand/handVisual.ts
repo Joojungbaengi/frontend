@@ -16,6 +16,7 @@
  */
 import * as THREE from "three";
 import { GloveHand, HAND_DRAW_DEPTH } from "@/lib/hand/gloveHand";
+import { HandMaskOccluder } from "@/lib/hand/handMaskOccluder";
 import { RiggedHand } from "@/lib/hand/riggedHand";
 import { LM, type HandFrame } from "@/lib/hand/types";
 
@@ -89,6 +90,18 @@ export class HandVisual {
   private readonly handScene = new THREE.Scene();
   private glove: GloveHand;
   private rigged = new RiggedHand();
+  
+  /* 코드 수정 부분 (별) */
+  private readonly occlusionScene = new THREE.Scene();
+  private readonly maskOccluder =
+    new HandMaskOccluder();
+  private occlusionJoints: THREE.Vector3[] =
+    Array.from(
+      { length: 21 },
+      () => new THREE.Vector3()
+    );
+  private readonly realHandOcclusion = true;
+
   private cursor: THREE.Mesh;
   /** 21개 관절의 월드 좌표 */
   private joints: THREE.Vector3[] = Array.from({ length: 21 }, () => new THREE.Vector3());
@@ -126,6 +139,15 @@ export class HandVisual {
       metalness: 0.45,
     });
     this.glove = new GloveHand(glove, cuff);
+
+    // (별)
+    this.occlusionScene.add(
+      this.maskOccluder.group
+    );
+
+    this.occlusionScene.visible = false;
+    //
+
     this.handScene.add(this.glove.group);
     this.handScene.add(this.rigged.group);
 
@@ -177,6 +199,54 @@ export class HandVisual {
     const span = Math.max(frame.screenSpan, 1e-4);
     this.depth = THREE.MathUtils.clamp((baseDepth * REF_SPAN) / span, DEPTH_MIN, DEPTH_MAX);
 
+    //(별)
+    if (this.realHandOcclusion) {
+
+      /*
+      * depth를 아주 조금 앞쪽으로 당긴다.
+      *
+      * landmark 추정 오차 때문에
+      * AR object가 손 가장자리에서
+      * 삐져나오는 걸 줄인다.
+      */
+      const maskDepth =
+        this.depth * 0.97;
+
+
+      for (let i = 0; i < 21; i++) {
+
+        const s =
+          toScreen(
+            frame.landmarks[i],
+            fit
+          );
+
+
+        screenToWorld(
+          s.x,
+          s.y,
+
+          maskDepth,
+
+          camera,
+
+          this.occlusionJoints[i]
+        );
+      }
+
+
+      this.maskOccluder.update(
+        this.occlusionJoints,
+        camera
+      );
+
+
+      this.occlusionScene.visible =
+        true;
+    }
+    //
+
+
     // 손 자체는 고정 거리에 그린다. 화면 좌표에서 역산하므로 거리를 바꿔도
     // 화면에 비치는 크기·모양은 똑같고, 에셋 위에 오는 건 그리는 순서가 보장한다.
     for (let i = 0; i < 21; i++) {
@@ -221,6 +291,25 @@ export class HandVisual {
     this.cursor.scale.setScalar(worldSpan * THREE.MathUtils.lerp(0.85, 0.5, frame.pinch));
   }
 
+  //(별)
+  renderOcclusion(
+    renderer: THREE.WebGLRenderer,
+    camera: THREE.Camera
+  ) {
+    if (
+      !this.realHandOcclusion ||
+      !this.occlusionScene.visible
+    ) {
+      return;
+    }
+
+    renderer.render(
+      this.occlusionScene,
+      camera
+    );
+  }
+
+
   /**
    * 손을 그린다. 엔진이 무대(L1)를 그린 뒤에 부른다.
    *
@@ -229,18 +318,114 @@ export class HandVisual {
    * 그 비용이 그대로 프레임 저하로 돌아왔다. 손 인식이 렌더 루프에 물려 있어서
    * 프레임이 떨어지면 집기·주먹 판정까지 같이 둔해진다.
    */
-  render(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
+  /*render(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
     if (!this.handScene.visible) return;
     renderer.clearDepth(); // 여기부터는 무대보다 앞
     renderer.render(this.handScene, camera);
+  }(별)*/
+
+  render(
+    renderer: THREE.WebGLRenderer,
+    camera: THREE.Camera
+  ) {
+    if (!this.handScene.visible) return;
+
+    // 기존 상태 기억
+    const gloveVisible =
+      this.glove.group.visible;
+
+    const riggedVisible =
+      this.rigged.group.visible;
+
+
+    if (this.realHandOcclusion) {
+      // 실제 손을 쓰므로
+      // 가상 장갑/rigged hand는 화면에서 제거
+      this.glove.group.visible = false;
+      this.rigged.group.visible = false;
+    }
+
+
+    // cursor는 AR object 위에 보여야 한다.
+    renderer.clearDepth();
+
+    renderer.render(
+      this.handScene,
+      camera
+    );
+
+
+    // 다음 update를 위해 원상복구
+    this.glove.group.visible =
+      gloveVisible;
+
+    this.rigged.group.visible =
+      riggedVisible;
   }
+
+  //(별)까지
 
   hide() {
     this.handScene.visible = false;
+    this.occlusionScene.visible = false; //(별)
+    this.maskOccluder.hide(); //(별)
     // 다시 잡혔을 때 사라진 자리에서 화면을 가로질러 쓸고 오지 않게 비운다
     this.rigged.reset();
   }
 
+  //(별)
+  dispose() {
+    this.glove.dispose();
+    this.rigged.dispose();
+    this.maskOccluder.dispose();
+    for (
+      const sc of [
+        this.handScene,
+        this.occlusionScene
+      ]
+    ) {
+
+      sc.traverse(
+        (o: THREE.Object3D) => {
+
+          const mesh =
+            o as THREE.Mesh;
+
+          /*
+          * maskOccluder는 위에서 이미
+          * 직접 dispose했으므로
+          * 중복 dispose를 막는다.
+          */
+          if (
+            sc ===
+            this.occlusionScene
+          ) {
+            return;
+          }
+
+          mesh.geometry?.dispose?.();
+
+          const mat =
+            mesh.material as
+              | THREE.Material
+              | THREE.Material[]
+              | undefined;
+
+          if (Array.isArray(mat)) {
+            mat.forEach(
+              x => x.dispose()
+            );
+          } else {
+            mat?.dispose?.();
+          }
+        }
+      );
+
+      sc.clear();
+    }
+  }
+
+  /*
   dispose() {
     this.glove.dispose();
     this.rigged.dispose();
@@ -255,4 +440,5 @@ export class HandVisual {
       sc.clear();
     }
   }
+  */
 }

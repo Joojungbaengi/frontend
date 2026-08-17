@@ -99,6 +99,68 @@ export const styles = `
 .ar-ui .pill[data-state="now"]{color:var(--gold-bright); cursor:pointer}
 .ar-ui .pill[data-state="now"]::before{background:var(--clay); border-color:#dd8a72;
   animation:ar-pulse 1.8s ease-in-out infinite}
+
+/* =========================================================
+ * 출고 단계 전용 액센트
+ * 압착·여과 / 저온숙성은 기존 컬러 유지
+ * 마지막 '출고'가 현재 단계일 때만 핑크 + 고양이 발바닥
+ * ======================================================= */
+
+.ar-ui #press-pills .pill:last-child[data-state="now"]{
+  color:#ffc0cc;
+  font-weight:700;
+  text-shadow:
+    0 1px 5px rgba(0,0,0,.75),
+    0 0 8px rgba(255,145,170,.25);
+}
+
+.ar-ui #press-pills .pill:last-child[data-state="now"]::before{
+  content:"";
+
+  width:32px;
+  height:32px;
+  border-radius:50%;
+
+  /* 앞쪽 PNG = 발바닥
+     뒤쪽 radial-gradient = 레퍼런스의 아이보리 원 */
+  background:
+    url("/ar/ui/paw-pink.png")
+      center / 32px 25px
+      no-repeat,
+
+    radial-gradient(
+      circle,
+      #fffaf7 0%,
+      #fff7f5 72%,
+      #ffe9e9 100%
+    );
+
+  border:2px solid rgba(255,255,255,.92);
+
+  box-shadow:
+    0 0 0 2px rgba(255,187,199,.30),
+    0 0 9px rgba(255,144,164,.50),
+    0 2px 5px rgba(0,0,0,.14);
+
+  animation:ar-paw-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes ar-paw-pulse{
+  0%,100%{
+    transform:scale(1);
+    box-shadow:
+      0 0 0 4px rgba(255,157,181,.14),
+      0 0 12px rgba(255,137,166,.45);
+  }
+
+  50%{
+    transform:scale(1.1);
+    box-shadow:
+      0 0 0 8px rgba(255,157,181,0),
+      0 0 20px rgba(255,137,166,.75);
+  }
+}
+
 @keyframes ar-pulse{0%,100%{box-shadow:0 0 0 0 rgba(181,72,47,.55)}50%{box-shadow:0 0 0 8px rgba(181,72,47,0)}}
 .ar-ui .steps-hint{margin:10px 22px 0; text-align:center; font-size:12px; color:var(--gold-bright);
   text-shadow:0 1px 6px rgba(0,0,0,.75)}

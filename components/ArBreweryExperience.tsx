@@ -184,7 +184,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       anchor.visible = true;
 
       // 완성 공정의 마지막 바로 전 단계
-      S.press = Math.max(0, PRESS_STEPS.length - 2);
+      S.press = 1;
 
       setStep("done");
 
@@ -228,6 +228,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     ).texture;
 
     scene.environment = envMap;
+    scene.environmentIntensity = 0.45;
 
     roomEnvironment.dispose();
     pmremGenerator.dispose();
@@ -247,9 +248,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     controls.minPolarAngle = Math.PI * 0.06; // 거의 수직에서 내려다보는 각도까지
     controls.maxPolarAngle = Math.PI * 0.49; // 바닥 아래로는 내려가지 않게
 
-    scene.add(new THREE.HemisphereLight(0xe8eee9, 0x3b4037, 0.75)); //0xdfe8e0, 0x1b2118, 1.15
-    const keyLight = new THREE.DirectionalLight(0xfff2df, 1.25); //0xfff2d8, 1.9
-    keyLight.position.set(0.9, 1.6, 0.7);
+    scene.add(new THREE.HemisphereLight(0xf2eee5, 0x5a5147, 0.55)); //0xdfe8e0, 0x1b2118, 1.15
+    const keyLight = new THREE.DirectionalLight(0xfff4e8, 0.85); //0xfff2d8, 1.9
+    keyLight.position.set(0.8, 1.5, 1.0);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(1024, 1024);
 
@@ -263,8 +264,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     keyLight.shadow.camera.top = 1.2;
     keyLight.shadow.camera.bottom = -1.2;
     scene.add(keyLight);
-    const rim = new THREE.PointLight(0xc76a54, 0.8, 3); //0xc2452f, 2.2, 3
-    rim.position.set(-0.7, 0.5, -0.5);
+    const rim = new THREE.PointLight(0xffd8b5, 0.35, 3); //0xc2452f, 2.2, 3
+    rim.position.set(-0.6, 0.8, -0.4);
     scene.add(rim);
 
     const anchor = new THREE.Group();
@@ -1177,6 +1178,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     function buildFinish() {
       const platformTop = addPlatform();
       const contentY = platformContentY(platformTop);
+      
+      // ── 완성 병 등장 연출 상태 ──
+      let shipRevealT = 0;
+      let shipRevealActive = false;
+      let shipRestY = 0;
+
+      // 완성 병 뒤쪽의 따뜻한 보상광
+      const shipGlow = new THREE.PointLight(
+        0xffc98a,
+        0,
+        1.2
+      );
+
+      shipGlow.position.set(0, platformTop + 0.16, 0);
+      stageGroup.add(shipGlow);
+      
 
       /* ─────────────────────────────────────
        * Contact Shadow
@@ -1259,13 +1276,46 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           g.visible = false;
           stageGroup.add(g);
           shipModel = g;
+          
+          // 완성 병이 최종적으로 자리잡을 높이 저장
+          shipRestY = g.position.y;
         }
       }
       const SHIP_AT = PRESS_STEPS.length - 1; // '출고' 인덱스
       finishShowShip = () => {
-        const shipped = S.press >= SHIP_AT;      // 출고 단계에 도달했나
-        if (shipModel) shipModel.visible = shipped;
-        bottle.visible = shipModel ? !shipped : true; // 제품이 뜨면 임시 병은 숨긴다
+        const shipped = S.press >= SHIP_AT;
+
+        if (shipModel) {
+          // 출고 단계 진입
+          if (shipped && !shipModel.visible) {
+            shipModel.visible = true;
+
+            // 등장 애니메이션 시작
+            shipRevealT = 0;
+            shipRevealActive = true;
+
+            // 조금 작고 위쪽에서 시작
+            shipModel.scale.setScalar(0.72);
+            shipModel.position.y = shipRestY + 0.08;
+
+            // 빛도 처음에는 꺼져 있음
+            shipGlow.intensity = 0;
+          }
+
+          // 출고 전
+          if (!shipped) {
+            shipModel.visible = false;
+            shipRevealActive = false;
+
+            shipModel.scale.setScalar(1);
+            shipModel.position.y = shipRestY;
+
+            shipGlow.intensity = 0;
+          }
+        }
+
+        // 실제 냥이탁주 병이 나타나면 임시 병 숨김
+        bottle.visible = shipModel ? !shipped : true;
       };
       finishShowShip();
      
@@ -1277,11 +1327,80 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(sparks);
       live.particles.push(sparks);
       */
+      
+      live.tick = (_t, dt) => {
+        if (!shipRevealActive || !shipModel) return;
 
-      live.tick = () => {
-        bottle.rotation.y += 0.006;
-        if (shipModel) shipModel.rotation.y += 0.006;
+        shipRevealT += dt;
+
+        const duration = 1.6;
+
+        const p = THREE.MathUtils.clamp(
+          shipRevealT / duration,
+          0,
+          1
+        );
+
+        // ─────────────────────
+        // 1. Scale
+        // 작게 등장 → 살짝 커졌다 → 원래 크기로 안착
+        // ─────────────────────
+        const scaleP = easeOutBack(p);
+
+        const scale = THREE.MathUtils.lerp(
+          0.72,
+          1,
+          scaleP
+        );
+
+        shipModel.scale.setScalar(scale);
+
+
+        // ─────────────────────
+        // 2. Position
+        // 약간 위에서 내려오며 안착
+        // ─────────────────────
+        const fallP =
+          1 - Math.pow(1 - p, 3);
+
+        shipModel.position.y =
+          THREE.MathUtils.lerp(
+            shipRestY + 0.08,
+            shipRestY,
+            fallP
+          );
+
+
+        // ─────────────────────
+        // 3. Glow
+        // 등장 순간 밝아졌다가 서서히 사라짐
+        // ─────────────────────
+        const glow =
+          Math.sin(p * Math.PI);
+
+        shipGlow.intensity =
+          glow * 2.2;
+
+
+        // ─────────────────────
+        // 완료
+        // ─────────────────────
+        if (p >= 1) {
+          shipModel.scale.setScalar(1);
+          shipModel.position.y = shipRestY;
+
+          shipGlow.intensity = 0;
+
+          shipRevealActive = false;
+        }
       };
+    }
+
+    function easeOutBack(x: number) {
+      const c1 = 1.70158;
+      const c3 = c1 + 1;
+
+      return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
     }
 
     function buildStageFor(step: typeof S.step) {
@@ -1502,8 +1621,45 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       //   L1  AR 에셋     — 아래 scene
       //   L2+ 손          — 그림자 → 장갑 손 → 집는 고리 (handVisual.render 안에서)
       renderer.clear();
-      renderer.render(scene, camera);
-      if (S.hand) handVisual.render(renderer, camera);
+      /*renderer.render(scene, camera);
+      if (S.hand) handVisual.render(renderer, camera);*/
+      
+      // ========================================================
+      // L0.5 REAL HAND OCCLUSION
+      //
+      // 화면에는 아무것도 그리지 않고
+      // 손의 깊이만 depth buffer에 기록
+      // ========================================================
+      if (S.hand) {
+        handVisual.renderOcclusion(
+          renderer,
+          camera
+        );
+      }
+
+      // ========================================================
+      // L1 AR CONTENT
+      //
+      // 앞에서 기록한 실제 손 depth보다 뒤에 있으면
+      // GPU depth test에서 자동으로 잘린다.
+      // ========================================================
+
+      renderer.render(
+        scene,
+        camera
+      );
+
+
+      // ========================================================
+      // L2 interaction cursor
+      // ========================================================
+
+      if (S.hand) {
+        handVisual.render(
+          renderer,
+          camera
+        );
+      }
     });
 
     /* =====================================================================
