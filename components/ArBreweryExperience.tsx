@@ -531,8 +531,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     /* --- 12 · 원료 --- */
-    let ingredientNodes: THREE.Group[] = []; 
-    
+    let ingredientNodes: THREE.Group[] = [];
+
     function buildIngredients() {
       const platformTop = addPlatform();       // 실제 상판 높이를 받음
       placeModelsForStep("ingredient", stageGroup, platformTop);
