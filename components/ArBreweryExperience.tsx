@@ -135,6 +135,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 원료 단계에 들어올 때마다 선택을 깨끗이 비워 '1개 선택된 채 시작'을 막는다.
       if (next === "ingredient") resetIngredientSelection();
       buildStageFor(next);
+      const needed = [
+        ...MODELS.filter((m) => m.step === "common" || m.step === next),
+        ...(next === "godubap" ? GODUBAP_MODELS : []),
+        ...(next === "done" && FINISH_MODEL ? [FINISH_MODEL] : []),
+      ].filter((m) => !LOADED[m.id]);
+      if (needed.length) {
+        void Promise.all(needed.map(loadModel)).then(() => {
+          if (S.step === next) buildStageFor(next);
+        });
+      }
     }
 
     function resetIngredientUi() {
@@ -277,18 +287,37 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const woodMat = new THREE.MeshStandardMaterial({ color: 0x5b4a35, roughness: 0.9 });
 
     const LOADED: Record<string, any> = {};
+    const LOADING: Partial<Record<string, Promise<void>>> = {};
     const gltfLoader = new GLTFLoader();
 
+    function loadModel(m: ModelDef): Promise<void> {
+      if (LOADED[m.id]) return Promise.resolve();
+      const pending = LOADING[m.id];
+      if (pending) return pending;
+      LOADING[m.id] = gltfLoader.loadAsync(m.file)
+        .then((gltf) => { LOADED[m.id] = gltf; })
+        .catch((e: any) => {
+          console.warn("모델 로드 실패:", m.id, m.file, e?.message);
+        });
+      return LOADING[m.id]!;
+    }
+
     async function preloadModels() {
-      await Promise.all(
-        [...MODELS, ...GODUBAP_MODELS, ...(FINISH_MODEL ? [FINISH_MODEL] : [])].map(async (m) => {
-          try {
-            LOADED[m.id] = await gltfLoader.loadAsync(m.file);
-          } catch (e: any) {
-            console.warn("모델 로드 실패:", m.id, m.file, e?.message);
-          }
-        })
+      // 첫 화면에 꼭 필요한 받침대·원료만 기다린다. 92MB 후발효 모델까지
+      // Promise.all로 묶던 것이 AR 시작 전체를 지연시키던 주원인이었다.
+      const initial = MODELS.filter(
+        (m) => m.id === "low_wooden_bench" || m.step === "ingredient"
       );
+      await Promise.all(initial.map(loadModel));
+    }
+
+    async function preloadRemainingModels() {
+      const all = [...MODELS, ...GODUBAP_MODELS, ...(FINISH_MODEL ? [FINISH_MODEL] : [])];
+      const rest = all
+        .filter((m, i) => all.findIndex((x) => x.id === m.id) === i && !LOADED[m.id])
+        // 가장 큰 Closed_jar는 마지막에 받아 앞 단계 자산의 네트워크를 막지 않게 한다.
+        .sort((a, b) => Number(a.id === "closed_jar") - Number(b.id === "closed_jar"));
+      for (const model of rest) await loadModel(model);
     }
 
     function spawnModel(def: ModelDef): THREE.Object3D | null {
@@ -348,7 +377,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       placeCommonModels(parent, baseY);
 
       // 1. 해당 단계의 모델들을 가져옵니다.
-      const defs = MODELS.filter((m) => m.step === step);
+      const defs = MODELS.filter((m) => m.step === step && !m.processSteps?.length);
       if (!defs.length) return;
 
       defs.forEach((def, i) => {
@@ -448,7 +477,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       tick: ((t: number, dt: number) => void) | null;
       /** 손 모드에서 매 프레임 손 상태를 받는 훅. 단계별 build 함수가 채운다. */
       onHand: ((frame: HandFrame, hand: HandVisual, interactionCamera: THREE.Camera) => void) | null;
-    } = { particles: [], mixers: [], models: [], tick: null, onHand: null };
+      cleanup: (() => void)[];
+    } = { particles: [], mixers: [], models: [], tick: null, onHand: null, cleanup: [] };
 
     function clearStage() {
       stageGroup.traverse((o: any) => {
@@ -464,6 +494,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       live.mixers.forEach((m) => m.stopAllAction());
       live.mixers.length = 0;
       live.models.length = 0;
+      live.cleanup.forEach((dispose) => dispose());
+      live.cleanup.length = 0;
       live.tick = null;
       live.onHand = null;
       godubapShowStage = null;
@@ -1127,6 +1159,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       jar.visible = false;
       stageGroup.add(jar);
 
+      // 표에 지정된 발효 세부 공정 모델. 현재 타임라인 id와 일치할 때만 보인다.
+      const fermentProcessModels = MODELS
+        .filter((m) => m.step === "ferment" && m.processSteps?.length)
+        .map((def) => {
+          const group = new THREE.Group();
+          const node = spawnModel(def);
+          group.position.set(0, platformTop + def.y, 0);
+          if (def.id === "wooden_spatula") {
+            group.position.x = 0.08;
+            group.rotation.z = -0.72;
+          }
+          if (node) group.add(node);
+          group.visible = false;
+          stageGroup.add(group);
+          return { def, group };
+        });
+
       // 후발효(마지막 단계) 발효 애니메이션 — 물방울·열
       const bubbles = makeParticles(180, {
         color: 0xfff6dd, size: 0.009, opacity: 0, speed: 0.5,
@@ -1140,8 +1189,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       const F_LAST_I = FERMENT_STEPS.length - 1;
       fermentShowStage = () => {
+        const processId = FERMENT_STEPS[Math.min(S.fstage, F_LAST_I)]?.id;
         cooled.visible = S.fstage === 0;   // 혼합에서만 채반+고두밥
-        jar.visible = S.fstage >= 1;       // 1차발효부터 항아리
+        // 후발효에는 밀봉 항아리가 대신 등장한다.
+        jar.visible = S.fstage >= 1 && processId !== "post";
+        fermentProcessModels.forEach(({ def, group }) => {
+          group.visible = Boolean(processId && def.processSteps?.includes(processId));
+        });
       };
       fermentShowStage();
 
@@ -1201,6 +1255,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(contactShadow);
 
       placeModelsForStep("done", stageGroup, platformTop);
+      const finishProcessModels = MODELS
+        .filter((m) => m.step === "done" && m.processSteps?.length)
+        .map((def) => {
+          const group = new THREE.Group();
+          const node = spawnModel(def);
+          group.position.set(0, platformTop + def.y, 0);
+          if (node) group.add(node);
+          group.visible = false;
+          stageGroup.add(group);
+          return { def, group };
+        });
       const bottle = new THREE.Group();
       const body = new THREE.Mesh(
         new THREE.LatheGeometry(onggiProfile(0.26, 0.085), 40),
@@ -1233,6 +1298,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       // 출고 단계에 나타나는 완성 제품 모델 (Nyangi.glb). 파일이 없으면 임시 병이 그대로 보인다.
       let shipModel: THREE.Object3D | null = null;
+      const shipMaterials: THREE.Material[] = [];
       if (FINISH_MODEL) {
         const node = spawnModel(FINISH_MODEL);
         if (node) {
@@ -1243,15 +1309,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             obj.castShadow = true;
             obj.receiveShadow = true;
 
-            const material = obj.material;
-
-            if (Array.isArray(material)) {
-              material.forEach((mat) => {
-                mat.needsUpdate = true;
-              });
-            } else if (material) {
-              material.needsUpdate = true;
-            }
+            const source = Array.isArray(obj.material) ? obj.material : [obj.material];
+            const cloned = source.map((mat) => {
+              const copy = mat.clone();
+              copy.transparent = true;
+              copy.opacity = 0;
+              copy.needsUpdate = true;
+              shipMaterials.push(copy);
+              return copy;
+            });
+            obj.material = Array.isArray(obj.material) ? cloned : cloned[0];
           });
 
           const g = new THREE.Group();
@@ -1265,14 +1332,84 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           shipRestY = g.position.y;
         }
       }
+
+      // 얇은 보상광 링 — 실제 테이블과 병을 가리지 않는 정도로만 쓴다.
+      const glowRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.115, 0.122, 64),
+        new THREE.MeshBasicMaterial({
+          color: 0xffc98a,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        })
+      );
+      glowRing.rotation.x = -Math.PI / 2;
+      glowRing.position.y = contentY + 0.003;
+      glowRing.visible = false;
+      stageGroup.add(glowRing);
+
+      // 핑크는 출고 순간에만: 작은 발바닥 세 개를 병 주변에 조용히 띄운다.
+      const pawTexture = new THREE.TextureLoader().load("/ar/ui/paw-pink.png");
+      pawTexture.colorSpace = THREE.SRGBColorSpace;
+      const paws = [
+        [-0.14, 0.13, 0.01],
+        [0.15, 0.18, -0.015],
+        [-0.1, 0.25, -0.035],
+      ].map(([x, y, z]) => {
+        const material = new THREE.SpriteMaterial({
+          map: pawTexture,
+          color: 0xffb0c0,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.position.set(x, contentY + y, z);
+        sprite.scale.set(0.045, 0.038, 1);
+        sprite.visible = false;
+        stageGroup.add(sprite);
+        return sprite;
+      });
+
+      const sparkleGeometry = new THREE.BufferGeometry();
+      sparkleGeometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute([
+          -0.08, contentY + 0.08, 0.02, 0.07, contentY + 0.12, 0.01,
+          -0.04, contentY + 0.2, -0.01, 0.1, contentY + 0.23, 0.02,
+          0, contentY + 0.29, 0, -0.12, contentY + 0.16, -0.02,
+        ], 3)
+      );
+      const sparkleMaterial = new THREE.PointsMaterial({
+        color: 0xffe2a8,
+        size: 0.012,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const sparkles = new THREE.Points(sparkleGeometry, sparkleMaterial);
+      sparkles.visible = false;
+      stageGroup.add(sparkles);
+
+      type ShipPhase = "hidden" | "revealing" | "complete";
+      let shipPhase: ShipPhase = "hidden";
+      let finishBurstT = 0;
+      const cameraInStage = new THREE.Vector3();
+
       const SHIP_AT = PRESS_STEPS.length - 1; // '출고' 인덱스
       finishShowShip = () => {
         const shipped = S.press >= SHIP_AT;
+        const processId = PRESS_STEPS[Math.min(S.press, SHIP_AT)]?.id;
+        finishProcessModels.forEach(({ def, group }) => {
+          group.visible = !shipped && Boolean(processId && def.processSteps?.includes(processId));
+        });
 
         if (shipModel) {
           // 출고 단계 진입
           if (shipped && !shipModel.visible) {
             shipModel.visible = true;
+            shipPhase = "revealing";
 
             // 등장 애니메이션 시작
             shipRevealT = 0;
@@ -1281,6 +1418,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             // 조금 작고 위쪽에서 시작
             shipModel.scale.setScalar(0.72);
             shipModel.position.y = shipRestY + 0.08;
+            shipMaterials.forEach((material) => {
+              material.opacity = 0;
+            });
+            glowRing.visible = true;
+            paws.forEach((paw) => { paw.visible = false; });
 
             // 빛도 처음에는 꺼져 있음
             shipGlow.intensity = 0;
@@ -1290,16 +1432,20 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (!shipped) {
             shipModel.visible = false;
             shipRevealActive = false;
+            shipPhase = "hidden";
 
             shipModel.scale.setScalar(1);
             shipModel.position.y = shipRestY;
 
             shipGlow.intensity = 0;
+            glowRing.visible = false;
+            sparkles.visible = false;
+            paws.forEach((paw) => { paw.visible = false; });
           }
         }
 
-        // 실제 냥이탁주 병이 나타나면 임시 병 숨김
-        bottle.visible = shipModel ? !shipped : true;
+        // 출고 전에는 공정별 GLB만, 출고에는 실제 병(없으면 임시 병)만 보인다.
+        bottle.visible = !shipModel && shipped;
       };
       finishShowShip();
      
@@ -1313,69 +1459,55 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       */
       
       live.tick = (_t, dt) => {
-        if (!shipRevealActive || !shipModel) return;
+        if (!shipModel || shipPhase === "hidden") return;
 
-        shipRevealT += dt;
-
-        const duration = 1.6;
-
-        const p = THREE.MathUtils.clamp(
-          shipRevealT / duration,
-          0,
-          1
+        const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+        viewCamera.getWorldPosition(cameraInStage);
+        stageGroup.worldToLocal(cameraInStage);
+        // GLB의 정면(+Z), 즉 '냥이탁주 9' 라벨이 항상 사용자 시선을 향한다.
+        shipModel.rotation.y = Math.atan2(
+          cameraInStage.x - shipModel.position.x,
+          cameraInStage.z - shipModel.position.z
         );
 
-        // ─────────────────────
-        // 1. Scale
-        // 작게 등장 → 살짝 커졌다 → 원래 크기로 안착
-        // ─────────────────────
-        const scaleP = easeOutBack(p);
+        if (shipPhase === "revealing") {
+          shipRevealT += dt;
+          const p = THREE.MathUtils.clamp(shipRevealT / 1.25, 0, 1);
+          const eased = 1 - Math.pow(1 - p, 3);
+          shipModel.scale.setScalar(THREE.MathUtils.lerp(0.76, 1, easeOutBack(p)));
+          shipModel.position.y = THREE.MathUtils.lerp(shipRestY + 0.075, shipRestY, eased);
+          shipMaterials.forEach((material) => { material.opacity = eased; });
+          (glowRing.material as THREE.MeshBasicMaterial).opacity = Math.sin(p * Math.PI) * 0.48;
+          shipGlow.intensity = Math.sin(p * Math.PI) * 0.8;
 
-        const scale = THREE.MathUtils.lerp(
-          0.72,
-          1,
-          scaleP
-        );
-
-        shipModel.scale.setScalar(scale);
-
-
-        // ─────────────────────
-        // 2. Position
-        // 약간 위에서 내려오며 안착
-        // ─────────────────────
-        const fallP =
-          1 - Math.pow(1 - p, 3);
-
-        shipModel.position.y =
-          THREE.MathUtils.lerp(
-            shipRestY + 0.08,
-            shipRestY,
-            fallP
-          );
-
-
-        // ─────────────────────
-        // 3. Glow
-        // 등장 순간 밝아졌다가 서서히 사라짐
-        // ─────────────────────
-        const glow =
-          Math.sin(p * Math.PI);
-
-        shipGlow.intensity =
-          glow * 2.2;
-
-
-        // ─────────────────────
-        // 완료
-        // ─────────────────────
-        if (p >= 1) {
-          shipModel.scale.setScalar(1);
-          shipModel.position.y = shipRestY;
-
-          shipGlow.intensity = 0;
-
-          shipRevealActive = false;
+          if (p >= 1) {
+            shipModel.scale.setScalar(1);
+            shipModel.position.y = shipRestY;
+            shipMaterials.forEach((material) => { material.opacity = 1; });
+            shipGlow.intensity = 0;
+            (glowRing.material as THREE.MeshBasicMaterial).opacity = 0.22;
+            shipRevealActive = false;
+            shipPhase = "complete";
+            finishBurstT = 0.82;
+            sparkles.visible = true;
+            paws.forEach((paw) => { paw.visible = true; });
+            navigator.vibrate?.([24, 35, 42]);
+            S.press = PRESS_STEPS.length;
+            syncPress();
+          }
+        } else if (shipPhase === "complete") {
+          finishBurstT = Math.max(0, finishBurstT - dt);
+          const p = 1 - finishBurstT / 0.82;
+          const bounce = p < 1 ? 1 + Math.sin(p * Math.PI * 2.4) * 0.075 * (1 - p) : 1;
+          shipModel.scale.setScalar(bounce);
+          sparkleMaterial.opacity = Math.max(0, 1 - p);
+          sparkles.scale.setScalar(1 + p * 0.55);
+          paws.forEach((paw, i) => {
+            const material = paw.material as THREE.SpriteMaterial;
+            material.opacity = Math.min(0.88, p * 2.5);
+            paw.position.y += Math.sin(_t * 1.8 + i) * 0.00008;
+          });
+          (glowRing.material as THREE.MeshBasicMaterial).opacity = 0.28;
         }
       };
     }
@@ -1404,6 +1536,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let xrSession: XRSession | null = null;
     let hitTestSource: XRHitTestSource | null = null;
     let localSpace: XRReferenceSpace | null = null;
+    type XRAnchorLike = { anchorSpace: XRSpace; delete?: () => void };
+    type AnchorHitResult = XRHitTestResult & { createAnchor?: () => Promise<XRAnchorLike> };
+    let latestHitResult: AnchorHitResult | null = null;
+    let xrWorldAnchor: XRAnchorLike | null = null;
+    const anchorTargetPosition = new THREE.Vector3();
     
     let arSupported = false;
     let surfaceReady = false;
@@ -1456,7 +1593,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // camera-access 가 있으면 ARCore 가 쓰는 카메라 이미지를 그대로 받아 손을 인식한다.
           // 이게 평면 인식(hit-test)과 손 인식을 한 세션에서 같이 하는 유일한 길이다.
           
-          optionalFeatures: ["dom-overlay", "camera-access", "depth-sensing"], //(별)
+          optionalFeatures: ["dom-overlay", "camera-access", "depth-sensing", "anchors"], //(별)
           depthSensing: {
             // three r185는 XRWebGLBinding의 GPU depth texture를 렌더 패스에
             // 직접 합성한다. CPU fallback은 그 내장 경로에서 처리되지 않는다.
@@ -1548,6 +1685,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         xrSession = null;
         renderer.xr.cameraAutoUpdate = true;
         hitTestSource = null;
+        latestHitResult = null;
+        xrWorldAnchor?.delete?.();
+        xrWorldAnchor = null;
         uiRoot!.classList.remove("ar-mode");
         controls.enabled = true;
         floor.visible = true;
@@ -1578,7 +1718,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * ===================================================================*/
     let handTracker: HandTracker | null = null;
     const handVisual = new HandVisual();
-    handVisual.attachTo(scene);
+    handVisual.attachTo();
     // 영상이 화면에 cover 로 잘리는 것을 보정하는 값 — 매 프레임 화면 크기로 다시 잰다
     let handFit: CoverFit = { scaleX: 1, scaleY: 1, offX: 0, offY: 0 };
     // AR 모드에서 XR 카메라 이미지를 내려받는 도구 (camera-access 를 받았을 때만 만든다)
@@ -1635,9 +1775,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (frame && hitTestSource && localSpace) {
           const results = (frame as any).getHitTestResults(hitTestSource);
           if (results.length) {
-            const pose = results[0].getPose(localSpace);
-            reticle.matrix.fromArray(pose.transform.matrix);
-            found = true;
+            latestHitResult = results[0] as AnchorHitResult;
+            const pose = latestHitResult.getPose(localSpace);
+            if (pose) {
+              reticle.matrix.fromArray(pose.transform.matrix);
+              found = true;
+            }
           }
         } else if (!S.xr) {
           const p = fallbackHit();
@@ -1651,6 +1794,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         onSurfaceFound(found);
       } else {
         reticle.visible = false;
+      }
+
+      // 지원 기기에서는 배치 순간 만든 WebXR Anchor의 보정 pose를 따라간다.
+      // ARCore의 작은 추적 노이즈가 그대로 보이지 않도록 위치만 부드럽게 반영하고,
+      // 양조장은 항상 수직을 유지하기 위해 기기별 anchor 회전은 적용하지 않는다.
+      if (frame && xrWorldAnchor && localSpace && S.placed) {
+        const anchorPose = frame.getPose(xrWorldAnchor.anchorSpace, localSpace);
+        if (anchorPose) {
+          const p = anchorPose.transform.position;
+          anchorTargetPosition.set(p.x, p.y, p.z);
+          anchor.position.lerp(anchorTargetPosition, 0.32);
+        }
       }
 
       if (S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
@@ -1895,6 +2050,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 렌더 순서는 HandVisual의 renderOrder(-1000 / 1000)가 정한다.
       renderer.clear();
       renderer.render(scene, camera);
+      handVisual.renderOverlay(renderer, camera);
     });
 
     /* =====================================================================
@@ -1963,6 +2119,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         anchor.visible = true;
         applySurfaceScale();
         S.placed = true;
+        if (S.xr && latestHitResult?.createAnchor) {
+          void latestHitResult.createAnchor().then((created) => {
+            xrWorldAnchor?.delete?.();
+            xrWorldAnchor = created;
+          }).catch(() => {
+            // anchors 미지원 또는 생성 실패 시 최초 hit-test 위치 고정을 그대로 쓴다.
+          });
+        }
         if (!S.xr) controls.target.copy(anchor.position).add(new THREE.Vector3(0, 0.2, 0));
         setStep("ingredient");
       };
@@ -2332,6 +2496,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         b.textContent = st.name;
         b.onclick = () => {
           if (i !== S.press) return; // 지금 켜진 단계만 누를 수 있다
+          if (i === PRESS_STEPS.length - 1) {
+            return;
+          }
           S.press = i + 1;
           syncPress();
         };
@@ -2344,15 +2511,33 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         (p as HTMLElement).dataset.state = i < S.press ? "done" : i === S.press ? "now" : "todo";
       });
       const done = S.press >= PRESS_STEPS.length;
+      const shipping = S.press === PRESS_STEPS.length - 1;
       const cur = PRESS_STEPS[Math.min(S.press, PRESS_STEPS.length - 1)];
       const cap = $("#cap-finishing");
-      if (cap) cap.textContent = done ? "씻기부터 출고까지 예순 날 넘게, 냥이탁주가 완성됐어요" : cur.caption;
+      if (cap) {
+        cap.textContent = done
+          ? "양조가 완료되었습니다!"
+          : shipping
+            ? "냥이탁주 라벨이 정면을 향하며 완성 병이 나타나고 있어요"
+            : cur.caption;
+      }
       const hint = $("#finishing-hint");
-      if (hint) hint.textContent = done ? "마지막 공정까지 마쳤어요. 완성된 술을 만나보세요." : "";
+      if (hint) {
+        hint.textContent = done
+          ? "🐾 냥이탁주가 세상에 나갈 준비를 마쳤어요"
+          : shipping
+            ? "잠시만 기다려 주세요"
+            : "";
+      }
       const b = $("#btn-finishing") as HTMLButtonElement | null;
       if (b) {
         b.classList.toggle("waiting", !done);
-        b.textContent = done ? "완성된 냥이탁주 만나기" : "공정을 순서대로 진행하세요";
+        b.classList.toggle("shipping", shipping || done);
+        b.textContent = done
+          ? "🐾 나의 술 확인하기"
+          : shipping
+            ? "완성 병 등장 중…"
+            : "공정을 순서대로 진행하세요";
       }
     }
     const btnFinishing = $("#btn-finishing");
@@ -2459,6 +2644,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       .then(() => {
         S.isInitializing = false; // 👈 로딩 완료
         syncPlaceButton();         // 👈 준비가 끝나면 실제 버튼으로 갱신
+        void preloadRemainingModels();
       })
       .catch(() => {
         S.isInitializing = false;

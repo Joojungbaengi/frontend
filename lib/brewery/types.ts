@@ -15,6 +15,8 @@ export interface ModelDef {
   file: string;
   /** 어느 단계에 놓을지. "common"은 모든 단계 공통(받침대 등) */
   step: ArStep;
+  /** 발효·완성 타임라인 중 이 모델을 보여줄 세부 공정 id 목록 */
+  processSteps?: string[];
   /** 실제 높이(m). 코드가 자동으로 크기를 보정한다 */
   height: number;
   /** 받침 위로 띄우는 높이(보통 0.03) */

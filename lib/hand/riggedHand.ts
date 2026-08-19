@@ -22,12 +22,43 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { HandFrame } from "@/lib/hand/types";
 
 const MODEL = {
-  right: "/ar/3d-assets/r_hand.glb",
+  right: "/ar/3d-assets/r_hand_texture.glb",
   left: "/ar/3d-assets/l_hand.glb",
 } as const;
 
 /** 손 크기가 프레임마다 튀지 않게 하는 정도 (0에 가까울수록 느리게 따라감) */
 const SCALE_EASE = 0.25;
+
+/** 리그드 모델은 따뜻한 아이보리 무광 재질로 통일한다. */
+const HAND_MATERIAL = {
+  color: 0xf4eddf,
+  roughness: 0.82,
+  metalness: 0,
+} as const;
+
+type Finger = "thumb" | "index" | "middle" | "ring" | "pinky";
+
+/**
+ * 원본 WebXR 모델의 길고 균일한 손가락을 실제 손에 가까운 실루엣으로 보정한다.
+ * 길이는 관절 간격에만 적용한다. 스킨 본에 축별 스케일을 주면 굽힌 관절에서
+ * 서로 다른 웨이트가 충돌해 살이 접히므로 굵기 값은 모델 교체 시 참고값으로만 둔다.
+ */
+const FINGER_PROPORTION: Record<Finger, { length: number; thickness: number }> = {
+  thumb: { length: 0.96, thickness: 1.08 },
+  index: { length: 0.98, thickness: 0.94 },
+  middle: { length: 1.02, thickness: 0.97 },
+  ring: { length: 0.98, thickness: 0.91 },
+  pinky: { length: 0.9, thickness: 0.82 },
+};
+
+function fingerOf(bone: string): Finger | undefined {
+  if (bone.startsWith("thumb-")) return "thumb";
+  if (bone.startsWith("index-finger-")) return "index";
+  if (bone.startsWith("middle-finger-")) return "middle";
+  if (bone.startsWith("ring-finger-")) return "ring";
+  if (bone.startsWith("pinky-finger-")) return "pinky";
+  return undefined;
+}
 
 /**
  * 자세가 목표를 따라가는 시간(초). 손 인식은 60ms 마다 한 번이고 화면은 그보다
@@ -57,7 +88,19 @@ const MIN_FORESHORTEN = 0.35;
  * MediaPipe 의 깊이는 화면 좌표보다 한참 거칠고, 특히 손등이 보일 때는 앞뒤
  * 해석이 헷갈려 크게 튄다. 그대로 두면 손가락이 화면 안쪽으로 푹 꺾여 보인다.
  */
-const MAX_DEPTH = 1.2;
+const MAX_DEPTH = 0.55;
+
+/**
+ * 부모가 물려준 방향에서 한 관절이 한 프레임에 꺾일 수 있는 최대 각도.
+ * MediaPipe의 손끝 Z는 핀치 때 서로 앞뒤가 바뀌기 쉬워, 제한이 없으면 엄지
+ * 끝마디가 검지를 뚫고 뒤로 접힌다. MCP는 좌우 벌림도 필요해 조금 넉넉히 둔다.
+ */
+function maxJointSwing(bone: string): number {
+  if (bone === "thumb-metacarpal") return THREE.MathUtils.degToRad(70);
+  if (bone.startsWith("thumb-")) return THREE.MathUtils.degToRad(85);
+  if (bone.endsWith("metacarpal")) return THREE.MathUtils.degToRad(55);
+  return THREE.MathUtils.degToRad(105);
+}
 
 interface JointDef {
   bone: string;
@@ -145,6 +188,7 @@ export class RiggedHand {
   private tmpM = new THREE.Matrix4();
   private tmpV = new THREE.Vector3();
   private tmpQ = new THREE.Quaternion();
+  private identityQ = new THREE.Quaternion();
   private fwd = new THREE.Vector3();
   private side = new THREE.Vector3();
   private up = new THREE.Vector3();
@@ -160,6 +204,8 @@ export class RiggedHand {
   /** 좌우 판정을 시간에 걸쳐 눌러 둔 값 — 한 프레임 튐으로 손이 바뀌지 않게 */
   private sideScore = 0;
   private lockedSide: "left" | "right" | null = null;
+  private pendingSide: "left" | "right" | null = null;
+  private sideSwitchScore = 0;
 
   get loaded() {
     return Boolean(this.hands.right || this.hands.left);
@@ -231,14 +277,21 @@ export class RiggedHand {
     await Promise.all(
       (["right", "left"] as const).map(async (side) => {
         const gltf = await loader.loadAsync(MODEL[side]);
-        // 파일 이름이 아니라 **모델을 재서** 어느 손인지 정한다.
-        // 실제로 이 두 파일은 이름과 반대 손이 들어 있었다.
+        // 에셋 슬롯을 파일 이름대로 고정한다. 특히 사용자가 교체한
+        // r_hand_texture.glb가 기하 부호 재판정 때문에 왼손 슬롯으로 넘어가면
+        // 올바른 handedness가 와도 반대 모델이 표시된다.
         const root = gltf.scene;
         const bones = new Map<string, THREE.Bone>();
         root.traverse((o) => {
           if ((o as THREE.Bone).isBone) bones.set(o.name, o as THREE.Bone);
           const m = o as THREE.SkinnedMesh;
-          if (m.isSkinnedMesh) m.frustumCulled = false; // 뼈를 크게 옮기므로 화면 밖 판정을 끈다
+          if (m.isSkinnedMesh) {
+            m.frustumCulled = false; // 뼈를 크게 옮기므로 화면 밖 판정을 끈다
+            // 텍스처 오른손은 Blender Material을 유지하고 왼손만 아이보리로 통일한다.
+            if (side !== "right") {
+              m.material = new THREE.MeshStandardMaterial(HAND_MATERIAL);
+            }
+          }
         });
 
         root.visible = false;
@@ -300,7 +353,7 @@ export class RiggedHand {
           }
         }
 
-        this.hands[restChirality > 0 ? "right" : "left"] = {
+        this.hands[side] = {
           root,
           bones,
           restOffset,
@@ -394,6 +447,30 @@ export class RiggedHand {
    * 그래서 확신 정도를 시간에 걸쳐 눌러 두고, 충분히 기울었을 때만 바꾼다.
    */
   private decideSide(spatial: boolean, frame: HandFrame, a: number): "left" | "right" {
+    // MediaPipe가 명시적으로 알려 준 좌우를 최우선으로 쓴다. 공간 chirality는
+    // 깊이값이 없는 기기나 handedness가 비어 있을 때만 예비 판정으로 사용한다.
+    if (frame.handedness && this.hands[frame.handedness]) {
+      if (!this.lockedSide) {
+        this.lockedSide = frame.handedness;
+      } else if (frame.handedness !== this.lockedSide) {
+        if (this.pendingSide !== frame.handedness) {
+          this.pendingSide = frame.handedness;
+          this.sideSwitchScore = 0;
+        }
+        this.sideSwitchScore += a;
+        // 약 0.2초 동안 반대 결과가 유지될 때만 바꿔, 손 회전 중 한두 프레임
+        // 오판은 무시하면서 실제로 다른 손을 내민 경우에는 전환한다.
+        if (this.sideSwitchScore >= 0.35) {
+          this.lockedSide = frame.handedness;
+          this.pendingSide = null;
+          this.sideSwitchScore = 0;
+        }
+      } else {
+        this.pendingSide = null;
+        this.sideSwitchScore = 0;
+      }
+      return this.lockedSide;
+    }
     if (spatial) {
       const c = this.chirality(
         this.pose[0], this.pose[9], this.pose[5], this.pose[17], this.pose[2]
@@ -404,7 +481,8 @@ export class RiggedHand {
         if (this.hands[want]) this.lockedSide = want;
       }
     }
-    return this.lockedSide ?? frame.handedness ?? "right";
+    const fallback = frame.handedness ?? "right";
+    return this.lockedSide ?? fallback;
   }
 
   /** 손을 놓쳤을 때 — 다시 잡히면 이전 자리에서 쓸고 오지 않게 상태를 비운다 */
@@ -413,6 +491,8 @@ export class RiggedHand {
     this.scale = 0;
     this.sideScore = 0;
     this.lockedSide = null;
+    this.pendingSide = null;
+    this.sideSwitchScore = 0;
   }
 
   /**
@@ -482,9 +562,11 @@ export class RiggedHand {
         const off = hand.restOffset.get(j.bone);
         if (!pPos || !pQuat || !off) continue;
 
-        // 자리 — 모델이 가진 길이만큼 부모에서 떨어뜨린다 (손 크기에 맞춰 배율만)
+        // 자리 — 모델이 가진 길이를 손가락별 비율로 다듬고 손 크기에 맞춘다.
         const pos = this.worldPos.get(j.bone)!;
-        pos.copy(off).multiplyScalar(scale).applyQuaternion(pQuat).add(pPos);
+        const parentFinger = fingerOf(j.parent);
+        const lengthRatio = parentFinger ? FINGER_PROPORTION[parentFinger].length : 1;
+        pos.copy(off).multiplyScalar(scale * lengthRatio).applyQuaternion(pQuat).add(pPos);
 
         // 먼저 부모를 그대로 따라 도는 자세를 만든다. 방향을 안 받는 뼈
         // (손등뼈·손끝)는 이걸 그대로 쓴다.
@@ -502,10 +584,22 @@ export class RiggedHand {
           if (this.tmpV.lengthSq() > 1e-12) {
             this.tmpV.normalize();
             this.side.copy(aim).applyQuaternion(quat); // 지금 가리키는 쪽
-            quat.premultiply(this.tmpQ.setFromUnitVectors(this.side, this.tmpV));
+            this.tmpQ.setFromUnitVectors(this.side, this.tmpV);
+            const swing = this.side.angleTo(this.tmpV);
+            const limit = maxJointSwing(j.bone);
+            if (swing > limit) {
+              this.tmpQ.slerpQuaternions(this.identityQ, this.tmpQ, limit / swing);
+            }
+            quat.premultiply(this.tmpQ);
           }
         }
       }
+
+      // 스킨 본은 반드시 균일 스케일을 쓴다. 축별 스케일은 펴진 자세에서는
+      // 자연스러워도, 엄지·검지가 크게 굽을 때 관절 양쪽 웨이트를 서로 다른
+      // 방향으로 잡아당겨 메시가 꼬이거나 안으로 파고들게 만든다. 손가락 길이
+      // 비율은 위의 관절 위치(restOffset)에 이미 반영되어 있다.
+      bone.scale.setScalar(scale);
 
       // 뼈가 전부 형제라 월드 자세를 그대로 넣으면 된다 (그룹은 원점에 둔다)
       bone.position.copy(this.worldPos.get(j.bone)!);

@@ -111,7 +111,7 @@ export class HandVisual {
   }
 
   private pinchWorld = new THREE.Vector3();
-  private attachedToMainScene = false;
+  private overlayReady = false;
 
   constructor() {
     // 한지빛 면장갑 — 어두운 나무 무대 위에서 또렷하되 튀지 않는다
@@ -154,20 +154,25 @@ export class HandVisual {
     this.handScene.visible = false;
   }
 
-  /**
-   * XR에서는 한 프레임에 renderer.render()를 한 번만 호출해야 카메라 pose가
-   * 손과 AR 오브젝트에 동일하게 적용된다. 가상 손과 커서를 메인 scene에
-   * 직접 붙여 별도 렌더 패스를 없앤다.
-   */
-  attachTo(scene: THREE.Scene) {
-    if (this.attachedToMainScene) return;
-    scene.add(this.glove.group);
-    scene.add(this.rigged.group);
-    scene.add(this.cursor);
+  /** 손과 커서를 메인 AR 모델과 분리된 Overlay Scene에 준비한다. */
+  attachTo() {
+    if (this.overlayReady) return;
+    // glove와 cursor는 생성자에서 이미 handScene에 들어 있다.
+    this.handScene.add(this.rigged.group);
     this.glove.group.visible = false;
     this.rigged.group.visible = false;
     this.cursor.visible = false;
-    this.attachedToMainScene = true;
+    this.overlayReady = true;
+  }
+
+  /**
+   * 메인 Scene을 모두 그린 뒤 깊이만 비우고 손을 별도 패스로 덧그린다.
+   * AR 모델의 깊이 순서를 건드리지 않으면서 손 내부의 정상적인 self-occlusion을 유지한다.
+   */
+  renderOverlay(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
+    if (!this.overlayReady || !this.handScene.visible) return;
+    renderer.clearDepth();
+    renderer.render(this.handScene, camera);
   }
 
   /**
@@ -179,12 +184,11 @@ export class HandVisual {
       this.rigged.group.traverse((object) => {
         const mesh = object as THREE.Mesh;
         if (!mesh.isMesh) return;
-        // 실제 손 cutout 대신 가상 손을 항상 AR 오브젝트 위에 보여 준다.
-        // 같은 scene의 단일 render pass이므로 XR pose는 한 번만 적용된다.
+        // 메인 Scene과 분리된 두 번째 패스에서 손 자체의 깊이 판정은 정상 사용한다.
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         materials.forEach((material) => {
-          material.depthTest = false;
-          material.depthWrite = false;
+          material.depthTest = true;
+          material.depthWrite = true;
           material.needsUpdate = true;
         });
         mesh.renderOrder = 900;

@@ -169,6 +169,8 @@ export class HandTracker {
  * 손과 어긋나지 않게 하려는 것이다. 이 값은 미터 좌표가 없을 때의 예비용이다.
  */
 function readHandedness(name?: string): "left" | "right" | null {
+  // 현재 XR 카메라 입력에서는 Tasks Vision이 실제 사용자 손 기준의 값을 준다.
+  // 모델 슬롯도 파일명 기준으로 고정했으므로 여기서 추가 반전하지 않는다.
   if (name === "Left") return "left";
   if (name === "Right") return "right";
   return null;

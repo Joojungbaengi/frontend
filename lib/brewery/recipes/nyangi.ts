@@ -33,7 +33,42 @@ export const nyangiTakju: Recipe = {
   ],
 
   // 무대 모델은 술끼리 공유한다 (받침대·항아리·그릇, 그리고 고두밥 단계의 솥·채반)
-  models: commonStageModels(),
+  models: [
+    ...commonStageModels(),
+    {
+      id: "wooden_spatula",
+      file: `${AR_ASSETS}/wooden_spatula.glb`,
+      step: "ferment",
+      processSteps: ["mash1", "mash2"],
+      height: 0.24,
+      y: 0.03,
+      scaleFactor: 0.05,
+    },
+    {
+      id: "closed_jar",
+      file: `${AR_ASSETS}/Closed_jar.glb`,
+      step: "ferment",
+      processSteps: ["post"],
+      height: 0.25,
+      y: 0.03,
+    },
+    {
+      id: "press_jar",
+      file: `${AR_ASSETS}/jar_with_a_spout.glb`,
+      step: "done",
+      processSteps: ["press"],
+      height: 0.25,
+      y: 0.03,
+    },
+    {
+      id: "cold_storage_chamber",
+      file: `${AR_ASSETS}/cold_storage_chamber.glb`,
+      step: "done",
+      processSteps: ["aging"],
+      height: 0.3,
+      y: 0.03,
+    },
+  ],
   godubapModels: godubapStageModels(),
 
   // 냉각/혼합 때 채반 위에 까는 고두밥 평면. 채반 크기에 맞춰 자동으로 덮되,

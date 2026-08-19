@@ -145,6 +145,20 @@ export const styles = `
   animation:ar-paw-pulse 1.8s ease-in-out infinite;
 }
 
+/* 출고 인터랙션과 완료 CTA에서만 핑크를 주색으로 사용한다. */
+.ar-ui #btn-finishing.shipping:not(.waiting){
+  color:#fff;
+  background:linear-gradient(135deg,#ec7895,#d94f73);
+  border-color:rgba(255,210,220,.82);
+  box-shadow:0 8px 24px rgba(213,72,111,.3), inset 0 1px rgba(255,255,255,.35);
+  animation:ar-ship-cta 1.7s ease-in-out infinite;
+}
+
+@keyframes ar-ship-cta{
+  0%,100%{transform:translateY(0); box-shadow:0 8px 24px rgba(213,72,111,.25)}
+  50%{transform:translateY(-2px); box-shadow:0 10px 30px rgba(236,120,149,.42)}
+}
+
 @keyframes ar-paw-pulse{
   0%,100%{
     transform:scale(1);
