@@ -28,10 +28,6 @@ import { StirGesture } from "@/lib/hand/stirGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
-import { rinseActive, soakActive, coolingActive, createBreweryState, arStepForDocument, resetSelectedIngredients, getIngredientSelectionState
-  ,getIngredientButtonText, isIngredientSelectionComplete, getIngredientCoachText
- } from "@/lib/brewery/state";
-import { REQUIRED_FANS, REQUIRED_RINSE_TURNS, SOAK_MS, platformContentY } from "@/lib/brewery/constants";
 import { shouldTrackHand } from "@/lib/hand/handStep";
 
 /**
@@ -76,7 +72,34 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     // 완성 공정 타임라인 — 발효가 끝난 뒤 손으로 마무리하는 단계들(클릭해 진행).
     const PRESS_STEPS = recipe.pressSteps;
 
-    const S = createBreweryState();
+    /** 고두밥을 다 식히는 데 필요한 부채질 횟수 */
+    const REQUIRED_FANS = 5;
+    /** 쌀을 다 헹구는 데 필요한 휘젓기 바퀴 수 */
+    const REQUIRED_RINSE_TURNS = 3;
+    /** 침수 상태로 기다리는 시간 */
+    const SOAK_MS = 4500;
+
+    const S = {
+      step: "place" as "place" | ArStep,
+      surface: "floor" as "floor" | "table",
+      placed: false,
+      selected: new Set<string>(),
+      godubap: 0,
+      rinseTurns: 0,
+      rinsePartial: 0,
+      soakAt: 0,
+      coolFans: 0,
+      coolDone: false,
+      quizDone: false,
+      temp: 27,
+      ferment: 0,
+      fstage: 0,
+      press: 0,
+      tempLog: [] as number[],
+      xr: false,
+      hand: false,
+      isInitializing: true,
+    };
     /**
      * 받침대 상판 위에 물건을 올릴 때 띄우는 높이(m).
      * 모든 모델이 이 하나의 기준을 쓴다 — 모델마다 기준이 달라지면
@@ -106,11 +129,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * 손을 못 쓰는 기기에서는 예전처럼 탭으로 넘어간다.
      */
 
+    function rinseActive() {
+      return S.hand && S.godubap === 0 && S.rinseTurns < REQUIRED_RINSE_TURNS;
+    }
+
     /** 지금이 물에 불리는 중인가 (침수) — 손은 필요 없고 시간만 흐르면 된다 */
+    function soakActive() {
+      return S.hand && S.godubap === 1;
+    }
+
+    function coolingActive() {
+      return S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone;
+    }
 
     function resetIngredientSelection() {
       enteredIngredientAt = performance.now();
-      resetSelectedIngredients(S.selected);
+      S.selected.clear();
       resetIngredientUi();
       syncIngredient(); // 버튼 "주원료 0/N" 로 초기화 (interacted=false → 멘트는 인트로 유지)
     }
@@ -126,7 +160,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 완료 화면은 한지 배경이라 헤더도 함께 밝아져야 한다.
       // 다만 'done'의 앞 국면(압착~출고 완성 공정 walkthrough)은 AR 카메라를 그대로 두므로,
       // 헤더도 카메라 톤을 유지한다. 한지 축하 화면(.shipped)일 때만 밝은 헤더로 바꾼다.
-      document.documentElement.dataset.arStep = arStepForDocument(next);
+      document.documentElement.dataset.arStep = next === "done" ? "ferment" : next;
       // 원료 단계에 들어올 때마다 선택을 깨끗이 비워 '1개 선택된 채 시작'을 막는다.
       if (next === "ingredient") resetIngredientSelection();
       buildStageFor(next);
@@ -1024,7 +1058,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const cur = GODUBAP_STEPS[S.godubap];
 
         // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
-        if (soakActive(S.hand, S.godubap)) {
+        if (soakActive()) {
           if (!S.soakAt) S.soakAt = performance.now();
           const soaked = performance.now() - S.soakAt;
           syncGodubapGame();
@@ -1038,7 +1072,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const steaming = cur?.steam === true;
 
         // 냉각 단계에서는 김이 남아 있다가 부칠수록 걷힌다 — 진행도가 눈에 보이게.
-        const cooling = cur?.dark === true && coolingActive(S.hand, S.godubap, GB_LAST, S.quizDone, S.coolDone);
+        const cooling = cur?.dark === true && coolingActive();
         const coolLeft = Math.max(0, 1 - S.coolFans / REQUIRED_FANS);
         fanPulse = Math.max(0, fanPulse - dt * 1.6);
 
@@ -1100,7 +1134,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       live.onHand = (f) => {
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
-        if (rinseActive(S.hand, S.godubap, S.rinseTurns, REQUIRED_RINSE_TURNS)) {
+        if (rinseActive()) {
           const turns = stir.update(f);
           S.rinsePartial = stir.partial;
           if (turns) {
@@ -1126,7 +1160,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           return;
         }
 
-        if (coolingActive(S.hand, S.godubap, GB_LAST, S.quizDone, S.coolDone)) {
+        if (coolingActive()) {
           if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
           return;
         }
@@ -1232,7 +1266,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     /* --- 15 · 완성 --- */
     function buildFinish() {
       const platformTop = addPlatform();
-      const contentY = platformContentY(platformTop);
+      const contentY = platformTop + 0.03;
       const finishBench = stageGroup.children.find((child) => child.userData.isLowWoodenBench);
       const finishBenchBaseY = finishBench?.position.y ?? 0;
       const forceShowFinishBench = () => {
@@ -2642,29 +2676,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
     
     function syncIngredient(justAdded?: (typeof INGREDIENTS)[number], interacted = false) {
-      const { needed, extras } = getIngredientSelectionState(
-        INGREDIENTS,
-        S.selected,
-      );
+      const needed = INGREDIENTS.filter((i) => i.essential && !S.selected.has(i.id));
+      const extras = INGREDIENTS.filter((i) => !i.essential && S.selected.has(i.id));
       const b = $("#btn-ingredient") as HTMLButtonElement | null;
       if (!b) return;
-      b.disabled = !isIngredientSelectionComplete(needed.length,);
-      b.textContent = getIngredientButtonText(
-        ESS_N,
-        needed.length,
-        extras.length,
-      );
+      b.disabled = needed.length > 0;
+      b.textContent = needed.length
+        ? `주원료 ${ESS_N - needed.length}/${ESS_N} 선택`
+        : extras.length
+          ? `주원료 ${ESS_N}종 · 부재료 ${extras.length}종`
+          : `주원료 ${ESS_N}개 선택 완료`;
       // 부팅·초기화 때는 인트로 안내문을 유지하고, 사용자가 재료를 만졌을 때만 멘트를 바꾼다.
       if (!interacted) return;
-      coach("#msg-ingredient", 
-        getIngredientCoachText(
-          justAdded,
-          needed,
-          extras.length,
-          ESS_NAMES,
-          recipe.ingredientsReady,
-        ),
-      );
+      if (justAdded && !justAdded.essential) {
+        coach("#msg-ingredient", justAdded.flavorNote ?? "부재료를 더하면 향이 한결 깊어진다네.");
+      } else if (needed.length) {
+        coach("#msg-ingredient", `${ESS_NAMES}이 주원료라네. ${needed.map((i) => i.name).join("·")}을(를) 마저 담아보게.`);
+      } else {
+        coach(
+          "#msg-ingredient",
+          (extras.length ? "좋아, 주원료에 부재료까지 갖췄네. " : "좋아, 주원료가 다 모였네. ") + recipe.ingredientsReady,
+        );
+      }
     }
     
     function coach(sel: string, text: string) {
@@ -2716,14 +2749,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       let text = "";
       let done = false;
 
-      if (rinseActive(S.hand, S.godubap, S.rinseTurns, REQUIRED_RINSE_TURNS)) {
+      if (rinseActive()) {
         const prog = (S.rinseTurns + S.rinsePartial) / REQUIRED_RINSE_TURNS;
         pct = Math.round(Math.min(1, prog) * 100);
         text =
           S.rinseTurns === 0
             ? "그릇 안에서 손을 둥글게 돌려 쌀을 헹구세요"
             : `헹구는 중 · ${S.rinseTurns}/${REQUIRED_RINSE_TURNS}바퀴`;
-      } else if (soakActive(S.hand, S.godubap)) {
+      } else if (soakActive()) {
         const soaked = S.soakAt ? performance.now() - S.soakAt : 0;
         pct = Math.round(Math.min(1, soaked / SOAK_MS) * 100);
         done = pct >= 100;
@@ -2767,9 +2800,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               ? !S.quizDone
                 ? "장인의 질문에 먼저 답해주세요"
                 : "손을 좌우로 흔들어 고두밥을 식혀주세요"
-              : rinseActive(S.hand, S.godubap, S.rinseTurns, REQUIRED_RINSE_TURNS)
+              : rinseActive()
                 ? "손을 둥글게 돌려 쌀을 헹궈주세요"
-                : soakActive(S.hand, S.godubap)
+                : soakActive()
                   ? "쌀이 물을 머금는 동안 잠시 기다려요"
                   : "";
       }

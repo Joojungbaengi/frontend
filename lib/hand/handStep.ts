@@ -1,4 +1,6 @@
-import type { BreweryStep } from "@/lib/brewery/state";
+import type { ArStep } from "@/lib/brewery/types";
+
+type BreweryStep = "place" | ArStep;
 
 const HAND_STEPS = new Set<BreweryStep>([
   "ingredient",
