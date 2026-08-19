@@ -160,6 +160,11 @@ export class XrCameraFeed {
     this.fresh = true;
   }
 
+  /** 촬영용으로 마지막 정상 카메라 프레임을 읽기 전용으로 노출한다. */
+  get latestCanvas(): HTMLCanvasElement | null {
+    return this.fresh ? this.canvas : null;
+  }
+
   dispose() {
     this.reading = false;
     this.fresh = false;

@@ -103,46 +103,86 @@ export const styles = `
 /* =========================================================
  * 출고 단계 전용 액센트
  * 압착·여과 / 저온숙성은 기존 컬러 유지
- * 마지막 '출고'가 현재 단계일 때만 핑크 + 고양이 발바닥
+ * 마지막 '출고'에는 완성 병 픽토그램을 사용한다.
  * ======================================================= */
 
+.ar-ui #press-pills .pill:last-child[data-state="todo"]::before{
+  content:"";
+  width:12px;
+  height:12px;
+  margin-top:5px;
+  border-width:1px;
+  background:
+    url("/ar/ui/shipping-bottle-icon.png") center / 11px 11px no-repeat,
+    var(--panel-2);
+}
+
 .ar-ui #press-pills .pill:last-child[data-state="now"]{
-  color:#ffc0cc;
+  color:#f4bd72;
   font-weight:700;
   text-shadow:
     0 1px 5px rgba(0,0,0,.75),
-    0 0 8px rgba(255,145,170,.25);
+    0 0 8px rgba(240,155,66,.34);
 }
 
 .ar-ui #press-pills .pill:last-child[data-state="now"]::before{
   content:"";
 
-  width:32px;
-  height:32px;
+  width:34px;
+  height:34px;
+  margin-top:-6px;
   border-radius:50%;
 
-  /* 앞쪽 PNG = 발바닥
-     뒤쪽 radial-gradient = 레퍼런스의 아이보리 원 */
+  /* 앞쪽 PNG = 완성 병, 뒤쪽 그라데이션 = 출고 진행 상태 */
   background:
-    url("/ar/ui/paw-pink.png")
-      center / 32px 25px
+    url("/ar/ui/shipping-bottle-icon.png")
+      center / 24px 24px
       no-repeat,
-
     radial-gradient(
-      circle,
-      #fffaf7 0%,
-      #fff7f5 72%,
-      #ffe9e9 100%
+      circle at 40% 34%,
+      #b64e2d 0%,
+      #963720 58%,
+      #742419 100%
     );
 
-  border:2px solid rgba(255,255,255,.92);
+  border:2px solid #f2aa50;
 
   box-shadow:
-    0 0 0 2px rgba(255,187,199,.30),
-    0 0 9px rgba(255,144,164,.50),
-    0 2px 5px rgba(0,0,0,.14);
+    0 0 0 2px rgba(255,180,74,.22),
+    0 0 7px 2px rgba(255,166,55,.72),
+    0 0 18px 5px rgba(224,93,25,.42),
+    inset 0 1px 5px rgba(255,198,111,.24),
+    0 2px 5px rgba(0,0,0,.22);
 
-  animation:ar-paw-pulse 1.8s ease-in-out infinite;
+  transform-origin:center;
+  animation:
+    ar-ship-step-enter .46s cubic-bezier(.18,.82,.24,1.18) both,
+    ar-ship-step-glow 1.8s .46s ease-in-out infinite;
+}
+
+@keyframes ar-ship-step-enter{
+  0%{transform:scale(.68);opacity:.35}
+  72%{transform:scale(1.07);opacity:1}
+  100%{transform:scale(1);opacity:1}
+}
+
+@keyframes ar-ship-step-glow{
+  0%,100%{
+    box-shadow:
+      0 0 0 2px rgba(255,180,74,.22),
+      0 0 7px 2px rgba(255,166,55,.72),
+      0 0 18px 5px rgba(224,93,25,.42),
+      inset 0 1px 5px rgba(255,198,111,.24),
+      0 2px 5px rgba(0,0,0,.22);
+  }
+  50%{
+    box-shadow:
+      0 0 0 3px rgba(255,190,90,.28),
+      0 0 10px 3px rgba(255,171,60,.86),
+      0 0 24px 7px rgba(224,93,25,.52),
+      inset 0 1px 7px rgba(255,211,132,.3),
+      0 2px 5px rgba(0,0,0,.22);
+  }
 }
 
 /* 출고 인터랙션과 완료 CTA에서만 핑크를 주색으로 사용한다. */
@@ -269,7 +309,7 @@ export const styles = `
 
 /* 안내 알림 — 리포트와 같은 재질이되 화면 가운데에 뜬다 */
 .ar-ui #notice{position:absolute; inset:0; background:rgba(36,27,16,.62); backdrop-filter:blur(3px);
-  display:none; align-items:center; justify-content:center; padding:22px; z-index:30}
+  display:none; align-items:center; justify-content:center; padding:22px; z-index:90; pointer-events:auto}
 .ar-ui #notice.open{display:flex}
 .ar-ui #notice .sheet{width:100%; max-width:296px; background:var(--cream); color:var(--ink-strong);
   border-radius:18px; border:1px solid rgba(198,165,104,.4); text-align:center;
@@ -294,7 +334,99 @@ export const styles = `
 
 /* 완성 공정 패널 — 배경을 깔지 않아 AR 카메라 화면이 그대로 유지된다.
    (한지 배경으로 덮으면 카메라가 사라진 것처럼 보여 '나가진다'고 느껴진다) */
-.ar-ui #p-finishing{background:transparent}
+.ar-ui #p-finishing{position:relative; background:transparent}
+
+/* =========================================================
+ * 출고 시네마틱 — Three.js 병 타임라인과 data-ship-sequence로 동기화
+ * settling → reveal → celebrate → message → result → ready
+ * ======================================================= */
+.ar-ui[data-ship-sequence] #press-pills,
+.ar-ui[data-ship-sequence] #finishing-hint,
+.ar-ui[data-ship-sequence] #p-finishing>.dock{
+  opacity:1; filter:none; transition:none; pointer-events:none}
+.ar-ui[data-ship-sequence] #cap-finishing{opacity:0}
+.ar-ui .ship-story{position:absolute; inset:0; z-index:8; pointer-events:none; overflow:hidden}
+.ar-ui .ship-complete-copy{position:absolute; left:22px; right:22px; bottom:18%; text-align:center;
+  padding:25px 20px 22px; border-radius:38px; color:#fff8ef;
+  background:linear-gradient(180deg,rgba(67,38,19,.2),rgba(42,24,13,.62));
+  border:1px solid rgba(255,224,190,.2); backdrop-filter:blur(7px);
+  opacity:0; transform:translateY(10px); transition:opacity .48s ease,transform .55s cubic-bezier(.2,.8,.3,1)}
+.ar-ui .ship-copy-paws{position:absolute;right:18px;top:-18px;width:64px;height:54px;display:block;pointer-events:none}
+.ar-ui .ship-copy-paws img{position:absolute;width:30px;height:30px;object-fit:contain;filter:drop-shadow(0 0 9px rgba(247,155,177,.72))}
+.ar-ui .ship-copy-paws img:first-child{left:1px;bottom:0;transform:rotate(-16deg)}
+.ar-ui .ship-copy-paws img:last-child{right:0;top:0;transform:rotate(12deg) scale(.86)}
+.ar-ui .ship-complete-copy h2,.ar-ui .ship-result-card h2{margin:0; font-family:var(--font-myeongjo),serif;
+  font-size:25px; font-weight:700; letter-spacing:.015em; text-shadow:0 2px 12px rgba(0,0,0,.45)}
+.ar-ui .ship-complete-copy h2 em,.ar-ui .ship-result-card h2 em{color:inherit;font-style:normal}
+.ar-ui .ship-complete-copy p{margin:8px 0 0; color:rgba(255,245,231,.78); font-size:12.5px}
+.ar-ui[data-ship-sequence="message"] .ship-complete-copy,
+.ar-ui[data-ship-sequence="result"] .ship-complete-copy{opacity:1;transform:none}
+
+.ar-ui .ship-result-card{position:absolute; left:16px; right:16px; bottom:calc(16px + var(--safe-b));
+  max-width:390px; margin:auto; box-sizing:border-box; padding:31px 18px 18px; border-radius:31px;
+  color:#fff8ef; text-align:center;
+  background:linear-gradient(180deg,#462716,#2d190f);
+  border:1px solid rgba(255,235,211,.34);
+  box-shadow:0 16px 42px rgba(24,12,5,.25),inset 0 1px 0 rgba(255,255,255,.12);
+  -webkit-backdrop-filter:blur(9px) saturate(.92);backdrop-filter:blur(9px) saturate(.92);
+  opacity:0; transform:translateY(calc(100% + 40px));
+  transition:opacity .55s ease,transform .7s cubic-bezier(.18,.8,.22,1); pointer-events:none}
+.ar-ui .ship-result-card::before{content:"";position:absolute;z-index:0;left:50%;top:-19px;width:86px;height:38px;
+  box-sizing:border-box;transform:translateX(-50%);border:1px solid rgba(255,235,211,.34);border-bottom:0;border-radius:44px 44px 0 0;
+  background:#462716}
+.ar-ui .ship-result-card>*{position:relative;z-index:1}
+.ar-ui[data-ship-sequence="result"] .ship-result-card,
+.ar-ui[data-ship-sequence="ready"] .ship-result-card{opacity:1;transform:none}
+.ar-ui[data-ship-sequence="ready"] .ship-result-card{pointer-events:auto}
+.ar-ui[data-ship-sequence="result"] .ship-complete-copy,
+.ar-ui[data-ship-sequence="ready"] .ship-complete-copy{opacity:0;transform:translateY(-8px)}
+.ar-ui .ship-card-crest{width:50px;height:38px;display:grid;place-items:center;margin:-39px auto 10px;filter:drop-shadow(0 3px 5px rgba(20,10,4,.24))}
+.ar-ui .ship-card-crest img{display:block;width:100%;height:100%;object-fit:contain}
+.ar-ui .ship-result-card h2{font-size:22px;color:#fff8ef;text-shadow:0 2px 12px rgba(18,8,3,.28)}
+.ar-ui .ship-card-note{margin:7px 0 14px;font-size:12px;color:rgba(255,239,221,.72)}
+.ar-ui .ship-row,.ar-ui .ship-save-row{width:100%;box-sizing:border-box;border:1px solid rgba(119,73,42,.16);
+  border-radius:17px;background:rgba(255,246,235,.76);color:#3e2819;padding:12px 13px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.42);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.ar-ui .ship-row{display:grid;grid-template-columns:34px 1fr 18px;align-items:center;text-align:left;font:inherit;cursor:pointer}
+.ar-ui .ship-row-icon{display:block;width:31px;height:27px;object-fit:contain;filter:drop-shadow(0 1px 2px rgba(49,25,12,.16))}
+.ar-ui .ship-row b{font-family:var(--font-myeongjo),serif;font-size:14px}.ar-ui .ship-row i{font-style:normal;font-size:24px}
+.ar-ui .ship-save-row{display:grid;grid-template-columns:45px 1fr auto;align-items:center;gap:10px;margin-top:9px;text-align:left}
+.ar-ui .ship-result-thumb{display:block;width:45px;height:45px;overflow:hidden;border-radius:9px;border:1px solid rgba(102,61,36,.18);background:rgba(74,42,24,.18)}
+.ar-ui .ship-result-thumb img{display:block;width:100%;height:100%;object-fit:cover;object-position:center;transform:scale(1.42)}
+.ar-ui .ship-save-row span{min-width:0}.ar-ui .ship-save-row b{display:block;font-family:var(--font-myeongjo),serif;font-size:13px}
+.ar-ui .ship-save-row small{display:block;margin-top:3px;color:#806049;font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ar-ui .ship-save-row button{border:1px solid rgba(255,255,255,.42);border-radius:999px;padding:9px 11px;background:rgba(255,255,255,.48);color:#4b3020;font:inherit;font-size:11px}
+.ar-ui .ship-primary{width:100%;margin-top:11px;padding:14px;border:0;border-radius:16px;color:#fff;font-family:var(--font-myeongjo),serif;
+  font-size:14px;font-weight:700;background:linear-gradient(135deg,#ef8fa5,#df6d8b);box-shadow:0 8px 20px rgba(207,87,117,.25);
+  display:flex;align-items:center;justify-content:center;gap:7px}
+.ar-ui .ship-primary img{width:31px;height:31px;object-fit:contain;filter:drop-shadow(0 2px 5px rgba(125,36,63,.28))}
+
+/* 촬영 모드: 브라우저가 AR compositor 캡처를 막는 경우에도 같은 프레임으로 시스템 스크린샷 가능 */
+.ar-ui .ship-capture-ui{position:absolute;inset:0;z-index:60;display:none;flex-direction:column;padding:calc(22px + env(safe-area-inset-top,0px)) 22px calc(22px + var(--safe-b));
+  box-sizing:border-box;background:transparent;
+  color:#fff;pointer-events:auto}
+.ar-ui.ship-capture .ship-capture-ui{display:flex;animation:ar-fade .25s ease both}
+.ar-ui.ship-capture .ship-story{visibility:hidden!important;opacity:0!important}
+.ar-ui.ship-capture #btn-finishing{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
+@keyframes ar-fade{from{opacity:0}to{opacity:1}}
+.ar-ui .ship-capture-ui header{display:flex;z-index:2;align-items:center;justify-content:center;position:relative;font-size:17px}
+.ar-ui .capture-frame{position:relative;z-index:1;flex:1;margin:58px auto 18px;width:min(82vw,360px);max-height:59vh;border:1px solid rgba(255,255,255,.9);box-shadow:0 0 0 100vmax rgba(5,4,3,.66)}
+.ar-ui .capture-frame .corner{position:absolute;width:28px;height:28px;border-color:#fff;border-style:solid;filter:drop-shadow(0 0 5px #ffd79a)}
+.ar-ui .capture-frame .tl{left:-3px;top:-3px;border-width:4px 0 0 4px;border-radius:10px 0 0}.ar-ui .capture-frame .tr{right:-3px;top:-3px;border-width:4px 4px 0 0;border-radius:0 10px 0 0}
+.ar-ui .capture-frame .bl{left:-3px;bottom:-3px;border-width:0 0 4px 4px;border-radius:0 0 0 10px}.ar-ui .capture-frame .br{right:-3px;bottom:-3px;border-width:0 4px 4px 0;border-radius:0 0 10px}
+.ar-ui .capture-label-sticker{position:absolute;right:5%;bottom:8%;display:block;width:37%;height:auto;transform:rotate(4deg);filter:drop-shadow(0 7px 10px rgba(0,0,0,.28));opacity:1;visibility:visible;animation:none!important}
+.ar-ui.capture-sticker-off .capture-label-sticker{display:none}
+.ar-ui .ship-capture-ui>p{position:relative;z-index:2;text-align:center;color:#f1d6a4;font-size:11px;margin:0 0 20px}
+.ar-ui .ship-capture-ui footer{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr);gap:12px;align-items:center;text-align:center}
+.ar-ui .ship-capture-ui footer button{border:0;background:none;color:#fff;font:inherit;font-size:13px}
+.ar-ui .capture-shutter{position:relative;width:70px;height:70px;padding:0!important;border-radius:50%!important;background:transparent!important;border:3px solid #fff!important;display:grid;place-items:center;overflow:hidden;transform:translateZ(0);transition:transform .1s ease}
+.ar-ui .capture-shutter::before{content:"";position:absolute;inset:-1px;border-radius:50%;background:#fff;transform:scale(1);transition:transform .12s ease}
+.ar-ui .capture-shutter img{position:relative;z-index:1;display:block;width:35px;height:35px;object-fit:contain;transform:scale(1);transition:transform .12s ease}
+.ar-ui .capture-shutter:active,.ar-ui .capture-shutter.is-capturing{transform:scale(.99)}
+.ar-ui .capture-shutter:active::before,.ar-ui .capture-shutter.is-capturing::before{transform:scale(.90)}
+.ar-ui .capture-shutter:active img,.ar-ui .capture-shutter.is-capturing img{transform:scale(.92)}
+.ar-ui #btn-capture-cancel,.ar-ui #btn-capture-sticker{justify-self:center;width:max-content;max-width:100%;white-space:nowrap;padding:8px 14px!important;border:1px solid rgba(255,255,255,.45)!important;border-radius:999px!important;background:rgba(0,0,0,.12)}
+.ar-ui #btn-capture-sticker[aria-pressed="false"]{opacity:.55}
 
 @media (prefers-reduced-motion:reduce){.ar-ui *{animation:none !important; transition:none !important}}
 `;

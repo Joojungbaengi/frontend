@@ -168,25 +168,29 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       S.placed = true;
       anchor.visible = true;
 
-      // 완성 공정의 마지막 바로 전 단계
-      S.press = 1;
-
+      // 마지막 출고 단계의 바로 앞(저온숙성)으로 이동한다.
+      S.press = Math.max(0, PRESS_STEPS.length - 2);
+      uiRoot!.classList.remove("shipped");
+      delete uiRoot!.dataset.shipSequence;
       setStep("done");
-
-      finishShowShip?.();
+      syncPress();
 
       console.log(
         "[DEBUG] 출고 직전으로 이동",
-        S.press,
-        "/",
-        PRESS_STEPS.length - 1
+        `finishStep=${S.press}`,
+        `stepId=${PRESS_STEPS[S.press]?.id ?? "unknown"}`
       );
     }
 
     /* =====================================================================
      * 1. 렌더러 / 씬
      * ===================================================================*/
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true,
+    });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1219,8 +1223,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       
       // ── 완성 병 등장 연출 상태 ──
       let shipRevealT = 0;
-      let shipRevealActive = false;
       let shipRestY = 0;
+      let shipHapticSent = false;
+      let shipUiDoneSent = false;
+
+      // 출고 연출은 짧고 선명하게 끝낸다. 이전 3.8초 시퀀스는 병이 이미
+      // 준비된 뒤에도 UI를 오래 잠가 모바일에서 로딩처럼 느껴졌다.
+      const SHIP_SETTLE_END = 0.12;
+      const SHIP_REVEAL_END = 0.72;
+      const SHIP_BOUNCE_END = 1.02;
+      const SHIP_CELEBRATE_END = 1.25;
+      const SHIP_RESULT_END = 2.05;
+      const SHIP_READY_AT = 2.2;
+
+      const setShipSequence = (phase?: "settling" | "reveal" | "celebrate" | "result" | "ready") => {
+        if (phase) {
+          // render loop에서 같은 dataset을 계속 쓰면 매 프레임 CSS 재계산이
+          // 발생한다. 실제 단계가 바뀔 때만 DOM을 갱신한다.
+          if (uiRoot!.dataset.shipSequence !== phase) uiRoot!.dataset.shipSequence = phase;
+        } else if (uiRoot!.dataset.shipSequence) {
+          delete uiRoot!.dataset.shipSequence;
+        }
+      };
 
       // 완성 병 뒤쪽의 따뜻한 보상광
       const shipGlow = new THREE.PointLight(
@@ -1266,6 +1290,290 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           stageGroup.add(group);
           return { def, group };
         });
+
+      /* ── 압착·여과: receiving_jar 수위 인터랙션 ──────────────────
+       * Interaction_Collider는 렌더링하지 않고 raycast/손 위치 판정에만
+       * 사용한다. 아래로 짜는 동작량을 ClearWine_Surface의 local Y로
+       * 변환하여 항아리 안의 맑은 술이 차오르게 한다.
+       */
+      const pressIndex = PRESS_STEPS.findIndex((step) => step.id === "press");
+      const pressEntry = finishProcessModels.find(({ def }) => def.id === "press_jar");
+      let pressSurface: THREE.Object3D | null = null;
+      let pressCollider: THREE.Object3D | null = null;
+      let pressFill = 0;
+      let pressFillTarget = 0;
+      let pressSurfaceEmptyY = 0;
+      let pressSurfaceFullY = 0;
+      let pressDragging = false;
+      let pressPointerId: number | null = null;
+      let pressLastPointerY = 0;
+      let pressLastHandY: number | null = null;
+
+      if (pressEntry) {
+        pressEntry.group.traverse((object) => {
+          if (object.name === "ClearWine_Surface") {
+            pressSurface = object;
+            object.visible = true;
+            pressSurfaceEmptyY = object.position.y;
+            // GLB의 액체 표면은 빈 수위(0.28)에 배치되어 있고 콜라이더는
+            // 입구 높이(0.85)에 있다. 입구 바로 아래까지만 상승시킨다.
+            pressSurfaceFullY = pressSurfaceEmptyY + 0.44;
+          } else if (object.name === "Interaction_Collider") {
+            pressCollider = object;
+            object.visible = false;
+          } else if (object.name === "Jar_Outer" || object.name === "Jar_Inner" || object.name === "Jar_body") {
+            object.visible = true;
+          }
+        });
+      }
+
+      const pressStream = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.004, 0.007, 0.17, 12),
+        new THREE.MeshPhysicalMaterial({
+          color: 0xf3e4bd,
+          transparent: true,
+          opacity: 0,
+          roughness: 0.18,
+          transmission: 0.28,
+          depthWrite: false,
+        })
+      );
+      pressStream.position.set(0, contentY + 0.31, 0);
+      pressStream.visible = false;
+      stageGroup.add(pressStream);
+
+      const pressRaycaster = new THREE.Raycaster();
+      const pressPointerNdc = new THREE.Vector2();
+      // useEffect 진입부에서 null 검사를 마친 캔버스를 비동기 콜백에서도
+      // non-null DOM 요소로 유지한다.
+      const pressCanvas = canvasRef.current!;
+      const pointerHitsPressCollider = (clientX: number, clientY: number) => {
+        if (!pressCollider || S.press !== pressIndex || !pressEntry?.group.visible) return false;
+        const rect = pressCanvas.getBoundingClientRect();
+        pressPointerNdc.set(
+          ((clientX - rect.left) / rect.width) * 2 - 1,
+          -((clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+        pressRaycaster.setFromCamera(pressPointerNdc, viewCamera);
+        return pressRaycaster.intersectObject(pressCollider, true).length > 0;
+      };
+      const addPressFill = (screenDeltaY: number) => {
+        if (screenDeltaY <= 0) return;
+        pressFillTarget = THREE.MathUtils.clamp(pressFillTarget + screenDeltaY * 0.0045, 0, 1);
+        pressStream.visible = true;
+        (pressStream.material as THREE.MeshPhysicalMaterial).opacity = 0.68;
+        navigator.vibrate?.(8);
+      };
+      const onPressPointerDown = (event: PointerEvent) => {
+        if (!pointerHitsPressCollider(event.clientX, event.clientY)) return;
+        pressDragging = true;
+        pressPointerId = event.pointerId;
+        pressLastPointerY = event.clientY;
+        pressCanvas.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+      };
+      const onPressPointerMove = (event: PointerEvent) => {
+        if (!pressDragging || event.pointerId !== pressPointerId) return;
+        addPressFill(event.clientY - pressLastPointerY);
+        pressLastPointerY = event.clientY;
+        event.preventDefault();
+      };
+      const endPressPointer = (event: PointerEvent) => {
+        if (event.pointerId !== pressPointerId) return;
+        pressDragging = false;
+        pressPointerId = null;
+        pressCanvas.releasePointerCapture?.(event.pointerId);
+      };
+      pressCanvas.addEventListener("pointerdown", onPressPointerDown, { passive: false });
+      pressCanvas.addEventListener("pointermove", onPressPointerMove, { passive: false });
+      pressCanvas.addEventListener("pointerup", endPressPointer);
+      pressCanvas.addEventListener("pointercancel", endPressPointer);
+      live.cleanup.push(() => {
+        pressCanvas.removeEventListener("pointerdown", onPressPointerDown);
+        pressCanvas.removeEventListener("pointermove", onPressPointerMove);
+        pressCanvas.removeEventListener("pointerup", endPressPointer);
+        pressCanvas.removeEventListener("pointercancel", endPressPointer);
+      });
+
+      const handlePressHand = (frame: HandFrame, hand: HandVisual, interactionCamera: THREE.Camera) => {
+        if (!pressCollider || !pressEntry?.group.visible || !frame.present) {
+          pressLastHandY = null;
+          return;
+        }
+        const colliderWorld = new THREE.Vector3();
+        const colliderScreen = { x: 0.5, y: 0.5 };
+        pressCollider.getWorldPosition(colliderWorld);
+        worldToScreen(colliderWorld, interactionCamera, colliderScreen);
+        const pinch = hand.pinchScreen;
+        const overMouth = screenDist(pinch, colliderScreen) < 0.18;
+        if (overMouth && (frame.pinching || frame.justPinched)) {
+          if (pressLastHandY !== null) addPressFill((pinch.y - pressLastHandY) * pressCanvas.clientHeight);
+          pressLastHandY = pinch.y;
+          setHandHud("holding", "아래로 천천히 짜서 맑은 술을 받아주세요");
+        } else {
+          pressLastHandY = null;
+          setHandHud(overMouth ? "hover" : "tracking", overMouth ? "엄지와 검지를 모아 아래로 짜주세요" : "항아리 입구로 손을 옮겨주세요");
+        }
+      };
+
+      /* ── 저온숙성: 항아리를 손으로 감싸 냉장고 안에 넣는다 ────────────
+       * 공정용 GLB를 단순 전시하는 대신, 화면에서 보이는 손의 pinch 위치로
+       * 항아리를 집고 목표 영역에 놓게 한다. 깊이는 집은 순간에 고정해
+       * MediaPipe z 노이즈 때문에 크기가 출렁이지 않도록 한다.
+       */
+      const agingIndex = PRESS_STEPS.findIndex((step) => step.id === "aging");
+      const chamberEntry = finishProcessModels.find(({ def }) => def.id === "cold_storage_chamber");
+      const closedJarDef = MODELS.find((def) => def.id === "closed_jar");
+      const agingJar = new THREE.Group();
+      const agingJarNode = closedJarDef ? spawnModel(closedJarDef) : null;
+      const chamberCameraInStage = new THREE.Vector3();
+      if (agingJarNode) agingJar.add(agingJarNode);
+      agingJar.visible = false;
+      stageGroup.add(agingJar);
+
+      // 냉장고와 충분히 떨어진 전경에서 시작한다. 정적 공정 모델의
+      // Closed_jar는 아래 finishShowShip에서 숨기므로 항아리가 안쪽에
+      // 하나 더 겹쳐 보이지 않는다.
+      const jarHome = new THREE.Vector3(-0.16, contentY + 0.002, 0.285);
+      const jarTarget = new THREE.Vector3(0, contentY + 0.012, -0.085);
+      agingJar.position.copy(jarHome);
+
+      if (chamberEntry) {
+        // 원본 GLB의 정면 축이 무대 카메라와 반대여서 열린 문 대신 뒷판이
+        // 보였다. 정면을 사용자 쪽으로 돌리고 레퍼런스처럼 주 오브젝트가
+        // 되도록 충분히 키워 뒤쪽에 배치한다.
+        chamberEntry.group.position.set(0, contentY + 0.002, -0.14);
+        // Blender 기준 열린 면은 로컬 -X 방향이다. 아래 tick에서 이 축을
+        // 고정 각도가 아니라 실제 XR 카메라 쪽으로 계속 맞춘다.
+        chamberEntry.group.rotation.y = 0;
+        chamberEntry.group.scale.setScalar(1.62);
+      }
+
+      const coldTarget = new THREE.Mesh(
+        new THREE.RingGeometry(0.072, 0.081, 56),
+        new THREE.MeshBasicMaterial({
+          color: 0x8bdcff,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        })
+      );
+      coldTarget.rotation.x = -Math.PI / 2;
+      coldTarget.position.set(jarTarget.x, contentY + 0.006, jarTarget.z);
+      coldTarget.visible = false;
+      stageGroup.add(coldTarget);
+
+      const coldGlow = new THREE.PointLight(0x73cfff, 0, 0.72);
+      coldGlow.position.set(jarTarget.x, contentY + 0.17, jarTarget.z);
+      stageGroup.add(coldGlow);
+
+      const guidePoints = [
+        new THREE.Vector3(jarHome.x, contentY + 0.01, jarHome.z),
+        new THREE.Vector3(-0.08, contentY + 0.018, 0.06),
+        new THREE.Vector3(-0.035, contentY + 0.018, -0.015),
+        new THREE.Vector3(jarTarget.x, contentY + 0.018, jarTarget.z),
+      ];
+      const guideCurve = new THREE.CatmullRomCurve3(guidePoints);
+      const guide = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(guideCurve.getPoints(30)),
+        new THREE.LineDashedMaterial({
+          color: 0xb9ecff,
+          transparent: true,
+          opacity: 0,
+          dashSize: 0.018,
+          gapSize: 0.012,
+          depthWrite: false,
+        })
+      );
+      guide.computeLineDistances();
+      guide.visible = false;
+      stageGroup.add(guide);
+
+      type AgingPhase = "idle" | "ready" | "holding" | "snapping" | "aging" | "complete";
+      let agingPhase: AgingPhase = "idle";
+      let agingT = 0;
+      let agingHapticSent = false;
+      let agingCompleted = false;
+      let heldJarDepth = 1;
+      const agingGrabTarget = new THREE.Vector3();
+      const jarWorld = new THREE.Vector3();
+      const targetWorld = new THREE.Vector3();
+      const jarScreen = { x: 0.5, y: 0.5 };
+      const targetScreen = { x: 0.5, y: 0.5 };
+
+      const setAgingCopy = (caption: string, hint = "") => {
+        const cap = $("#cap-finishing");
+        if (cap) cap.textContent = caption;
+        const hintNode = $("#finishing-hint");
+        if (hintNode) hintNode.textContent = hint;
+      };
+
+      const resetAgingInteraction = () => {
+        agingPhase = "ready";
+        agingT = 0;
+        agingHapticSent = false;
+        agingCompleted = false;
+        agingJar.position.copy(jarHome);
+        agingJar.scale.setScalar(1);
+        agingJar.visible = Boolean(agingJarNode);
+        coldTarget.visible = true;
+        guide.visible = true;
+        (coldTarget.material as THREE.MeshBasicMaterial).opacity = 0.72;
+        (guide.material as THREE.LineDashedMaterial).opacity = 0.72;
+        coldGlow.intensity = 0.38;
+        setAgingCopy("숙성 항아리를 손으로 감싸 안쪽에 넣어주세요", "엄지와 검지를 모아 항아리를 집고 · 빛나는 자리에서 펴세요");
+      };
+
+      live.onHand = (frame, hand, interactionCamera) => {
+        if (S.press === pressIndex) {
+          handlePressHand(frame, hand, interactionCamera);
+          return;
+        }
+        if (S.press !== agingIndex || agingPhase === "aging" || agingPhase === "snapping" || agingPhase === "complete") return;
+        if (!frame.present) {
+          if (agingPhase === "holding") agingPhase = "ready";
+          setHandHud("idle", "손을 카메라에 비춰 항아리를 감싸 주세요");
+          return;
+        }
+
+        const pinch = hand.pinchScreen;
+        agingJar.getWorldPosition(jarWorld);
+        coldTarget.getWorldPosition(targetWorld);
+        worldToScreen(jarWorld, interactionCamera, jarScreen);
+        worldToScreen(targetWorld, interactionCamera, targetScreen);
+
+        if (agingPhase === "holding") {
+          screenToWorld(pinch.x, pinch.y, heldJarDepth, interactionCamera, agingGrabTarget);
+          stageGroup.worldToLocal(agingGrabTarget);
+          agingJar.position.lerp(agingGrabTarget, 0.46);
+          const overTarget = screenDist(pinch, targetScreen) < 0.17;
+          setHandHud("holding", overTarget ? "여기에서 손을 펴 놓아주세요" : "빛나는 자리까지 항아리를 옮겨주세요");
+          if (frame.justReleased) {
+            if (overTarget) {
+              agingPhase = "snapping";
+              agingT = 0;
+              setAgingCopy("항아리가 냉장고 안에 자리 잡고 있어요", "낮은 온도에서 천천히 숙성합니다");
+              navigator.vibrate?.(28);
+            } else {
+              agingPhase = "ready";
+              setHandHud("tracking", "조금 더 안쪽의 빛나는 자리에 놓아주세요");
+            }
+          }
+          return;
+        }
+
+        const nearJar = screenDist(pinch, jarScreen) < 0.15;
+        setHandHud(nearJar ? "hover" : "tracking", nearJar ? "엄지와 검지를 모아 항아리를 집으세요" : "항아리 가까이 손을 가져가세요");
+        if (nearJar && frame.justPinched) {
+          agingPhase = "holding";
+          heldJarDepth = Math.max(0.45, interactionCamera.position.distanceTo(jarWorld));
+          navigator.vibrate?.(16);
+        }
+      };
       const bottle = new THREE.Group();
       const body = new THREE.Mesh(
         new THREE.LatheGeometry(onggiProfile(0.26, 0.085), 40),
@@ -1333,29 +1641,64 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
       }
 
-      // 얇은 보상광 링 — 실제 테이블과 병을 가리지 않는 정도로만 쓴다.
-      const glowRing = new THREE.Mesh(
-        new THREE.RingGeometry(0.115, 0.122, 64),
-        new THREE.MeshBasicMaterial({
-          color: 0xffc98a,
-          transparent: true,
-          opacity: 0,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        })
-      );
-      glowRing.rotation.x = -Math.PI / 2;
-      glowRing.position.y = contentY + 0.003;
-      glowRing.visible = false;
-      stageGroup.add(glowRing);
+      // 레퍼런스의 여러 겹 붓결 링. 단순 RingGeometry 대신 투명 UI 텍스처를
+      // 바닥에 눕혀 실제 테이블의 결은 살리고, 빛만 포개지도록 한다.
+      const glowRingTexture = new THREE.TextureLoader().load("/ar/ui/shipping-glow-ring.png");
+      glowRingTexture.colorSpace = THREE.SRGBColorSpace;
+      const glowRingGeometry = new THREE.PlaneGeometry(0.34, 0.34);
+      const glowRings = Array.from({ length: 4 }, (_, i) => {
+        const ring = new THREE.Mesh(
+          glowRingGeometry,
+          new THREE.MeshBasicMaterial({
+            map: glowRingTexture,
+            color: 0xffe0ad,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+            toneMapped: false,
+          })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = contentY + 0.0035 + i * 0.00012;
+        ring.scale.setScalar(0.12);
+        ring.visible = false;
+        stageGroup.add(ring);
+        return ring;
+      });
+
+      const hideGlowRings = () => glowRings.forEach((ring) => {
+        ring.visible = false;
+        ring.scale.setScalar(0.12);
+        (ring.material as THREE.MeshBasicMaterial).opacity = 0;
+      });
+
+      // 중심에서 시간차로 태어나 바깥으로 갈수록 흐려지는 다중 파동.
+      const updateGlowWaves = (time: number, oneShot: boolean) => {
+        const period = oneShot ? 1 : 2.55;
+        glowRings.forEach((ring, i) => {
+          const delay = i * 0.14;
+          const rawAge = oneShot
+            ? (time - delay) / (1 - delay)
+            : ((time / period - i / glowRings.length) % 1 + 1) % 1;
+          const age = THREE.MathUtils.clamp(rawAge, 0, 1);
+          const born = THREE.MathUtils.smoothstep(age, 0, 0.14);
+          const fade = Math.pow(1 - age, 1.65);
+          ring.visible = rawAge >= 0 && rawAge < 1;
+          ring.scale.setScalar(THREE.MathUtils.lerp(0.16, 1.03, 1 - Math.pow(1 - age, 2)));
+          (ring.material as THREE.MeshBasicMaterial).opacity = born * fade * (oneShot ? 0.48 : 0.29);
+          ring.rotation.z = time * (0.055 + i * 0.008);
+        });
+      };
 
       // 핑크는 출고 순간에만: 작은 발바닥 세 개를 병 주변에 조용히 띄운다.
       const pawTexture = new THREE.TextureLoader().load("/ar/ui/paw-pink.png");
       pawTexture.colorSpace = THREE.SRGBColorSpace;
       const paws = [
-        [-0.14, 0.13, 0.01],
-        [0.15, 0.18, -0.015],
-        [-0.1, 0.25, -0.035],
+        [-0.09, 0.12, 0.018],
+        [0.095, 0.16, 0.012],
+        [-0.065, 0.22, -0.005],
       ].map(([x, y, z]) => {
         const material = new THREE.SpriteMaterial({
           map: pawTexture,
@@ -1372,29 +1715,38 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         return sprite;
       });
 
-      const sparkleGeometry = new THREE.BufferGeometry();
-      sparkleGeometry.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute([
-          -0.08, contentY + 0.08, 0.02, 0.07, contentY + 0.12, 0.01,
-          -0.04, contentY + 0.2, -0.01, 0.1, contentY + 0.23, 0.02,
-          0, contentY + 0.29, 0, -0.12, contentY + 0.16, -0.02,
-        ], 3)
-      );
-      const sparkleMaterial = new THREE.PointsMaterial({
-        color: 0xffe2a8,
-        size: 0.012,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
+      const sparkleTexture = new THREE.TextureLoader().load("/ar/ui/shipping-sparkle.png");
+      sparkleTexture.colorSpace = THREE.SRGBColorSpace;
+      const sparkleDefs = [
+        [-0.08, contentY + 0.08, 0.02, 0.025],
+        [0.07, contentY + 0.12, 0.01, 0.018],
+        [-0.04, contentY + 0.2, -0.01, 0.021],
+        [0.1, contentY + 0.23, 0.02, 0.015],
+        [0, contentY + 0.29, 0, 0.022],
+        [-0.12, contentY + 0.16, -0.02, 0.016],
+      ] as const;
+      const sparkles = sparkleDefs.map(([x, y, z, size], i) => {
+        const material = new THREE.SpriteMaterial({
+          map: sparkleTexture,
+          color: 0xfff1d1,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+          rotation: i % 2 ? Math.PI / 4 : 0,
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.position.set(x, y, z);
+        sprite.scale.set(size, size, 1);
+        sprite.userData.baseSize = size;
+        sprite.visible = false;
+        stageGroup.add(sprite);
+        return sprite;
       });
-      const sparkles = new THREE.Points(sparkleGeometry, sparkleMaterial);
-      sparkles.visible = false;
-      stageGroup.add(sparkles);
 
       type ShipPhase = "hidden" | "revealing" | "complete";
       let shipPhase: ShipPhase = "hidden";
-      let finishBurstT = 0;
       const cameraInStage = new THREE.Vector3();
 
       const SHIP_AT = PRESS_STEPS.length - 1; // '출고' 인덱스
@@ -1402,8 +1754,26 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const shipped = S.press >= SHIP_AT;
         const processId = PRESS_STEPS[Math.min(S.press, SHIP_AT)]?.id;
         finishProcessModels.forEach(({ def, group }) => {
-          group.visible = !shipped && Boolean(processId && def.processSteps?.includes(processId));
+          // 저온숙성 항아리는 agingJar 하나만 사용한다. 동일 GLB의 정적
+          // 복제본까지 켜면 시작부터 창고 안에도 항아리가 보인다.
+          group.visible = def.id !== "closed_jar" && !shipped && Boolean(processId && def.processSteps?.includes(processId));
         });
+
+        const inAging = S.press === agingIndex;
+        const inPress = S.press === pressIndex;
+        if (!inPress) {
+          pressDragging = false;
+          pressLastHandY = null;
+          pressStream.visible = false;
+        }
+        if (inAging && agingPhase === "idle") resetAgingInteraction();
+        if (!inAging) {
+          agingPhase = "idle";
+          agingJar.visible = false;
+          coldTarget.visible = false;
+          guide.visible = false;
+          coldGlow.intensity = 0;
+        }
 
         if (shipModel) {
           // 출고 단계 진입
@@ -1413,15 +1783,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
             // 등장 애니메이션 시작
             shipRevealT = 0;
-            shipRevealActive = true;
+            shipHapticSent = false;
+            shipUiDoneSent = false;
+            setShipSequence("settling");
 
-            // 조금 작고 위쪽에서 시작
-            shipModel.scale.setScalar(0.72);
-            shipModel.position.y = shipRestY + 0.08;
+            // 0.4초 뒤, 조금 작고 위쪽에서 나타난다.
+            shipModel.scale.setScalar(0.86);
+            shipModel.position.y = shipRestY + 0.045;
             shipMaterials.forEach((material) => {
               material.opacity = 0;
             });
-            glowRing.visible = true;
+            glowRings.forEach((ring) => { ring.visible = true; });
             paws.forEach((paw) => { paw.visible = false; });
 
             // 빛도 처음에는 꺼져 있음
@@ -1431,15 +1803,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 출고 전
           if (!shipped) {
             shipModel.visible = false;
-            shipRevealActive = false;
             shipPhase = "hidden";
+            setShipSequence();
 
             shipModel.scale.setScalar(1);
             shipModel.position.y = shipRestY;
 
             shipGlow.intensity = 0;
-            glowRing.visible = false;
-            sparkles.visible = false;
+            hideGlowRings();
+            sparkles.forEach((sparkle) => {
+              sparkle.visible = false;
+              (sparkle.material as THREE.SpriteMaterial).opacity = 0;
+            });
             paws.forEach((paw) => { paw.visible = false; });
           }
         }
@@ -1459,6 +1834,75 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       */
       
       live.tick = (_t, dt) => {
+        if (S.press === pressIndex && pressSurface && pressEntry?.group.visible) {
+          pressFill += (pressFillTarget - pressFill) * Math.min(1, dt * 7.5);
+          pressSurface.position.y = THREE.MathUtils.lerp(pressSurfaceEmptyY, pressSurfaceFullY, pressFill);
+          if (pressStream.visible) {
+            const material = pressStream.material as THREE.MeshPhysicalMaterial;
+            material.opacity = Math.max(0, material.opacity - dt * 1.7);
+            pressStream.scale.x = pressStream.scale.z = 0.82 + Math.sin(_t * 18) * 0.12;
+            if (material.opacity <= 0.02) pressStream.visible = false;
+          }
+        }
+        if (chamberEntry?.group.visible) {
+          const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+          viewCamera.getWorldPosition(chamberCameraInStage);
+          stageGroup.worldToLocal(chamberCameraInStage);
+
+          const dx = chamberCameraInStage.x - chamberEntry.group.position.x;
+          const dz = chamberCameraInStage.z - chamberEntry.group.position.z;
+          // Ry(yaw)로 변환된 로컬 -X가 (dx, dz)를 향하도록 한다.
+          chamberEntry.group.rotation.y = Math.atan2(dz, -dx);
+        }
+
+        if (S.press === agingIndex && agingPhase !== "idle") {
+          const pulse = 0.62 + Math.sin(_t * 3.2) * 0.18;
+          (coldTarget.material as THREE.MeshBasicMaterial).opacity = pulse;
+          (guide.material as THREE.LineDashedMaterial).dashOffset = -_t * 0.055;
+          (guide.material as THREE.LineDashedMaterial).opacity = agingPhase === "holding" ? 0.92 : 0.62;
+          coldTarget.scale.setScalar(1 + Math.sin(_t * 3.2) * 0.07);
+
+          if (agingPhase === "ready") {
+            agingJar.position.lerp(jarHome, 0.1);
+          } else if (agingPhase === "snapping") {
+            agingT += dt;
+            agingJar.position.lerp(jarTarget, Math.min(1, dt * 8.5));
+            agingJar.scale.lerp(new THREE.Vector3(0.94, 0.94, 0.94), Math.min(1, dt * 7));
+            coldGlow.intensity += (1.35 - coldGlow.intensity) * Math.min(1, dt * 8);
+            if (agingJar.position.distanceTo(jarTarget) < 0.008 || agingT > 0.75) {
+              agingJar.position.copy(jarTarget);
+              agingJar.scale.setScalar(0.94);
+              agingPhase = "aging";
+              agingT = 0;
+              setAgingCopy("낮은 온도에서 천천히 숙성합니다", "1개월의 시간이 빠르게 흐르고 있어요");
+            }
+          } else if (agingPhase === "aging") {
+            agingT += dt;
+            const progress = THREE.MathUtils.clamp(agingT / 3.2, 0, 1);
+            coldGlow.intensity = 0.88 + Math.sin(_t * 2.6) * 0.16;
+            agingJar.position.y = jarTarget.y + Math.sin(_t * 1.8) * 0.002;
+            const cap = $("#cap-finishing");
+            if (cap) cap.textContent = progress < 0.92
+              ? `저온숙성 중 · ${Math.max(1, Math.round(progress * 30))}일차`
+              : "맛과 향이 천천히 안정되고 있어요";
+            if (progress >= 1 && !agingCompleted) {
+              agingCompleted = true;
+              agingPhase = "complete";
+              coldGlow.intensity = 1.5;
+              setAgingCopy("1개월 후 · 저온숙성이 완료되었습니다", "부드러운 향과 균형 잡힌 맛이 완성됐어요");
+              if (!agingHapticSent) {
+                agingHapticSent = true;
+                navigator.vibrate?.([32, 45, 42]);
+              }
+              window.setTimeout(() => {
+                if (S.press !== agingIndex) return;
+                S.press = Math.min(S.press + 1, PRESS_STEPS.length - 1);
+                syncPress();
+              }, 1100);
+            }
+          }
+        }
+
         if (!shipModel || shipPhase === "hidden") return;
 
         const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
@@ -1472,51 +1916,112 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
         if (shipPhase === "revealing") {
           shipRevealT += dt;
-          const p = THREE.MathUtils.clamp(shipRevealT / 1.25, 0, 1);
-          const eased = 1 - Math.pow(1 - p, 3);
-          shipModel.scale.setScalar(THREE.MathUtils.lerp(0.76, 1, easeOutBack(p)));
-          shipModel.position.y = THREE.MathUtils.lerp(shipRestY + 0.075, shipRestY, eased);
-          shipMaterials.forEach((material) => { material.opacity = eased; });
-          (glowRing.material as THREE.MeshBasicMaterial).opacity = Math.sin(p * Math.PI) * 0.48;
-          shipGlow.intensity = Math.sin(p * Math.PI) * 0.8;
+          const t = shipRevealT;
 
-          if (p >= 1) {
+          // 아주 짧게 한 프레임 이상 안정화한 뒤 곧바로 병을 보여준다.
+          if (t < SHIP_SETTLE_END) {
+            setShipSequence("settling");
+            shipModel.scale.setScalar(0.86);
+            shipModel.position.y = shipRestY + 0.045;
+            shipMaterials.forEach((material) => { material.opacity = 0; });
+          } else {
+            // scale 0.86→1, opacity 0→1로 빠르게 나타나 가볍게 착지한다.
+            const reveal = THREE.MathUtils.clamp(
+              (t - SHIP_SETTLE_END) / (SHIP_REVEAL_END - SHIP_SETTLE_END),
+              0,
+              1,
+            );
+            const eased = 1 - Math.pow(1 - reveal, 3);
+            setShipSequence(
+              t < SHIP_REVEAL_END ? "reveal"
+                : t < SHIP_CELEBRATE_END ? "celebrate"
+                  : t < SHIP_RESULT_END ? "result"
+                    : "ready",
+            );
+            shipModel.scale.setScalar(THREE.MathUtils.lerp(0.86, 1, eased));
+            shipModel.position.y = THREE.MathUtils.lerp(shipRestY + 0.045, shipRestY, eased);
+            shipMaterials.forEach((material) => { material.opacity = eased; });
+          }
+
+          // 짧은 착지 bounce. 햅틱은 정확히 한 번만 울린다.
+          if (t >= SHIP_REVEAL_END && t < SHIP_BOUNCE_END) {
+            const bounceT = (t - SHIP_REVEAL_END) / (SHIP_BOUNCE_END - SHIP_REVEAL_END);
+            shipModel.scale.setScalar(1 + Math.sin(bounceT * Math.PI) * 0.055 * (1 - bounceT * 0.35));
+            if (!shipHapticSent) {
+              shipHapticSent = true;
+              navigator.vibrate?.(32);
+            }
+          }
+
+          // 병 등장과 겹쳐 warm glow, 발바닥, sparkle을 시작한다.
+          const fx = THREE.MathUtils.clamp((t - 0.82) / 0.68, 0, 1);
+          if (fx > 0) {
+            glowRings.forEach((ring) => { ring.visible = true; });
+            sparkles.forEach((sparkle) => { sparkle.visible = true; });
+            paws.forEach((paw) => { paw.visible = true; });
+            updateGlowWaves(fx, true);
+            shipGlow.intensity = Math.sin(fx * Math.PI) * 0.72;
+            sparkles.forEach((sparkle, i) => {
+              const material = sparkle.material as THREE.SpriteMaterial;
+              const localFx = THREE.MathUtils.clamp((fx - i * 0.07) / 0.58, 0, 1);
+              material.opacity = Math.sin(localFx * Math.PI) * 0.92;
+              const size = sparkle.userData.baseSize as number;
+              const animatedSize = size * (0.72 + localFx * 0.58);
+              sparkle.scale.set(animatedSize, animatedSize, 1);
+            });
+            paws.forEach((paw, i) => {
+              const material = paw.material as THREE.SpriteMaterial;
+              material.opacity = THREE.MathUtils.clamp((fx - i * 0.16) * 2.2, 0, 0.82);
+            });
+          }
+
+          // 최초 축하 파동이 끝난 뒤에도 결과 UI가 뜰 때까지 잔광을 끊지 않는다.
+          if (t >= 1.5) {
+            shipGlow.intensity = 0.18 + Math.max(0, Math.sin(t * 1.45)) * 0.08;
+            updateGlowWaves(t, false);
+            sparkles.forEach((sparkle, i) => {
+              sparkle.visible = true;
+              const material = sparkle.material as THREE.SpriteMaterial;
+              material.opacity = 0.24 + Math.max(0, Math.sin(t * 2.5 + i * 1.7)) * 0.34;
+            });
+            paws.forEach((paw) => {
+              paw.visible = true;
+              (paw.material as THREE.SpriteMaterial).opacity = 0.82;
+            });
+          }
+
+          // 약 2.2초에 결과 카드 조작을 허용한다. 상태 갱신은 한 번만 수행한다.
+          if (t >= SHIP_READY_AT && !shipUiDoneSent) {
+            shipUiDoneSent = true;
             shipModel.scale.setScalar(1);
             shipModel.position.y = shipRestY;
             shipMaterials.forEach((material) => { material.opacity = 1; });
-            shipGlow.intensity = 0;
-            (glowRing.material as THREE.MeshBasicMaterial).opacity = 0.22;
-            shipRevealActive = false;
+            shipGlow.intensity = 0.16;
             shipPhase = "complete";
-            finishBurstT = 0.82;
-            sparkles.visible = true;
-            paws.forEach((paw) => { paw.visible = true; });
-            navigator.vibrate?.([24, 35, 42]);
             S.press = PRESS_STEPS.length;
             syncPress();
           }
         } else if (shipPhase === "complete") {
-          finishBurstT = Math.max(0, finishBurstT - dt);
-          const p = 1 - finishBurstT / 0.82;
-          const bounce = p < 1 ? 1 + Math.sin(p * Math.PI * 2.4) * 0.075 * (1 - p) : 1;
-          shipModel.scale.setScalar(bounce);
-          sparkleMaterial.opacity = Math.max(0, 1 - p);
-          sparkles.scale.setScalar(1 + p * 0.55);
+          shipModel.scale.setScalar(1);
+          sparkles.forEach((sparkle, i) => {
+            const material = sparkle.material as THREE.SpriteMaterial;
+            sparkle.visible = true;
+            const twinkle = 0.26 + Math.max(0, Math.sin(_t * 2.4 + i * 1.7)) * 0.38;
+            material.opacity += (twinkle - material.opacity) * 0.08;
+            const baseSize = sparkle.userData.baseSize as number;
+            const pulseSize = baseSize * (1.05 + Math.max(0, Math.sin(_t * 2.4 + i * 1.7)) * 0.28);
+            sparkle.scale.set(pulseSize, pulseSize, 1);
+          });
           paws.forEach((paw, i) => {
+            paw.visible = true;
             const material = paw.material as THREE.SpriteMaterial;
-            material.opacity = Math.min(0.88, p * 2.5);
+            material.opacity += (0.82 - material.opacity) * 0.05;
             paw.position.y += Math.sin(_t * 1.8 + i) * 0.00008;
           });
-          (glowRing.material as THREE.MeshBasicMaterial).opacity = 0.28;
+          shipGlow.intensity = 0.16 + Math.max(0, Math.sin(_t * 1.35)) * 0.1;
+          updateGlowWaves(_t, false);
         }
       };
-    }
-
-    function easeOutBack(x: number) {
-      const c1 = 1.70158;
-      const c3 = c1 + 1;
-
-      return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
     }
 
     function buildStageFor(step: typeof S.step) {
@@ -2092,10 +2597,20 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
     }
 
-    /** 선택한 크기(실제 / 미니어처)를 배치 그룹에 반영 */
+    /**
+     * 선택한 배치 크기를 공용 앵커에 반영한다.
+     *
+     * 기존 책상 배율 0.55는 모든 공정 모델을 한꺼번에 절반 크기로 줄여,
+     * AR 시작 직후 모델이 축소된 것처럼 보였다. 책상 위에서도 실제 물체와
+     * 비교 가능한 크기를 유지하도록 0.82까지만 줄인다.
+     */
     function applySurfaceScale() {
-      anchor.scale.setScalar(S.surface === "table" ? 0.55 : 1);
+      const placementScale = S.surface === "table" ? 0.82 : 1;
+      anchor.scale.setScalar(placementScale);
+      anchor.updateMatrixWorld(true);
     }
+    // 이전 단계나 빠른 디버그 진입에서 남은 앵커 배율 없이 항상 현재 선택값으로 시작한다.
+    applySurfaceScale();
 
     $$(".seg button").forEach((btn) => {
       (btn as HTMLElement).onclick = () => {
@@ -2349,7 +2864,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
     const btnCloseNotice = $("#btn-close-notice");
     if (btnCloseNotice)
-      (btnCloseNotice as HTMLElement).onclick = () => $("#notice")?.classList.remove("open");
+      (btnCloseNotice as HTMLElement).onclick = () => {
+        $("#notice")?.classList.remove("open");
+        // 촬영 완료 알림의 확인 버튼은 알림뿐 아니라 촬영 모드도 닫는다.
+        uiRoot.classList.remove("ship-capture");
+      };
 
     const btnGodubap = $("#btn-godubap");
     if (btnGodubap)
@@ -2499,6 +3018,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (i === PRESS_STEPS.length - 1) {
             return;
           }
+          if (PRESS_STEPS[i]?.id === "aging") {
+            // TEMP DEBUG: 저온숙성 타임라인을 누르면 실제 항아리 배치
+            // 인터랙션을 기다리지 않고 곧바로 출고 단계로 진행한다.
+            S.press = i + 1;
+            syncPress();
+            return;
+          }
           S.press = i + 1;
           syncPress();
         };
@@ -2513,6 +3039,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const done = S.press >= PRESS_STEPS.length;
       const shipping = S.press === PRESS_STEPS.length - 1;
       const cur = PRESS_STEPS[Math.min(S.press, PRESS_STEPS.length - 1)];
+      // 완성 공정 중 손이 필요한 것은 저온숙성뿐이다. 해당 단계에서만
+      // MediaPipe를 깨우고, 출고 연출에서는 다시 멈춰 렌더링 여유를 확보한다.
+      handTracker?.setPaused(cur?.id !== "aging" && cur?.id !== "press");
       const cap = $("#cap-finishing");
       if (cap) {
         cap.textContent = done
@@ -2526,7 +3055,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         hint.textContent = done
           ? "🐾 냥이탁주가 세상에 나갈 준비를 마쳤어요"
           : shipping
-            ? "잠시만 기다려 주세요"
+            ? ""
             : "";
       }
       const b = $("#btn-finishing") as HTMLButtonElement | null;
@@ -2553,6 +3082,261 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         // 여기까지 왔으면 양조를 끝낸 것 — 이 술을 도감에 담는다
         markObtained(recipe.drinkId);
       };
+
+    const btnShipAgain = $("#btn-ship-again");
+    if (btnShipAgain) {
+      (btnShipAgain as HTMLButtonElement).onclick = () => {
+        S.press = PRESS_STEPS.length - 1;
+        delete uiRoot.dataset.shipSequence;
+        uiRoot.classList.remove("ship-capture");
+        buildStageFor("done");
+        syncPress();
+      };
+    }
+
+    const btnShipInfo = $("#btn-ship-info");
+    if (btnShipInfo) {
+      (btnShipInfo as HTMLButtonElement).onclick = async () => {
+        const button = btnShipInfo as HTMLButtonElement;
+        if (button.disabled) return;
+
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        button.textContent = "정보 화면 여는 중…";
+        markObtained(recipe.drinkId);
+
+        // immersive-ar가 살아 있는 채로 다음 페이지를 동시에 로드하면
+        // Android Chrome에서 카메라·WebGL·GLB 메모리가 겹쳐 탭이 종료될 수 있다.
+        // 라우팅 전에 XR과 GPU 컨텍스트를 끝낸다. Android Chrome은 XR 종료
+        // 직후 내부 라우팅을 실행하면 AR 화면 복원 과정에서 이동을 되돌릴 수
+        // 있으므로, 브라우저가 일반 탭으로 돌아온 다음 상세 URL로 확정 이동한다.
+        renderer.setAnimationLoop(null);
+        if (xrSession) {
+          const session = xrSession;
+          try {
+            await session.end();
+          } catch (error) {
+            console.warn("AR 세션 종료 실패:", error);
+          }
+        }
+
+        renderer.dispose();
+        renderer.forceContextLoss();
+
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            window.setTimeout(resolve, 140);
+          }));
+        });
+
+        window.location.replace(`/drink/${encodeURIComponent(recipe.drinkId)}`);
+      };
+    }
+
+    const closeShipCapture = () => uiRoot.classList.remove("ship-capture");
+    const btnShipCapture = $("#btn-ship-capture");
+    if (btnShipCapture) (btnShipCapture as HTMLButtonElement).onclick = () => {
+      uiRoot.classList.remove("capture-sticker-off");
+      const stickerToggle = $("#btn-capture-sticker");
+      stickerToggle?.setAttribute("aria-pressed", "true");
+      uiRoot.classList.add("ship-capture");
+    };
+    const btnCaptureCancel = $("#btn-capture-cancel");
+    if (btnCaptureCancel) (btnCaptureCancel as HTMLButtonElement).onclick = closeShipCapture;
+
+    const btnCaptureSticker = $("#btn-capture-sticker");
+    if (btnCaptureSticker) {
+      (btnCaptureSticker as HTMLButtonElement).onclick = () => {
+        const next = btnCaptureSticker.getAttribute("aria-pressed") !== "true";
+        btnCaptureSticker.setAttribute("aria-pressed", String(next));
+        uiRoot.classList.toggle("capture-sticker-off", !next);
+      };
+    }
+
+    const btnCaptureShot = $("#btn-capture-shot");
+    if (btnCaptureShot) {
+      (btnCaptureShot as HTMLButtonElement).onclick = async () => {
+        const shutter = btnCaptureShot as HTMLButtonElement;
+        shutter.classList.remove("is-capturing");
+        void shutter.offsetWidth;
+        shutter.classList.add("is-capturing");
+        navigator.vibrate?.(28);
+
+        // 픽셀 읽기와 PNG 합성은 메인 스레드를 잠시 점유한다. 먼저 셔터의
+        // 눌림 상태를 실제 화면에 그린 뒤 캡처를 시작해야 터치가 즉시 보인다.
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            window.setTimeout(resolve, 120);
+          }));
+        });
+        shutter.classList.remove("is-capturing");
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        showNotice("촬영했어요. 이미지를 저장하고 있어요…");
+
+        const frameElement = $(".capture-frame") as HTMLElement | null;
+        const frameRect = frameElement?.getBoundingClientRect();
+        const viewRect = canvas.getBoundingClientRect();
+        const scale = Math.min(1.5, window.devicePixelRatio || 1);
+        const cropX = Math.max(0, (frameRect?.left ?? viewRect.left) - viewRect.left);
+        const cropY = Math.max(0, (frameRect?.top ?? viewRect.top) - viewRect.top);
+        const cropW = Math.min(viewRect.width - cropX, frameRect?.width ?? viewRect.width);
+        const cropH = Math.min(viewRect.height - cropY, frameRect?.height ?? viewRect.height);
+        const output = document.createElement("canvas");
+        output.width = Math.max(1, Math.round(cropW * scale));
+        output.height = Math.max(1, Math.round(cropH * scale));
+        const ctx = output.getContext("2d");
+
+        if (!ctx) {
+          showNotice("촬영 이미지를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+          return;
+        }
+
+        const drawCover = (source: CanvasImageSource, sourceW: number, sourceH: number) => {
+          const sourceRatio = sourceW / sourceH;
+          const viewRatio = viewRect.width / viewRect.height;
+          let sx = 0, sy = 0, sw = sourceW, sh = sourceH;
+          if (sourceRatio > viewRatio) {
+            sw = sourceH * viewRatio;
+            sx = (sourceW - sw) / 2;
+          } else {
+            sh = sourceW / viewRatio;
+            sy = (sourceH - sh) / 2;
+          }
+          ctx.drawImage(source, sx + cropX * sw / viewRect.width, sy + cropY * sh / viewRect.height,
+            cropW * sw / viewRect.width, cropH * sh / viewRect.height, 0, 0, output.width, output.height);
+        };
+
+        const cameraFrame = xrFeed?.latestCanvas;
+        if (cameraFrame) drawCover(cameraFrame, cameraFrame.width, cameraFrame.height);
+        else {
+          ctx.fillStyle = "#24170f";
+          ctx.fillRect(0, 0, output.width, output.height);
+        }
+
+        // XR compositor 화면은 canvas.drawImage로 복사할 수 없다. 현재 XR
+        // 카메라의 행렬을 일반 카메라에 복제해 가상 장면만 별도로 렌더한다.
+        // 렌더 타깃은 화면 캔버스 전체 해상도 대신 최대 720px로 제한해 셔터
+        // 뒤의 긴 GPU readback과 PNG 인코딩 지연을 줄인다.
+        try {
+          const targetWidth = Math.max(1, Math.min(720, Math.round(viewRect.width * scale)));
+          const targetHeight = Math.max(1, Math.round(targetWidth * viewRect.height / viewRect.width));
+          const target = new THREE.WebGLRenderTarget(targetWidth, targetHeight, {
+            format: THREE.RGBAFormat,
+            type: THREE.UnsignedByteType,
+            depthBuffer: true,
+          });
+          target.texture.colorSpace = THREE.SRGBColorSpace;
+          const pixels = new Uint8Array(targetWidth * targetHeight * 4);
+          const virtualLayer = document.createElement("canvas");
+          virtualLayer.width = targetWidth;
+          virtualLayer.height = targetHeight;
+          const virtualCtx = virtualLayer.getContext("2d");
+          const previousTarget = renderer.getRenderTarget();
+          const wasXrEnabled = renderer.xr.enabled;
+          const previousClear = renderer.getClearColor(new THREE.Color()).clone();
+          const previousAlpha = renderer.getClearAlpha();
+          const xrCamera = renderer.xr.getCamera();
+          const sourceCamera = xrCamera.cameras[0] ?? camera;
+          const renderCamera = new THREE.PerspectiveCamera();
+          renderCamera.matrixAutoUpdate = false;
+          renderCamera.matrixWorld.copy(sourceCamera.matrixWorld);
+          renderCamera.matrixWorldInverse.copy(sourceCamera.matrixWorldInverse);
+          renderCamera.projectionMatrix.copy(sourceCamera.projectionMatrix);
+          renderCamera.projectionMatrixInverse.copy(sourceCamera.projectionMatrixInverse);
+          renderCamera.near = sourceCamera.near;
+          renderCamera.far = sourceCamera.far;
+          renderCamera.layers.mask = sourceCamera.layers.mask;
+
+          type AsyncPixelReader = (
+            renderTarget: THREE.WebGLRenderTarget,
+            x: number,
+            y: number,
+            width: number,
+            height: number,
+            buffer: Uint8Array,
+          ) => Promise<Uint8Array>;
+          const asyncPixelReader = (renderer as THREE.WebGLRenderer & {
+            readRenderTargetPixelsAsync?: AsyncPixelReader;
+          }).readRenderTargetPixelsAsync;
+          let pixelRead: Promise<Uint8Array> | null = null;
+
+          try {
+            renderer.xr.enabled = false;
+            renderer.setRenderTarget(target);
+            renderer.setClearColor(0x000000, 0);
+            renderer.clear(true, true, true);
+            renderer.render(scene, renderCamera);
+            if (asyncPixelReader) {
+              pixelRead = asyncPixelReader.call(
+                renderer, target, 0, 0, targetWidth, targetHeight, pixels,
+              );
+            } else {
+              renderer.readRenderTargetPixels(target, 0, 0, targetWidth, targetHeight, pixels);
+            }
+          } finally {
+            renderer.setRenderTarget(previousTarget);
+            renderer.setClearColor(previousClear, previousAlpha);
+            renderer.xr.enabled = wasXrEnabled;
+          }
+          if (pixelRead) await pixelRead;
+
+          if (virtualCtx) {
+            const image = virtualCtx.createImageData(targetWidth, targetHeight);
+            const rowSize = targetWidth * 4;
+            // WebGL 원점은 왼쪽 아래이므로 Canvas 좌표계에 맞춰 수직 반전한다.
+            for (let y = 0; y < targetHeight; y += 1) {
+              const sourceStart = (targetHeight - 1 - y) * rowSize;
+              image.data.set(pixels.subarray(sourceStart, sourceStart + rowSize), y * rowSize);
+            }
+            virtualCtx.putImageData(image, 0, 0);
+            ctx.drawImage(virtualLayer,
+              cropX * targetWidth / viewRect.width, cropY * targetHeight / viewRect.height,
+              cropW * targetWidth / viewRect.width, cropH * targetHeight / viewRect.height,
+              0, 0, output.width, output.height);
+          }
+          target.dispose();
+        } catch (error) {
+          console.warn("[AR capture] offscreen virtual layer unavailable", error);
+        }
+
+        if (!uiRoot.classList.contains("capture-sticker-off")) {
+          const sticker = $(".capture-label-sticker") as HTMLImageElement | null;
+          try {
+            if (sticker && sticker.complete && sticker.naturalWidth > 0) {
+            const w = output.width * .34;
+            const h = w * sticker.naturalHeight / sticker.naturalWidth;
+            ctx.save();
+            ctx.translate(output.width * .76, output.height * .69);
+            ctx.rotate(4 * Math.PI / 180);
+            ctx.drawImage(sticker, -w / 2, -h / 2, w, h);
+            ctx.restore();
+            }
+          } catch (error) {
+            console.warn("[AR capture] sticker unavailable", error);
+          }
+        }
+
+        output.toBlob((blob) => {
+          if (!blob || blob.size < 1024) {
+            showNotice("이미지 저장에 실패했어요. 잠시 후 다시 촬영해 주세요.");
+            return;
+          }
+          const filename = `nyangi-brew-${Date.now()}.jpg`;
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = filename;
+          link.style.display = "none";
+          document.body.appendChild(link);
+          link.click();
+          window.setTimeout(() => {
+            link.remove();
+            URL.revokeObjectURL(url);
+          }, 2500);
+          showNotice("촬영한 이미지를 갤러리 또는 다운로드 폴더에 저장했어요.");
+        }, "image/jpeg", .92);
+      };
+    }
 
     /* --- 리포트 --- */
     const btnReport = $("#btn-report");
@@ -2703,7 +3487,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       {/* TEMP DEBUG — 개발 완료 후 삭제 */}
       <button
-        id="debug-skip-before-ship"
+          id="debug-skip-before-ship"
         type="button"
         style={{
           position: "absolute",
@@ -2719,7 +3503,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           fontWeight: 700,
         }}
       >
-        DEV · 출고 직전
+          DEV · 출고 직전
       </button>
 
 
@@ -2841,6 +3625,48 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         <div className="dock">
           <button className="cta waiting" id="btn-finishing">공정을 순서대로 진행하세요</button>
         </div>
+
+        <div className="ship-story" aria-live="polite">
+          <section className="ship-result-card" aria-label="완성된 냥이탁주 결과">
+            <div className="ship-card-crest" aria-hidden="true">
+              <img src="/ar/ui/shipping-crest-jar.png" alt="" />
+            </div>
+            <h2>양조가 <em>완료</em>되었습니다!</h2>
+            <p className="ship-card-note">누룩이 만든 은은한 단맛과 발효 향</p>
+            <button id="btn-ship-again" className="ship-row" type="button">
+              <img className="ship-row-icon" src="/ar/ui/shipping-drink-set.png" alt="" aria-hidden="true" />
+              <b>냥이탁주 다시 빚기</b><i>›</i>
+            </button>
+            <div className="ship-save-row">
+              <span className="ship-result-thumb">
+                <img src={recipe.finish.image} alt="완성된 냥이탁주 결과 미리보기" />
+              </span>
+              <span><b>결과 이미지 저장</b><small>완성된 병과 양조 결과를 기록해요</small></span>
+              <button id="btn-ship-capture" type="button">촬영하기</button>
+            </div>
+            <button id="btn-ship-info" className="ship-primary" type="button">
+              <img src="/ar/ui/paw-pink.png" alt="" aria-hidden="true" />
+              완성된 냥이탁주 정보 보기
+            </button>
+          </section>
+        </div>
+      </div>
+
+      <div className="ship-capture-ui" aria-label="결과 이미지 촬영">
+        <header><strong>결과 이미지 촬영</strong></header>
+        <div className="capture-frame">
+          <span className="corner tl" /><span className="corner tr" />
+          <span className="corner bl" /><span className="corner br" />
+          <img className="capture-label-sticker" src="/ar/ui/shipping-label-sticker.png" alt="냥이탁주 결과 스티커" />
+        </div>
+        <p>프레임 안의 병·라벨·양조 결과가 한 장에 촬영돼요</p>
+        <footer>
+          <button id="btn-capture-cancel" type="button">취소</button>
+          <button id="btn-capture-shot" className="capture-shutter" type="button" aria-label="촬영">
+            <img src="/ar/ui/paw-pink.png" alt="" aria-hidden="true" />
+          </button>
+          <button id="btn-capture-sticker" type="button" aria-pressed="true">스티커 포함</button>
+        </footer>
       </div>
 
       {/* 16 · 완성 */}

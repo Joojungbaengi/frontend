@@ -54,10 +54,10 @@ export const nyangiTakju: Recipe = {
     },
     {
       id: "press_jar",
-      file: `${AR_ASSETS}/jar_with_a_spout.glb`,
+      file: `${AR_ASSETS}/receiving_jar.glb`,
       step: "done",
       processSteps: ["press"],
-      height: 0.25,
+      height: 0.3,
       y: 0.03,
     },
     {
