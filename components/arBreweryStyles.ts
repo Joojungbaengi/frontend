@@ -14,6 +14,17 @@ export const styles = `
 .ar-ui .vignette{position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .7s ease; z-index:1;
   background:radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,.55) 100%)}
 .ar-ui.cooling .vignette{opacity:1}
+.ar-ui.aging-focus .vignette{opacity:1;
+  background:radial-gradient(ellipse 43% 49% at 50% 53%, rgba(0,15,32,.02) 0%, rgba(0,12,28,.08) 38%, rgba(0,5,15,.68) 72%, rgba(0,0,0,.94) 100%)}
+.ar-ui .aging-complete-screen{position:absolute; inset:0; z-index:10000; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:14px; pointer-events:none; visibility:hidden; opacity:0;
+  color:#fff0d4; text-align:center; background:#02060c; transition:opacity .42s ease}
+.ar-ui .aging-complete-screen span{font-size:clamp(18px,5vw,26px); line-height:1.2; font-weight:500;
+  letter-spacing:.06em; text-shadow:0 0 18px rgba(244,202,135,.25)}
+.ar-ui .aging-complete-screen strong{font-family:var(--display); font-size:clamp(34px,9vw,54px); line-height:1.18;
+  font-weight:600; letter-spacing:-.02em; text-shadow:0 0 24px rgba(244,202,135,.22)}
+.ar-ui.aging-complete > :not(.aging-complete-screen){visibility:hidden!important}
+.ar-ui.aging-complete .aging-complete-screen{visibility:visible; opacity:1}
 .ar-ui > *{position:relative; z-index:1}
 
 .ar-ui.ar-mode{background:transparent}
@@ -100,6 +111,37 @@ export const styles = `
 .ar-ui .pill[data-state="now"]::before{background:var(--clay); border-color:#dd8a72;
   animation:ar-pulse 1.8s ease-in-out infinite}
 
+/* 저온숙성 진행 중: 출고와 같은 보상형 상태 UI에 숙성 용기 아이콘을 쓴다. */
+.ar-ui #press-pills .pill[data-step-id="aging"][data-state="now"]{
+  color:#f4bd72;
+  font-weight:700;
+  text-shadow:
+    0 1px 5px rgba(0,0,0,.75),
+    0 0 8px rgba(240,155,66,.34);
+}
+
+.ar-ui #press-pills .pill[data-step-id="aging"][data-state="now"]::before{
+  content:"";
+  width:34px;
+  height:34px;
+  margin-top:-6px;
+  border-radius:50%;
+  background:
+    url("/ar/ui/aging-cold-jar-icon.png") center / 24px 24px no-repeat,
+    radial-gradient(circle at 40% 34%,#b64e2d 0%,#963720 58%,#742419 100%);
+  border:2px solid #f2aa50;
+  box-shadow:
+    0 0 0 2px rgba(255,180,74,.22),
+    0 0 7px 2px rgba(255,166,55,.72),
+    0 0 18px 5px rgba(224,93,25,.42),
+    inset 0 1px 5px rgba(255,198,111,.24),
+    0 2px 5px rgba(0,0,0,.22);
+  transform-origin:center;
+  animation:
+    ar-ship-step-enter .46s cubic-bezier(.18,.82,.24,1.18) both,
+    ar-ship-step-glow 1.8s .46s ease-in-out infinite;
+}
+
 /* =========================================================
  * 출고 단계 전용 액센트
  * 압착·여과 / 저온숙성은 기존 컬러 유지
@@ -108,9 +150,9 @@ export const styles = `
 
 .ar-ui #press-pills .pill:last-child[data-state="todo"]::before{
   content:"";
-  width:12px;
-  height:12px;
-  margin-top:5px;
+  width:22px;
+  height:22px;
+  margin-top:0;
   border-width:1px;
   background:
     url("/ar/ui/shipping-bottle-icon.png") center / 11px 11px no-repeat,

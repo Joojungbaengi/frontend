@@ -53,14 +53,6 @@ export const nyangiTakju: Recipe = {
       y: 0.03,
     },
     {
-      id: "press_jar",
-      file: `${AR_ASSETS}/receiving_jar.glb`,
-      step: "done",
-      processSteps: ["press"],
-      height: 0.3,
-      y: 0.03,
-    },
-    {
       id: "cold_storage_chamber",
       file: `${AR_ASSETS}/cold_storage_chamber.glb`,
       step: "done",
