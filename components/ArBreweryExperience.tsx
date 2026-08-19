@@ -33,7 +33,6 @@ import { rinseActive, soakActive, coolingActive, createBreweryState, arStepForDo
  } from "@/lib/brewery/state";
 import { REQUIRED_FANS, REQUIRED_RINSE_TURNS, SOAK_MS, platformContentY } from "@/lib/brewery/constants";
 import { shouldTrackHand } from "@/lib/hand/handStep";
-import { setDepthDebug } from "@/lib/ar/debug";
 
 /**
  * 공통 엔진 — 술 종류별 데이터는 recipe(Recipe) 하나로만 받는다.
@@ -49,10 +48,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     
     if (!canvas || !uiRoot) return;
     
-    const setDepthDebugText = (text: string) => {
-      setDepthDebug(uiRoot, text);
-    };
-
     const $ = <T extends Element = HTMLElement>(s: string) =>
       uiRoot.querySelector(s) as T | null;
     const $$ = (s: string) => Array.from(uiRoot.querySelectorAll(s));
@@ -2272,33 +2267,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
 
 
-    /* =========================================================
-     * WebXR Real Depth 테스트 (별)
-     * ======================================================= */
-
-    type XRDepthInfoLike = {
-      width: number;
-      height: number;
-
-      getDepthInMeters?: (
-        x: number,
-        y: number
-      ) => number;
-    };
-
-    let depthSupported = false;
-    let depthLogged = false;
-
-    /**
-     * 마지막으로 확인된 화면 중앙 실제 거리.
-     * 디버그용.
-     */
-    let lastRealDepth = 0;
-
-    // 이번 XR frame에서 얻은 실제 환경 depth 정보 (별)
-    let currentDepthInfo: XRDepthInfoLike | null = null;
-
-
     async function checkAR() {
       const xr = (navigator as any).xr;
       if (!xr) return false;
@@ -2318,13 +2286,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // camera-access 가 있으면 ARCore 가 쓰는 카메라 이미지를 그대로 받아 손을 인식한다.
           // 이게 평면 인식(hit-test)과 손 인식을 한 세션에서 같이 하는 유일한 길이다.
           
-          optionalFeatures: ["dom-overlay", "camera-access", "depth-sensing", "anchors"], //(별)
-          depthSensing: {
-            // three r185는 XRWebGLBinding의 GPU depth texture를 렌더 패스에
-            // 직접 합성한다. CPU fallback은 그 내장 경로에서 처리되지 않는다.
-            usagePreference: ["gpu-optimized"],
-            dataFormatPreference: ["float32", "luminance-alpha"]
-          },
+          optionalFeatures: ["dom-overlay", "camera-access", "anchors"],
           
           domOverlay: { root: uiRoot },
         });
@@ -2339,50 +2301,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       S.xr = true;
       uiRoot!.classList.add("ar-mode");
       
-      //(별)
-      const sessionAny =
-        xrSession as any;
-
-      depthSupported =
-        sessionAny.enabledFeatures?.includes(
-          "depth-sensing"
-        ) === true;
-
-      console.log(
-        "[AR DEPTH] 지원 여부:",
-        depthSupported
-      );
-
-      setDepthDebugText(
-        depthSupported
-          ? "DEPTH: supported ✓"
-          : "DEPTH: unsupported ✕"
-      );
-
-      if (depthSupported) {
-        console.log(
-          "[AR DEPTH] usage:",
-          sessionAny.depthUsage
-        );
-
-        console.log(
-          "[AR DEPTH] format:",
-          sessionAny.depthDataFormat
-        );
-
-        console.log(
-          "[AR DEPTH] type:",
-          sessionAny.depthType
-        );
-
-        setDepthDebugText(
-          `DEPTH: supported ✓
-      TYPE: ${sessionAny.depthType ?? "unknown"}`
-        );
-      }
-      //(별)까지 추가
-
-
       controls.enabled = false;
       floor.visible = false;
 
@@ -2545,86 +2463,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
 
 
-      /* =========================================================
-      * REAL WORLD DEPTH PROBE
-      * 화면 중앙 픽셀의 실제 환경 거리를 확인한다. (별)
-      * =======================================================
-
-      if (
-        depthSupported &&
-        frame &&
-        localSpace
-      ) {
-        const xrFrame = frame as any;
-
-        const pose =
-          xrFrame.getViewerPose?.(
-            localSpace
-          );
-
-        const view =
-          pose?.views?.[0];
-
-        if (
-          view &&
-          typeof xrFrame.getDepthInformation ===
-            "function"
-        ) {
-          try {
-            const depthInfo =
-              xrFrame.getDepthInformation(
-                view
-              ) as XRDepthInfoLike | null;
-
-            currentDepthInfo = depthInfo;
-            
-            if (
-              depthInfo &&
-              typeof depthInfo.getDepthInMeters ===
-                "function"
-            ) {
-              const meters =
-                depthInfo.getDepthInMeters(
-                  0.5,
-                  0.5
-                );
-
-              if (
-                Number.isFinite(meters) &&
-                meters > 0
-              ) {
-                lastRealDepth = meters;
-
-                setDepthDebugText(
-                  `DEPTH: supported ✓\nCENTER: ${meters.toFixed(3)} m`
-                );
-
-                if (!depthLogged) {
-                  depthLogged = true;
-
-                  console.log(
-                    "[AR DEPTH] REAL DEPTH OK",
-                    {
-                      meters,
-                      width: depthInfo.width,
-                      height: depthInfo.height,
-                    }
-                  );
-                }
-              }
-            }
-          } catch (e) {
-            if (!depthLogged) {
-              console.warn(
-                "[AR DEPTH] depth read failed",
-                e
-              );
-            }
-          }
-        }
-      }*/
-
-
 
 
       // renderer.render()가 내부에서 사용하는 실제 XR 카메라를 먼저 갱신한다.
@@ -2658,105 +2496,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
 
         const f = handTracker.latest;
-
-
-        /* ★ 실제 손 위치의 real-world depth 측정 (별)
-        if (
-          f.present &&
-          currentDepthInfo?.getDepthInMeters
-        ) {
-          const px = THREE.MathUtils.clamp(
-            f.pinchPoint.x,
-            0,
-            1
-          );
-
-          const py = THREE.MathUtils.clamp(
-            f.pinchPoint.y,
-            0,
-            1
-          );
-
-          //(별)
-          const offsets = [
-            [0, 0],
-
-            [-0.04, 0],
-            [0.04, 0],
-
-            [0, -0.04],
-            [0, 0.04],
-
-            [-0.04, -0.04],
-            [0.04, -0.04],
-
-            [-0.04, 0.04],
-            [0.04, 0.04],
-          ];
-
-          const samples: number[] = [];
-
-          for (const [ox, oy] of offsets) {
-            const sx = THREE.MathUtils.clamp(
-              px + ox,
-              0,
-              1
-            );
-
-            const sy = THREE.MathUtils.clamp(
-              py + oy,
-              0,
-              1
-            );
-
-            const d =
-              currentDepthInfo.getDepthInMeters(
-                sx,
-                sy
-              );
-
-            if (
-              Number.isFinite(d) &&
-              d > 0
-            ) {
-              samples.push(d);
-            }
-          }
-
-          // 가까운 값부터 정렬
-          samples.sort((a, b) => a - b);
-
-          if (samples.length > 0) {
-            // 전체 샘플 중 가까운 쪽 25%만 사용
-            const nearCount = Math.max(
-              1,
-              Math.floor(samples.length * 0.25)
-            );
-
-            const nearSamples =
-              samples.slice(0, nearCount);
-
-            // 가까운 값들 중 중앙값 사용
-            const mid =
-              Math.floor(nearSamples.length / 2);
-
-            const handDepth =
-              nearSamples[mid];
-
-            console.log(
-              "[AR DEPTH] HAND:",
-              handDepth.toFixed(3),
-              "m"
-            );
-
-            setDepthDebugText(
-              `DEPTH: supported ✓
-          CENTER: ${lastRealDepth.toFixed(3)} m
-          HAND: ${handDepth.toFixed(3)} m
-          SAMPLES: ${samples.length}`
-            );
-          }
-        }*/
 
 
 
@@ -3689,29 +3428,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
   return (
     <div ref={rootRef} className="ar-ui" data-step="place">
       <canvas ref={canvasRef} id="gl" />
-
-      {/* REAL DEPTH DEBUG */}
-      <div
-        id="depth-debug"
-        style={{
-          position: "absolute",
-          top: 12,
-          left: 12,
-          zIndex: 10000,
-          padding: "8px 10px",
-          borderRadius: 8,
-          background: "rgba(0,0,0,.72)",
-          color: "#7CFF9B",
-          fontSize: 12,
-          fontFamily: "monospace",
-          lineHeight: 1.5,
-          pointerEvents: "none",
-          whiteSpace: "pre-line",
-        }}
-      >
-        DEPTH: waiting...
-      </div>
-
 
       {/* TEMP DEBUG — 개발 완료 후 삭제 */}
       <button

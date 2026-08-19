@@ -270,7 +270,6 @@ export class HandVisual {
     this.rigged.reset();
   }
 
-  //(별)
   dispose() {
     this.glove.dispose();
     this.rigged.dispose();
