@@ -31,6 +31,7 @@ import {
   palmCenter,
   type RiceSpreadSnapshot,
 } from "@/lib/hand/riceSpreadGesture";
+import { KNEAD, KneadGesture, type KneadSnapshot } from "@/lib/hand/kneadGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
@@ -54,12 +55,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const query = new URLSearchParams(window.location.search);
     const trayDebug = query.get("trayDebug") === "1";
     const riceSpreadDebug = query.get("riceSpreadDebug") === "1";
+    const kneadDebug = query.get("kneadDebug") === "1";
     const skipToCooling = trayDebug && query.get("skipTo") === "cooling";
     const skipToRiceSpread = riceSpreadDebug && query.get("skipTo") === "riceSpread";
+    const skipToKnead = kneadDebug && query.get("skipTo") === "knead";
     /** debug query가 없을 때는 검증된 냉각①~④를 실제 공정으로 사용한다. */
     const productionCooling = !trayDebug && !riceSpreadDebug;
     uiRoot.classList.toggle("tray-debug", trayDebug);
     uiRoot.classList.toggle("rice-spread-debug", riceSpreadDebug);
+    uiRoot.classList.toggle("knead-debug", kneadDebug);
 
     /* =====================================================================
      * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
@@ -137,6 +141,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let godubapShowStage: (() => void) | null = null;
     let resetCoolingInteraction: (() => void) | null = null;
     let startCoolingFan: (() => void) | null = null;
+    let resetKneadInteraction: (() => void) | null = null;
     // 완성 공정 단계가 바뀔 때 출고 제품(Nyangi)을 보이는 함수(buildFinish 가 채운다)
     let finishShowShip: (() => void) | null = null;
     // 발효 하위 단계가 바뀔 때 채반고두밥/항아리를 갈아 끼우는 함수(buildFerment 가 채운다)
@@ -178,7 +183,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     /** 손으로 조작하는 단계 — 원료(집기)와 고두밥(부채질) */
-    const HAND_STEPS = new Set<typeof S.step>(["ingredient", "godubap"]);
+    const HAND_STEPS = new Set<typeof S.step>([
+      "ingredient",
+      "godubap",
+      ...(kneadDebug ? (["ferment"] as const) : []),
+    ]);
 
     function setStep(next: typeof S.step) {
       if (productionCooling && S.step === "godubap" && next !== "godubap") {
@@ -482,6 +491,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       godubapShowStage = null;
       resetCoolingInteraction = null;
       startCoolingFan = null;
+      resetKneadInteraction = null;
       finishShowShip = null;
       fermentShowStage = null;
       uiRoot!.classList.remove("cooling"); // 냉각 비네트는 무대가 바뀌면 끈다
@@ -1822,6 +1832,244 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
     }
 
+    /* --- 14 · 밑술 치대기 기술 검증 (?kneadDebug=1 전용) --- */
+    function buildKneadDebug() {
+      const platformTop = addPlatform();
+      frame3D(platformTop + 0.18, 0.7, 0.62);
+
+      const JAR_HEIGHT = 0.24;
+      const JAR_TOP_RADIUS = 0.125;
+      const MASH_RADIUS = 0.105;
+      const MASH_START_HEIGHT = 0.028;
+      const MASH_FINAL_HEIGHT = 0.014;
+      const MASH_BOTTOM_Y = JAR_HEIGHT - 0.052;
+
+      const jarRig = new THREE.Group();
+      jarRig.position.set(0, platformTop, 0);
+      stageGroup.add(jarRig);
+
+      // 대형 후보 GLB 대신 mobile spike용 open primitive 항아리를 사용한다.
+      const jarMaterial = new THREE.MeshStandardMaterial({
+        color: 0x50372a,
+        roughness: 0.78,
+        metalness: 0.04,
+        side: THREE.DoubleSide,
+      });
+      const jarBody = new THREE.Mesh(
+        new THREE.CylinderGeometry(JAR_TOP_RADIUS, 0.098, JAR_HEIGHT, 48, 1, true),
+        jarMaterial
+      );
+      jarBody.position.y = JAR_HEIGHT * 0.5;
+      jarBody.castShadow = jarBody.receiveShadow = true;
+      jarRig.add(jarBody);
+
+      const jarBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.098, 0.098, 0.018, 48),
+        jarMaterial
+      );
+      jarBase.position.y = 0.009;
+      jarBase.castShadow = jarBase.receiveShadow = true;
+      jarRig.add(jarBase);
+
+      const jarLip = new THREE.Mesh(
+        new THREE.TorusGeometry(JAR_TOP_RADIUS, 0.012, 12, 48).rotateX(Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0x34241d, roughness: 0.66 })
+      );
+      jarLip.position.y = JAR_HEIGHT;
+      jarLip.castShadow = true;
+      jarRig.add(jarLip);
+
+      const mashTexturePath = recipe.godubapRicePlane?.texture;
+      const mashTexture = mashTexturePath
+        ? new THREE.TextureLoader().load(
+            mashTexturePath,
+            undefined,
+            undefined,
+            (error) => console.warn("knead mash texture 로드 실패:", mashTexturePath, error)
+          )
+        : null;
+      if (mashTexture) {
+        mashTexture.colorSpace = THREE.SRGBColorSpace;
+        mashTexture.wrapS = THREE.MirroredRepeatWrapping;
+        mashTexture.wrapT = THREE.MirroredRepeatWrapping;
+        mashTexture.repeat.set(2.4, 2.4);
+      }
+      const mashMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(MASH_RADIUS, MASH_RADIUS * 0.98, MASH_START_HEIGHT, 48),
+        new THREE.MeshStandardMaterial({
+          color: 0xc8b894,
+          map: mashTexture,
+          roughness: 0.96,
+        })
+      );
+      mashMesh.castShadow = mashMesh.receiveShadow = true;
+      jarRig.add(mashMesh);
+
+      const targetMaterial = new THREE.MeshBasicMaterial({
+        color: 0x52d8ff,
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      });
+      const targetOutline = new THREE.Mesh(
+        new THREE.RingGeometry(MASH_RADIUS * 0.96, MASH_RADIUS * KNEAD.TARGET_PADDING, 48)
+          .rotateX(-Math.PI / 2),
+        targetMaterial
+      );
+      targetOutline.position.y = MASH_BOTTOM_Y + MASH_START_HEIGHT + 0.006;
+      targetOutline.renderOrder = 9;
+      jarRig.add(targetOutline);
+
+      const kneadGesture = new KneadGesture();
+      const emptyKneadSnapshot = (): KneadSnapshot => ({
+        state: "WAIT_OPEN",
+        pose: "TRANSITION",
+        onMash: false,
+        handRatio: 0,
+        fingertipMeanDistance: 0,
+        palmScale: 0,
+        count: 0,
+        progress: 0,
+        justKneaded: false,
+      });
+      let kneadSnapshot = emptyKneadSnapshot();
+      let kneadPulse = 0;
+      let feedbackUntil = -Infinity;
+
+      const mashCenterWorld = new THREE.Vector3();
+      const mashRightWorld = new THREE.Vector3();
+      const mashFrontWorld = new THREE.Vector3();
+      const mashCenterScreen = { x: 0.5, y: 0.5 };
+      const mashRightScreen = { x: 0.5, y: 0.5 };
+      const mashFrontScreen = { x: 0.5, y: 0.5 };
+
+      const setKneadText = (id: string, value: string) => {
+        const element = $(id);
+        if (element) element.textContent = value;
+      };
+
+      function applyMashVisual() {
+        const progress = kneadSnapshot.progress;
+        const height = THREE.MathUtils.lerp(MASH_START_HEIGHT, MASH_FINAL_HEIGHT, progress);
+        const spread = THREE.MathUtils.lerp(0.9, 1, progress) + kneadPulse * 0.035;
+        mashMesh.scale.set(spread, height / MASH_START_HEIGHT, spread);
+        mashMesh.position.y = MASH_BOTTOM_Y + height * 0.5 + kneadPulse * 0.002;
+        targetOutline.position.y = MASH_BOTTOM_Y + height + 0.006;
+      }
+
+      function updateKneadPanel(frame: HandFrame | null, palm: { x: number; y: number }) {
+        if (!kneadDebug) return;
+        setKneadText("#knead-debug-hand", frame?.present ? "FOUND" : "LOST");
+        setKneadText("#knead-debug-on", kneadSnapshot.onMash ? "YES" : "NO");
+        setKneadText("#knead-debug-palm-x", palm.x.toFixed(3));
+        setKneadText("#knead-debug-palm-y", palm.y.toFixed(3));
+        setKneadText("#knead-debug-ratio", kneadSnapshot.handRatio.toFixed(3));
+        setKneadText("#knead-debug-pose", kneadSnapshot.pose);
+        setKneadText("#knead-debug-state", kneadSnapshot.state);
+        setKneadText(
+          "#knead-debug-count",
+          `${kneadSnapshot.count} / ${KNEAD.TARGET_KNEAD_COUNT}`
+        );
+        setKneadText("#knead-debug-progress", `${Math.round(kneadSnapshot.progress * 100)}%`);
+        setKneadText("#knead-debug-tip-distance", kneadSnapshot.fingertipMeanDistance.toFixed(4));
+        setKneadText("#knead-debug-palm-scale", kneadSnapshot.palmScale.toFixed(4));
+        $("#knead-debug-ok")?.classList.toggle("visible", kneadSnapshot.state === "COMPLETE");
+
+        const feedback = $("#knead-debug-feedback");
+        if (feedback) {
+          feedback.textContent = performance.now() < feedbackUntil
+            ? "KNEAD!"
+            : kneadSnapshot.pose === "CLOSED"
+              ? "SQUEEZE"
+              : kneadSnapshot.pose === "OPEN"
+                ? "OPEN"
+                : "TRANSITION";
+        }
+
+        const marker = $("#knead-debug-palm-marker") as HTMLElement | null;
+        if (marker) {
+          marker.style.left = `${palm.x * 100}%`;
+          marker.style.top = `${palm.y * 100}%`;
+          marker.classList.toggle("visible", frame?.present === true);
+        }
+      }
+
+      resetKneadInteraction = () => {
+        kneadGesture.reset();
+        kneadSnapshot = emptyKneadSnapshot();
+        kneadPulse = 0;
+        feedbackUntil = -Infinity;
+        targetMaterial.color.setHex(0x52d8ff);
+        targetMaterial.opacity = 0.72;
+        applyMashVisual();
+        updateKneadPanel(null, { x: 0.5, y: 0.5 });
+        $("#knead-debug-palm-marker")?.classList.remove("visible");
+        setHandHud("tracking", "항아리 위에서 손을 펴고 오므린 뒤 다시 펴주세요");
+      };
+
+      const resetButton = $("#knead-debug-reset") as HTMLButtonElement | null;
+      if (resetButton) resetButton.onclick = resetKneadInteraction;
+      resetKneadInteraction();
+
+      live.onHand = (frame) => {
+        const rawPalm = palmCenter(frame);
+        const palm = rawPalm ? toScreen(rawPalm, handFit) : { x: 0.5, y: 0.5 };
+        let onMash = false;
+
+        if (rawPalm) {
+          const mashSurfaceY = targetOutline.position.y;
+          jarRig.updateWorldMatrix(true, true);
+          jarRig.localToWorld(mashCenterWorld.set(0, mashSurfaceY, 0));
+          jarRig.localToWorld(mashRightWorld.set(MASH_RADIUS, mashSurfaceY, 0));
+          jarRig.localToWorld(mashFrontWorld.set(0, mashSurfaceY, MASH_RADIUS));
+          worldToScreen(mashCenterWorld, camera, mashCenterScreen);
+          worldToScreen(mashRightWorld, camera, mashRightScreen);
+          worldToScreen(mashFrontWorld, camera, mashFrontScreen);
+
+          const ax = mashRightScreen.x - mashCenterScreen.x;
+          const ay = mashRightScreen.y - mashCenterScreen.y;
+          const bx = mashFrontScreen.x - mashCenterScreen.x;
+          const by = mashFrontScreen.y - mashCenterScreen.y;
+          const px = palm.x - mashCenterScreen.x;
+          const py = palm.y - mashCenterScreen.y;
+          const det = ax * by - ay * bx;
+          if (Math.abs(det) > 1e-6) {
+            const localX = (px * by - py * bx) / det;
+            const localZ = (ax * py - ay * px) / det;
+            onMash = localX * localX + localZ * localZ <= KNEAD.TARGET_PADDING ** 2;
+          }
+        }
+
+        kneadSnapshot = kneadGesture.update(frame, onMash);
+        targetMaterial.color.setHex(onMash ? 0x69d98a : 0x52d8ff);
+        targetMaterial.opacity = onMash ? 0.95 : 0.72;
+        if (kneadSnapshot.justKneaded) {
+          kneadPulse = 1;
+          feedbackUntil = performance.now() + 450;
+        }
+        applyMashVisual();
+        updateKneadPanel(frame, palm);
+
+        if (kneadSnapshot.state === "COMPLETE") setHandHud("dropped", "KNEAD OK");
+        else if (!frame.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+        else if (!onMash) setHandHud("tracking", "손바닥을 항아리 안 술덧 위로 옮겨주세요");
+        else if (kneadSnapshot.justKneaded) setHandHud("dropped", "KNEAD!");
+        else if (kneadSnapshot.pose === "CLOSED") setHandHud("holding", "SQUEEZE · 다시 손을 펴주세요");
+        else if (kneadSnapshot.pose === "OPEN") setHandHud("hover", "OPEN · 손을 오므려주세요");
+        else setHandHud("tracking", "손 자세를 안정적으로 유지해주세요");
+      };
+
+      live.tick = (_t, dt) => {
+        kneadPulse = Math.max(0, kneadPulse - dt * 4.5);
+        applyMashVisual();
+        const feedback = $("#knead-debug-feedback");
+        if (feedback && performance.now() >= feedbackUntil && feedback.textContent === "KNEAD!") {
+          feedback.textContent = kneadSnapshot.pose;
+        }
+      };
+    }
+
     /* --- 14 · 발효 --- */
     function buildFerment() {
       const platformTop = addPlatform();
@@ -1952,7 +2200,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (!S.placed) return;
       if (step === "ingredient") buildIngredients();
       else if (step === "godubap") buildGodubap();
-      else if (step === "ferment") buildFerment();
+      else if (step === "ferment") {
+        if (kneadDebug) buildKneadDebug();
+        else buildFerment();
+      }
       else if (step === "done") buildFinish();
     }
 
@@ -2014,6 +2265,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       xrSession!.addEventListener("end", () => {
         if (productionCooling) resetCoolingInteraction?.();
+        if (kneadDebug) resetKneadInteraction?.();
         S.xr = false;
         S.hand = false;
         uiRoot!.classList.remove("hands-on");
@@ -2238,7 +2490,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         applySurfaceScale();
         S.placed = true;
         if (!S.xr) controls.target.copy(anchor.position).add(new THREE.Vector3(0, 0.2, 0));
-        if (skipToRiceSpread) {
+        if (skipToKnead) {
+          // 평면 배치와 anchor는 그대로 거친 뒤 knead spike만 독립 실행한다.
+          S.fstage = 0;
+          S.ferment = 0;
+          setStep("ferment");
+        } else if (skipToRiceSpread) {
           S.godubap = GB_LAST;
           S.rinseTurns = 0;
           S.rinsePartial = 0;
@@ -2899,6 +3156,26 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         <button type="button" id="rice-debug-reset">RESET RICE</button>
       </aside>
       <i id="rice-debug-palm-marker" aria-hidden="true" />
+
+      {/* ?kneadDebug=1 전용 — production 밑술과 분리된 hand gesture spike */}
+      <aside className="knead-debug-panel" aria-label="Knead gesture debug values">
+        <div className="knead-debug-title">MITSUL② · KNEAD GESTURE</div>
+        <div>HAND <b id="knead-debug-hand">LOST</b></div>
+        <div>ON MASH <b id="knead-debug-on">NO</b></div>
+        <div>PALM X <b id="knead-debug-palm-x">0.500</b></div>
+        <div>PALM Y <b id="knead-debug-palm-y">0.500</b></div>
+        <div>HAND RATIO <b id="knead-debug-ratio">0.000</b></div>
+        <div>POSE <b id="knead-debug-pose">TRANSITION</b></div>
+        <div>GESTURE STATE <b id="knead-debug-state">WAIT_OPEN</b></div>
+        <div>KNEAD COUNT <b id="knead-debug-count">0 / 6</b></div>
+        <div>KNEAD PROGRESS <b id="knead-debug-progress">0%</b></div>
+        <div>TIP MEAN DIST <b id="knead-debug-tip-distance">0.0000</b></div>
+        <div>PALM SCALE <b id="knead-debug-palm-scale">0.0000</b></div>
+        <em id="knead-debug-feedback">TRANSITION</em>
+        <strong id="knead-debug-ok">KNEAD OK</strong>
+        <button type="button" id="knead-debug-reset">RESET KNEAD</button>
+      </aside>
+      <i id="knead-debug-palm-marker" aria-hidden="true" />
 
       {/* 11 · AR 시작 */}
       <div className="panel-step" id="p-place">

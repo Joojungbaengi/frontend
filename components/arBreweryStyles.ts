@@ -57,6 +57,33 @@ export const styles = `
   width:14px; height:14px; margin:-7px 0 0 -7px; border:2px solid #69d98a; border-radius:50%;
   background:rgba(105,217,138,.24); box-shadow:0 0 10px rgba(105,217,138,.9); pointer-events:none}
 
+/* 밑술② knead gesture 기술 검증 — production UI에는 노출하지 않는다. */
+.ar-ui .knead-debug-panel,.ar-ui #knead-debug-palm-marker{display:none}
+.ar-ui.knead-debug .knead-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(226px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(232,192,122,.58); border-radius:10px;
+  background:rgba(23,16,9,.9); color:rgba(249,240,220,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.4); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .knead-debug-panel > div:not(.knead-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .knead-debug-panel b{color:#fff8e8; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .knead-debug-title{margin-bottom:3px; color:#e8c07a; font-weight:800; letter-spacing:.04em}
+.ar-ui #knead-debug-feedback,.ar-ui #knead-debug-ok{margin-top:5px; padding:6px; border-radius:6px;
+  color:#fff; text-align:center; font-style:normal; font-weight:800; letter-spacing:.05em}
+.ar-ui #knead-debug-feedback{display:block; background:#76502e}
+.ar-ui #knead-debug-ok{display:none; background:#3f7a4e}
+.ar-ui #knead-debug-ok.visible{display:block}
+.ar-ui #knead-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px; border:1px solid rgba(232,192,122,.62);
+  border-radius:6px; background:rgba(232,192,122,.12); color:#f4d99d;
+  font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.04em;
+  cursor:pointer; -webkit-tap-highlight-color:transparent}
+.ar-ui #knead-debug-reset:active{background:rgba(232,192,122,.28)}
+.ar-ui.knead-debug #knead-debug-palm-marker.visible{display:block; position:absolute; z-index:11;
+  width:14px; height:14px; margin:-7px 0 0 -7px; border:2px solid #e8c07a; border-radius:50%;
+  background:rgba(232,192,122,.24); box-shadow:0 0 10px rgba(232,192,122,.9); pointer-events:none}
+.ar-ui.knead-debug #p-ferment .steps,
+.ar-ui.knead-debug #p-ferment .steps-hint,
+.ar-ui.knead-debug #p-ferment .dock{display:none}
+
 .ar-ui.ar-mode{background:transparent}
 .ar-ui.ar-mode canvas#gl{background:transparent}
 .ar-ui.ar-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
