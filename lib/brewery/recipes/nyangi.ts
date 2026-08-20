@@ -5,6 +5,7 @@ import {
   finishSteps,
   godubapStageModels,
   godubapSteps,
+  ingredientBasinModel,
   mashSteps,
 } from "@/lib/brewery/stages";
 
@@ -19,18 +20,52 @@ export const nyangiTakju: Recipe = {
   name: "냥이탁주 9",
 
   intro:
-    "이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 가와지쌀·정제수·누룩·밀, 이 네 가지 주원료를 골라 담아보게.",
+    "이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 가와지쌀·정제수·누룩·밀, 이 네 가지를 손으로 움켜쥐어 가운데 항아리에 부어보게.",
   ingredientsReady: "이제 고두밥부터 지어 세 번 담글 준비를 하세.",
 
   // 주원료 4종(essential) + 부재료(선택). 개수가 달라져도 엔진이 essential 개수를 세어 맞춘다.
+  //
+  // 주원료 넷은 무대에 실제 그릇으로 놓인다 — 손으로 움켜쥐어 가운데 큰 항아리에
+  // 부으면 안에 내용물이 쌓인다. 누룩만은 덩어리라 붓지 않고 통째로 넣는다.
+  // 부재료는 예전처럼 텍스처 원판으로 떠 있다 (prop 없음).
   ingredients: [
-    { id: "rice",   name: "가와지쌀", texture: "/ar/images/rice.png",   essential: true },
-    { id: "water",  name: "정제수",   texture: "/ar/images/water.png",  essential: true },
-    { id: "nuruk",  name: "누룩",     texture: "/ar/images/nuruk.png",  essential: true },
-    { id: "mil",    name: "밀함유",   texture: "/ar/images/mil.png",    essential: true },
+    {
+      id: "rice", name: "가와지쌀", texture: "/ar/images/rice.png", essential: true,
+      prop: {
+        file: `${AR_ASSETS}/rice_bowl.glb`, height: 0.115,
+        pour: true, flow: "grain", flowColor: 0xf4ece0, fillColor: 0xefe6d6, fillAmount: 0.34,
+        // 쌀이 별도 메시로 담겨 있어 다 부으면 빈 그릇으로 남는다
+        emptyOnPour: true,
+      },
+    },
+    {
+      id: "water", name: "정제수", texture: "/ar/images/water.png", essential: true,
+      prop: {
+        file: `${AR_ASSETS}/water_bottle.glb`, height: 0.19,
+        pour: true, flow: "liquid", flowColor: 0x9fd8ef, fillColor: 0xbcd9e4, fillAmount: 0.3,
+      },
+    },
+    {
+      id: "nuruk", name: "누룩", texture: "/ar/images/nuruk.png", essential: true,
+      prop: {
+        // 그릇 없이 덩어리 하나. 붓는 게 아니라 항아리에 넣기만 하면 된다.
+        file: `${AR_ASSETS}/nuruk_lump.glb`, height: 0.075,
+        pour: false, flow: "grain", flowColor: 0xd8bd86, fillColor: 0xd2b881, fillAmount: 0.18,
+      },
+    },
+    {
+      id: "mil", name: "밀함유", texture: "/ar/images/mil.png", essential: true,
+      prop: {
+        file: `${AR_ASSETS}/wheat_bowl.glb`, height: 0.1,
+        pour: true, flow: "grain", flowColor: 0xdcc38a, fillColor: 0xd6bd85, fillAmount: 0.18,
+      },
+    },
     { id: "flower", name: "국화",     texture: "/ar/images/flower.png", essential: false, flavorNote: "국화를 넣으면 은은한 국화 향이 감돈다네." },
     { id: "honey",  name: "벌꿀",     texture: "/ar/images/honey.png",  essential: false, flavorNote: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지." },
   ],
+
+  // 가운데 놓이는 큰 담금 항아리 — 입이 넓어 안에 부어진 게 잘 보인다.
+  ingredientBasin: ingredientBasinModel(),
 
   // 무대 모델은 술끼리 공유한다 (받침대·항아리·그릇, 그리고 고두밥 단계의 솥·채반)
   models: [

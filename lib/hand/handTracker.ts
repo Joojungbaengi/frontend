@@ -13,7 +13,15 @@
  * wasm·모델은 scripts/fetch-mediapipe.mjs 가 public/mediapipe/ 에 준비해 둔다.
  */
 import type { HandLandmarker } from "@mediapipe/tasks-vision";
-import { GestureState, pinchAmount, pinchRatio, screenSpan } from "@/lib/hand/gestures";
+import {
+  GestureState,
+  graspAmount,
+  gripAmount,
+  gripRatio,
+  pinchAmount,
+  pinchRatio,
+  screenSpan,
+} from "@/lib/hand/gestures";
 import { emptyHandFrame, LM, type HandFrame, type Landmark } from "@/lib/hand/types";
 
 /** scripts/fetch-mediapipe.mjs 가 채우는 폴더 */
@@ -100,8 +108,22 @@ export class HandTracker {
     const ratio = pinchRatio(world);
     const { pinching, justPinched, justReleased } = this.gesture.updatePinch(ratio);
 
+    // 움켜쥐기 — 핀치와 주먹 중 확실한 쪽을 잡는다. 원료·소쿠리·뚜껑처럼
+    // 손으로 쥐는 물건은 이걸 보고, 핀치만 보는 기존 단계는 위 값을 그대로 쓴다.
+    const pinch = pinchAmount(ratio);
+    const grip = gripAmount(gripRatio(world));
+    const grasp = graspAmount(pinch, grip);
+    const { grasping, justGrasped, justLetGo } = this.gesture.updateGrasp(grasp);
+
     const thumb = landmarks[LM.THUMB_TIP];
     const index = landmarks[LM.INDEX_TIP];
+    const pinchPoint = { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 };
+    // 주먹을 쥘수록 잡는 지점이 손가락 끝에서 손바닥 한가운데로 옮겨간다.
+    const palm = {
+      x: (landmarks[LM.INDEX_MCP].x + landmarks[LM.MIDDLE_MCP].x + landmarks[LM.RING_MCP].x + landmarks[LM.PINKY_MCP].x) / 4,
+      y: (landmarks[LM.INDEX_MCP].y + landmarks[LM.MIDDLE_MCP].y + landmarks[LM.RING_MCP].y + landmarks[LM.PINKY_MCP].y) / 4,
+    };
+    const toPalm = grip > pinch ? Math.min(1, grip) : 0;
 
     // 검출이 렌더보다 빠른 순간에는 아직 읽어가지 않은 엣지가 덮여 사라질 수 있다.
     // 소비될 때까지 붙들되, 반대 방향 엣지가 오면 그쪽이 최신이므로 밀어낸다.
@@ -112,11 +134,20 @@ export class HandTracker {
       present: true,
       landmarks,
       world: smoothWorld,
-      pinchPoint: { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 },
-      pinch: pinchAmount(ratio),
+      pinchPoint,
+      pinch,
       pinching,
       justPinched: pendingPinch,
       justReleased: pendingRelease,
+      grip,
+      grasp,
+      grasping,
+      justGrasped: justGrasped || (this.frame.justGrasped && !justLetGo),
+      justLetGo: justLetGo || (this.frame.justLetGo && !justGrasped),
+      grabPoint: {
+        x: pinchPoint.x + (palm.x - pinchPoint.x) * toPalm,
+        y: pinchPoint.y + (palm.y - pinchPoint.y) * toPalm,
+      },
       screenSpan: screenSpan(landmarks),
       handedness: readHandedness(res.handedness?.[0]?.[0]?.categoryName),
     };
@@ -147,8 +178,14 @@ export class HandTracker {
    * 렌더 루프가 읽어간 뒤 이 함수로 내려 두 번 처리되는 것을 막는다.
    */
   consumeEdges() {
-    if (this.frame.justPinched || this.frame.justReleased) {
-      this.frame = { ...this.frame, justPinched: false, justReleased: false };
+    if (this.frame.justPinched || this.frame.justReleased || this.frame.justGrasped || this.frame.justLetGo) {
+      this.frame = {
+        ...this.frame,
+        justPinched: false,
+        justReleased: false,
+        justGrasped: false,
+        justLetGo: false,
+      };
     }
   }
 

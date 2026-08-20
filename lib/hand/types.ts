@@ -14,6 +14,7 @@ export const LM = {
   MIDDLE_MCP: 9,
   MIDDLE_TIP: 12,
   RING_MCP: 13,
+  RING_TIP: 16,
   PINKY_MCP: 17,
   PINKY_TIP: 20,
 } as const;
@@ -60,6 +61,28 @@ export interface HandFrame {
   justPinched: boolean;
   /** 이 프레임에 막 폈다 */
   justReleased: boolean;
+
+  /* ── 움켜쥐기 ────────────────────────────────────────────────────────
+   * 원료·소쿠리·뚜껑처럼 "손으로 잡는" 물건은 엄지-검지 핀치만 요구하면
+   * 잘 안 잡힌다. 주먹을 쥐듯 손을 오므리는 것도 같이 잡기로 친다.
+   * 기존 pinch* 값은 그대로 두고 아래 값만 새로 본다 — 핀치로만 도는
+   * 다른 단계의 판정을 흔들지 않기 위해서다.
+   */
+  /** 0(활짝 폄) ~ 1(주먹). 네 손가락 끝이 손바닥에 얼마나 붙었나 */
+  grip: number;
+  /** 0(폄) ~ 1(쥠). 핀치와 주먹 중 더 확실한 쪽 */
+  grasp: number;
+  /** 핀치든 주먹이든 지금 무언가를 쥐고 있는 손 모양인가 */
+  grasping: boolean;
+  /** 이 프레임에 막 움켜쥐었다 */
+  justGrasped: boolean;
+  /** 이 프레임에 막 손을 폈다 */
+  justLetGo: boolean;
+  /**
+   * 물건을 쥐는 지점 (화면 정규화).
+   * 핀치면 엄지-검지 사이, 주먹이면 손바닥 한가운데로 자연스럽게 옮겨간다.
+   */
+  grabPoint: { x: number; y: number };
   /**
    * 화면에서 손이 차지하는 크기(손목~중지 MCP 거리, 화면 정규화).
    * 카메라에 가까울수록 커진다 — 깊이 추정에 쓴다.
@@ -80,6 +103,12 @@ export function emptyHandFrame(): HandFrame {
     pinching: false,
     justPinched: false,
     justReleased: false,
+    grip: 0,
+    grasp: 0,
+    grasping: false,
+    justGrasped: false,
+    justLetGo: false,
+    grabPoint: { x: 0.5, y: 0.5 },
     screenSpan: 0.2,
     handedness: null,
   };

@@ -28,6 +28,53 @@ export interface ModelDef {
   /** 원본(native) 크기 대비 배율. 지정하면 height 자동정규화 대신 이 값으로 크기를 정한다.
    *  (예: 0.05 = 원래 크기의 5%. 납작한 보자기·채반처럼 height 정규화가 안 맞는 모델에 쓴다) */
   scaleFactor?: number;
+  /**
+   * 모델에 미리 담겨 있는 내용물을 걷어내고 빈 그릇으로 쓴다.
+   *
+   * 쌀이 수북이 담긴 채로 만들어진 그릇을 그대로 쓰면, 우리가 코드로 그리는 물과
+   * 쌀알이 그 속에 파묻혀 아무것도 안 보인다. 씻고 불리고 터는 과정을 보여주려면
+   * 그릇은 비어 있어야 한다.
+   *
+   * 걷어내는 기준은 두 가지다 — GPU 인스턴싱으로 흩뿌려 둔 알갱이,
+   * 그리고 그릇 위쪽 절반에만 떠 있는(=담긴 것일 수밖에 없는) 메시.
+   */
+  hollow?: boolean;
+}
+
+/**
+ * 원료 고르기 무대에 실제로 놓이는 재료 그릇/통.
+ *
+ * 손으로 움켜쥐어 큰 담금 항아리로 가져가면, 안에 든 것이 항아리로 옮겨간다.
+ * 이 정보가 없는 원료(부재료 등)는 예전처럼 텍스처 원판으로 떠 있는다.
+ */
+export interface IngredientProp {
+  /** 3D 모델 파일 (public/ 기준 경로) */
+  file: string;
+  /** 무대에 놓았을 때의 실제 높이(m) */
+  height: number;
+  /** 원본 크기 대비 배율. 지정하면 height 자동정규화 대신 이 값을 쓴다 */
+  scaleFactor?: number;
+  /** 무대에 놓을 때 돌려 세울 각도(rad) */
+  yaw?: number;
+  /**
+   * 기울여 "붓는" 재료인가.
+   * false 면 누룩처럼 통째로 항아리에 넣기만 하면 된다 (붓는 연출이 없다).
+   */
+  pour: boolean;
+  /** 쏟아지는 모양 — 알갱이(쌀·밀)인가 물줄기인가 */
+  flow?: "grain" | "liquid";
+  /** 쏟아지는 내용물의 색 */
+  flowColor?: number;
+  /** 항아리 안에 쌓였을 때의 색 (없으면 flowColor) */
+  fillColor?: number;
+  /** 항아리를 채우는 정도 0~1 — 네 재료의 합이 대략 1이 되게 나눠 준다 */
+  fillAmount?: number;
+  /**
+   * 다 부으면 그릇 안이 비어 보이게 한다.
+   * 내용물이 별도 메시로 들어 있는 그릇에만 켠다 — 그릇과 내용물이 한 덩어리로
+   * 만들어진 모델에 켜면 엉뚱한 부분이 사라진다.
+   */
+  emptyOnPour?: boolean;
 }
 
 export interface Ingredient {
@@ -39,6 +86,8 @@ export interface Ingredient {
   essential: boolean;
   /** 부재료일 때, 담으면 장인이 들려주는 향 설명 */
   flavorNote?: string;
+  /** 원료 고르기 무대에 놓을 3D 그릇. 없으면 텍스처 원판으로 뜬다 */
+  prop?: IngredientProp;
 }
 
 export interface ProcessStep {
@@ -78,6 +127,11 @@ export interface Recipe {
   ingredientsReady: string;
 
   ingredients: Ingredient[];
+  /**
+   * 원료 고르기 한가운데 놓이는 큰 담금 항아리.
+   * 재료를 여기에 부으면 안에 내용물이 쌓인다.
+   */
+  ingredientBasin?: ModelDef;
   models: ModelDef[];
   /** 고두밥 단계에서 하위 단계별로 갈아 끼우는 무대 모델들(그릇·솥·채반·보자기·쌀 등) */
   godubapModels?: ModelDef[];

@@ -33,23 +33,35 @@ export function brewName(rounds: number): string {
  * 무대 모델
  * ──────────────────────────────────────────────────────────────────────*/
 
-/** 어느 술이든 쓰는 무대 모델 — 받침대, 담금 항아리, 원료 그릇 */
+/** 어느 술이든 쓰는 무대 모델 — 받침대와 발효 항아리 */
 export function commonStageModels(): ModelDef[] {
   return [
     { id: "low_wooden_bench", file: `${AR_ASSETS}/low_wooden_bench.glb`, step: "common", height: 0.14, y: 0.03 },
     { id: "water_jar", file: `${AR_ASSETS}/water_jar.glb`, step: "ferment", height: 0.17, y: 0.03 },
-    { id: "bamboo_basket", file: `${AR_ASSETS}/bamboo_basket.glb`, step: "ingredient", height: 0.12, y: 0.03 },
   ];
+}
+
+/** 원료 고르기 한가운데 놓이는 큰 담금 항아리 — 재료를 여기에 붓는다 */
+export function ingredientBasinModel(): ModelDef {
+  return { id: "large_basin", file: `${AR_ASSETS}/large-basin.glb`, step: "ingredient", height: 0.13, y: 0.03 };
 }
 
 /**
  * 고두밥 단계에서 갈아 끼우는 모델.
- *   세미·침수·탈수 → 그릇 / 증자 → 솥 / 냉각 → 채반
+ *   세미·침수 → 이남박 / 탈수 → 소쿠리 / 증자 → 화덕 위 시루 / 냉각 → 채반
  */
 export function godubapStageModels(): ModelDef[] {
   return [
-    { id: "rice_bowl", file: `${AR_ASSETS}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03 },
-    { id: "kitchen_pot", file: `${AR_ASSETS}/kitchen_pot.glb`, step: "godubap", height: 0.22, y: 0.03 },
+    // 같은 그릇이지만 여기서는 비워서 쓴다 — 물과 쌀알을 코드로 그려 넣어야 하니까.
+    // (원료 고르기에서는 쌀이 담긴 그대로 쓴다)
+    { id: "rice_bowl", file: `${AR_ASSETS}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03, hollow: true },
+    { id: "bamboo_basket", file: `${AR_ASSETS}/bamboo_basket.glb`, step: "godubap", height: 0.11, y: 0.03 },
+    // 증자 — 받침대를 치우고 바닥에 화덕을 놓는다. y 는 화덕 위 솥 자리에서 다시 잰다.
+    { id: "camp_fire", file: `${AR_ASSETS}/camp_fire.glb`, step: "godubap", height: 0.115, y: 0 },
+    // 솥과 뚜껑은 한 모델에서 갈라 나온 짝이라 **같은 배율**로 키워야 아귀가 맞는다.
+    // 각자 목표 높이로 정규화하면 뚜껑이 솥보다 작거나 커져서 덮이지 않는다.
+    { id: "steamer_pot", file: `${AR_ASSETS}/steamer_pot.glb`, step: "godubap", height: 0.16, y: 0, scaleFactor: 1.25 },
+    { id: "steamer_lid", file: `${AR_ASSETS}/steamer_lid.glb`, step: "godubap", height: 0.075, y: 0, scaleFactor: 1.25 },
     { id: "metal_food_tray", file: `${AR_ASSETS}/metal_food_tray.glb`, step: "godubap", height: 0.05, y: 0.03 },
   ];
 }
@@ -92,17 +104,19 @@ export function godubapSteps(o: GodubapOptions = {}): ProcessStep[] {
       models: ["rice_bowl", "bowl_rice"],
       water: 1,
     },
+    // 탈수부터는 그릇이 아니라 소쿠리다 — 물이 빠져야 하니까.
     {
       id: "talsu",
       name: "탈수",
-      caption: c.talsu ?? `${drain}시간 동안 물을 빼줘요`,
-      models: ["rice_bowl", "bowl_rice"],
+      caption: c.talsu ?? `${drain}시간 물을 빼요 · 소쿠리를 위아래로 털어 주세요`,
+      models: ["bamboo_basket", "bowl_rice"],
+      water: 1,
     },
     {
       id: "jeungja",
       name: "증자",
-      caption: c.jeungja ?? "강한 증기로 쪄 고두밥을 지어요",
-      models: ["kitchen_pot"],
+      caption: c.jeungja ?? "뚜껑을 덮고 강한 증기로 쪄 고두밥을 지어요",
+      models: ["camp_fire", "steamer_pot", "steamer_lid", "bowl_rice"],
       steam: true,
     },
     {
