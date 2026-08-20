@@ -111,7 +111,60 @@ export const styles = `
 .ar-ui .pill[data-state="now"]::before{background:var(--clay); border-color:#dd8a72;
   animation:ar-pulse 1.8s ease-in-out infinite}
 
+/* 후발효 단계: 저온숙성·출고와 같은 방식으로 항아리 아이콘을 표시한다. */
+.ar-ui #ferment-pills .pill[data-step-id="post"][data-state="todo"]::before{
+  content:"";
+  width:22px;
+  height:22px;
+  margin-top:0;
+  border-width:1px;
+  background:
+    url("/ar/ui/post-fermentation-jar-icon.png") center / 15px 15px no-repeat,
+    var(--panel-2);
+}
+
+.ar-ui #ferment-pills .pill[data-step-id="post"][data-state="now"]{
+  color:#f4bd72;
+  font-weight:700;
+  text-shadow:
+    0 1px 5px rgba(0,0,0,.75),
+    0 0 8px rgba(240,155,66,.34);
+}
+
+.ar-ui #ferment-pills .pill[data-step-id="post"][data-state="now"]::before{
+  content:"";
+  width:34px;
+  height:34px;
+  margin-top:-6px;
+  border-radius:50%;
+  background:
+    url("/ar/ui/post-fermentation-jar-icon.png") center / 24px 24px no-repeat,
+    radial-gradient(circle at 40% 34%,#b64e2d 0%,#963720 58%,#742419 100%);
+  border:2px solid #f2aa50;
+  box-shadow:
+    0 0 0 2px rgba(255,180,74,.22),
+    0 0 7px 2px rgba(255,166,55,.72),
+    0 0 18px 5px rgba(224,93,25,.42),
+    inset 0 1px 5px rgba(255,198,111,.24),
+    0 2px 5px rgba(0,0,0,.22);
+  transform-origin:center;
+  animation:
+    ar-ship-step-enter .46s cubic-bezier(.18,.82,.24,1.18) both,
+    ar-ship-step-glow 1.8s .46s ease-in-out infinite;
+}
+
 /* 저온숙성 진행 중: 출고와 같은 보상형 상태 UI에 숙성 용기 아이콘을 쓴다. */
+.ar-ui #press-pills .pill[data-step-id="aging"][data-state="todo"]::before{
+  content:"";
+  width:22px;
+  height:22px;
+  margin-top:0;
+  border-width:1px;
+  background:
+    url("/ar/ui/aging-cold-jar-icon.png") center / 15px 15px no-repeat,
+    var(--panel-2);
+}
+
 .ar-ui #press-pills .pill[data-step-id="aging"][data-state="now"]{
   color:#f4bd72;
   font-weight:700;
