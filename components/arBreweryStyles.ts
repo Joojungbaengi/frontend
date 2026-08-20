@@ -102,6 +102,24 @@ export const styles = `
   font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.04em; cursor:pointer}
 .ar-ui #mitsul-debug-reset:active{background:rgba(232,192,122,.28)}
 
+/* 밑술 1차 발효 QA — production에는 노출하지 않는다. */
+.ar-ui .mitsul-ferment-debug-panel{display:none}
+.ar-ui.mitsul-ferment-debug .mitsul-ferment-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(230px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(246,190,108,.62); border-radius:10px;
+  background:rgba(24,15,8,.91); color:rgba(250,240,218,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.42); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .mitsul-ferment-debug-panel > div:not(.mitsul-ferment-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .mitsul-ferment-debug-panel b{color:#fff7e5; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .mitsul-ferment-debug-title{margin-bottom:3px; color:#f0bd72; font-weight:800; letter-spacing:.04em}
+.ar-ui #mitsul-ferment-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
+  background:#3f7a4e; color:#fff; text-align:center; letter-spacing:.05em}
+.ar-ui #mitsul-ferment-debug-ok.visible{display:block}
+.ar-ui #mitsul-ferment-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px;
+  border:1px solid rgba(240,189,114,.65); border-radius:6px; background:rgba(240,189,114,.12); color:#f7d7a5;
+  font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.04em; cursor:pointer}
+.ar-ui #mitsul-ferment-debug-reset:active{background:rgba(240,189,114,.28)}
+
 .ar-ui.ar-mode{background:transparent}
 .ar-ui.ar-mode canvas#gl{background:transparent}
 .ar-ui.ar-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
@@ -116,6 +134,7 @@ export const styles = `
   backdrop-filter:blur(6px); font-size:12.5px; color:var(--cream-dim);
   box-shadow:0 10px 24px rgba(0,0,0,.4)}
 .ar-ui.hands-on .hand-hud{display:flex}
+.ar-ui.mitsul-no-hands #p-ferment .hand-hud{display:none}
 .ar-ui .hand-hud .lamp{width:8px; height:8px; border-radius:50%; flex:none;
   background:rgba(243,230,204,.35); transition:background .18s ease, box-shadow .18s ease}
 .ar-ui .hand-hud[data-state="tracking"] .lamp{background:var(--sage); box-shadow:0 0 8px var(--sage)}
@@ -213,6 +232,10 @@ export const styles = `
 .ar-ui #ferment-game{display:flex; flex-direction:column; gap:14px}
 .ar-ui #mitsul-mix-game{display:flex; flex-direction:column; gap:12px}
 .ar-ui #mitsul-mix-game.hidden{display:none}
+.ar-ui #mitsul-timelapse{display:flex; flex-direction:column; gap:12px; padding:14px 15px;
+  border:1px solid var(--line); border-radius:var(--r-md); background:rgba(28,21,12,.82); backdrop-filter:blur(6px)}
+.ar-ui #mitsul-timelapse.hidden{display:none}
+.ar-ui .mitsul-ferment-message{font-size:13px; line-height:1.55; color:var(--cream); text-align:center}
 .ar-ui #btn-mitsul-mix.complete{background:#3f7a4e; color:#fff; opacity:1}
 .ar-ui .ferment-rate[data-state="ok"]{color:var(--sage)}
 .ar-ui .ferment-rate[data-state="warn"]{color:#e8c07a}
