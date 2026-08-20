@@ -5,8 +5,8 @@ import { LM, type HandFrame } from "@/lib/hand/types";
 
 /** Galaxy 실기기 측정값을 보고 한곳에서 조절할 knead 판정값. */
 export const KNEAD = {
-  OPEN_THRESHOLD: 1.55,
-  CLOSED_THRESHOLD: 1.05,
+  OPEN_THRESHOLD: 0.90,
+  CLOSED_THRESHOLD: 0.72,
   POSE_HOLD_MS: 120,
   MIN_CYCLE_MS: 250,
   MAX_CYCLE_MS: 1800,
