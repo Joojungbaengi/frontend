@@ -56,14 +56,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const trayDebug = query.get("trayDebug") === "1";
     const riceSpreadDebug = query.get("riceSpreadDebug") === "1";
     const kneadDebug = query.get("kneadDebug") === "1";
+    const mitsulMixDebug = query.get("mitsulMixDebug") === "1";
     const skipToCooling = trayDebug && query.get("skipTo") === "cooling";
     const skipToRiceSpread = riceSpreadDebug && query.get("skipTo") === "riceSpread";
     const skipToKnead = kneadDebug && query.get("skipTo") === "knead";
+    const skipToMitsulMix = mitsulMixDebug && query.get("skipTo") === "mitsulMix";
     /** debug query가 없을 때는 검증된 냉각①~④를 실제 공정으로 사용한다. */
     const productionCooling = !trayDebug && !riceSpreadDebug;
+    const productionMitsulMix = mitsulMixDebug || (!trayDebug && !riceSpreadDebug && !kneadDebug);
     uiRoot.classList.toggle("tray-debug", trayDebug);
     uiRoot.classList.toggle("rice-spread-debug", riceSpreadDebug);
     uiRoot.classList.toggle("knead-debug", kneadDebug);
+    uiRoot.classList.toggle("mitsul-mix-debug", mitsulMixDebug);
 
     /* =====================================================================
      * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
@@ -120,6 +124,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       temp: 27,
       ferment: 0,
       fstage: 0,
+      mitsulPhase: "RICE" as "RICE" | "NURUK" | "WATER" | "KNEAD" | "COMPLETE",
+      mitsulPourProgress: 0,
+      mitsulKneadCount: 0,
+      mitsulDone: false,
       press: 0,
       tempLog: [] as number[],
       xr: false,
@@ -142,6 +150,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let resetCoolingInteraction: (() => void) | null = null;
     let startCoolingFan: (() => void) | null = null;
     let resetKneadInteraction: (() => void) | null = null;
+    let resetMitsulMixInteraction: (() => void) | null = null;
     // 완성 공정 단계가 바뀔 때 출고 제품(Nyangi)을 보이는 함수(buildFinish 가 채운다)
     let finishShowShip: (() => void) | null = null;
     // 발효 하위 단계가 바뀔 때 채반고두밥/항아리를 갈아 끼우는 함수(buildFerment 가 채운다)
@@ -186,12 +195,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const HAND_STEPS = new Set<typeof S.step>([
       "ingredient",
       "godubap",
-      ...(kneadDebug ? (["ferment"] as const) : []),
+      ...((kneadDebug || productionMitsulMix) ? (["ferment"] as const) : []),
     ]);
 
     function setStep(next: typeof S.step) {
       if (productionCooling && S.step === "godubap" && next !== "godubap") {
         resetCoolingInteraction?.();
+      }
+      if (productionMitsulMix && S.step === "ferment" && next !== "ferment") {
+        resetMitsulMixInteraction?.();
       }
       S.step = next;
       uiRoot!.dataset.step = next;
@@ -290,6 +302,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const gltfLoader = new GLTFLoader();
     const DEBUG_TRAY_ID = "__tray_pull_debug";
     const DEBUG_TRAY_FILE = "/ar/3d-assets/metal_tray.glb";
+    const MITSUL_JAR_ID = "__mitsul_jar_body";
+    const MITSUL_JAR_FILE = "/ar/3d-assets/jar_body_optimized.glb";
 
     async function preloadModels() {
       const recipeLoads = Promise.all(
@@ -310,7 +324,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               e instanceof Error ? e.message : e
             ))
         : Promise.resolve();
-      await Promise.all([recipeLoads, debugTrayLoad]);
+      const mitsulJarLoad = productionMitsulMix
+        ? gltfLoader.loadAsync(MITSUL_JAR_FILE)
+            .then((gltf) => { LOADED[MITSUL_JAR_ID] = gltf; })
+            .catch((e: unknown) => console.warn(
+              "밑술 항아리 로드 실패:",
+              MITSUL_JAR_FILE,
+              e instanceof Error ? e.message : e
+            ))
+        : Promise.resolve();
+      await Promise.all([recipeLoads, debugTrayLoad, mitsulJarLoad]);
     }
 
     function spawnModel(def: ModelDef): THREE.Object3D | null {
@@ -492,6 +515,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       resetCoolingInteraction = null;
       startCoolingFan = null;
       resetKneadInteraction = null;
+      resetMitsulMixInteraction = null;
       finishShowShip = null;
       fermentShowStage = null;
       uiRoot!.classList.remove("cooling"); // 냉각 비네트는 무대가 바뀌면 끈다
@@ -2071,6 +2095,463 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     /* --- 14 · 발효 --- */
+    function buildMitsulMix() {
+      const platformTop = addPlatform();
+      frame3D(platformTop + 0.2, 0.76, 0.64);
+
+      const JAR_SCALE = 0.17;
+      const PICK_RADIUS = 0.13;
+      const POUR_TARGET_RADIUS = 0.16;
+      const POUR_TILT_RAD = THREE.MathUtils.degToRad(38);
+      const POUR_DURATION_MS = 1200;
+      const PHASES = ["RICE", "NURUK", "WATER", "KNEAD", "COMPLETE"] as const;
+      type MixPhase = (typeof PHASES)[number];
+      type PourPhase = "RICE" | "NURUK" | "WATER";
+      type PourActor = { phase: PourPhase; label: string; node: THREE.Group; home: THREE.Vector3 };
+
+      const jarRig = new THREE.Group();
+      jarRig.position.set(0, platformTop, 0);
+      stageGroup.add(jarRig);
+
+      let jarReady = false;
+      let jarHeight = 0.28;
+      let jarWidth = 0.24;
+      const jarGltf = LOADED[MITSUL_JAR_ID];
+      if (jarGltf?.scene) {
+        const jarModel = skinnedClone(jarGltf.scene) as THREE.Object3D;
+        jarModel.scale.setScalar(JAR_SCALE);
+        jarModel.traverse((object: THREE.Object3D) => {
+          const mesh = object as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((material) => material.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+        });
+        const bounds = new THREE.Box3().setFromObject(jarModel);
+        const center = bounds.getCenter(new THREE.Vector3());
+        const size = bounds.getSize(new THREE.Vector3());
+        jarModel.position.set(-center.x, -bounds.min.y, -center.z);
+        jarRig.add(jarModel);
+        jarHeight = size.y;
+        jarWidth = Math.max(size.x, size.z);
+        jarReady = true;
+      } else {
+        const fallback = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.12, 0.095, jarHeight, 40, 1, true),
+          new THREE.MeshStandardMaterial({ color: 0x4b3024, roughness: 0.82, side: THREE.DoubleSide })
+        );
+        fallback.position.y = jarHeight * 0.5;
+        fallback.castShadow = fallback.receiveShadow = true;
+        jarRig.add(fallback);
+      }
+
+      const mashBottomY = Math.max(0.05, jarHeight - 0.058);
+      const mashRadius = Math.min(0.09, jarWidth * 0.31);
+      const mashStartHeight = 0.032;
+      const mashFinalHeight = 0.016;
+      const riceTexturePath = recipe.godubapRicePlane?.texture;
+      const riceTexture = riceTexturePath ? new THREE.TextureLoader().load(riceTexturePath) : null;
+      if (riceTexture) {
+        riceTexture.colorSpace = THREE.SRGBColorSpace;
+        riceTexture.wrapS = THREE.MirroredRepeatWrapping;
+        riceTexture.wrapT = THREE.MirroredRepeatWrapping;
+        riceTexture.repeat.set(2.2, 2.2);
+      }
+      const mashMaterial = new THREE.MeshStandardMaterial({ color: 0xeadfc4, map: riceTexture, roughness: 0.96 });
+      const mash = new THREE.Mesh(
+        new THREE.CylinderGeometry(mashRadius, mashRadius * 0.98, mashStartHeight, 48),
+        mashMaterial
+      );
+      mash.position.y = mashBottomY + mashStartHeight * 0.5;
+      mash.castShadow = mash.receiveShadow = true;
+      mash.visible = false;
+      jarRig.add(mash);
+
+      const nurukPositions: number[] = [];
+      for (let i = 0; i < 60; i++) {
+        const angle = i * 2.399963;
+        const radius = mashRadius * 0.88 * Math.sqrt((i + 0.5) / 60);
+        nurukPositions.push(Math.cos(angle) * radius, mashBottomY + mashStartHeight + 0.004, Math.sin(angle) * radius);
+      }
+      const nurukGeometry = new THREE.BufferGeometry();
+      nurukGeometry.setAttribute("position", new THREE.Float32BufferAttribute(nurukPositions, 3));
+      const nurukMaterial = new THREE.PointsMaterial({ color: 0xb88a4d, size: 0.007, transparent: true });
+      const nurukLayer = new THREE.Points(nurukGeometry, nurukMaterial);
+      nurukLayer.visible = false;
+      jarRig.add(nurukLayer);
+
+      const liquidMaterial = new THREE.MeshPhysicalMaterial({
+        color: 0xb8d2cf, transparent: true, opacity: 0.42, roughness: 0.2,
+        transmission: 0.18, depthWrite: false,
+      });
+      const liquid = new THREE.Mesh(
+        new THREE.CircleGeometry(mashRadius * 0.98, 48).rotateX(-Math.PI / 2),
+        liquidMaterial
+      );
+      liquid.position.y = mashBottomY + mashStartHeight + 0.008;
+      liquid.visible = false;
+      jarRig.add(liquid);
+
+      const targetOutline = new THREE.Mesh(
+        new THREE.RingGeometry(mashRadius, mashRadius * KNEAD.TARGET_PADDING, 48).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0xe8c07a, transparent: true, opacity: 0.72,
+          side: THREE.DoubleSide, depthTest: false,
+        })
+      );
+      targetOutline.position.y = liquid.position.y + 0.006;
+      targetOutline.renderOrder = 9;
+      targetOutline.visible = false;
+      jarRig.add(targetOutline);
+
+      const actors: PourActor[] = [];
+      const addActor = (phase: PourPhase, label: string, node: THREE.Group, home: THREE.Vector3) => {
+        node.position.copy(home);
+        node.userData.baseRotation = node.rotation.clone();
+        stageGroup.add(node);
+        actors.push({ phase, label, node, home });
+      };
+
+      const trayActor = new THREE.Group();
+      const trayGltf = LOADED[DEBUG_TRAY_ID];
+      if (trayGltf?.scene) {
+        const trayModel = skinnedClone(trayGltf.scene) as THREE.Object3D;
+        trayModel.traverse((object: THREE.Object3D) => {
+          const mesh = object as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((material) => material.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+        });
+        const box = new THREE.Box3().setFromObject(trayModel);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        trayModel.position.set(-center.x, -box.min.y, -center.z);
+        trayActor.add(trayModel);
+        const riceSource = new THREE.Mesh(
+          new THREE.BoxGeometry(size.x * 0.94, 0.014, size.z * 0.94),
+          new THREE.MeshStandardMaterial({ color: 0xeee5cf, map: riceTexture, roughness: 0.96 })
+        );
+        riceSource.position.y = size.y + 0.009;
+        riceSource.castShadow = riceSource.receiveShadow = true;
+        riceSource.name = "mitsul-rice-source";
+        trayActor.add(riceSource);
+      }
+      addActor("RICE", "식힌 고두밥", trayActor, new THREE.Vector3(-0.27, platformTop + 0.055, 0.08));
+
+      const nurukActor = new THREE.Group();
+      const bowl = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.072, 0.055, 0.045, 32, 1, true),
+        new THREE.MeshStandardMaterial({ color: 0x8c623d, roughness: 0.9, side: THREE.DoubleSide })
+      );
+      bowl.position.y = 0.0225;
+      bowl.castShadow = bowl.receiveShadow = true;
+      nurukActor.add(bowl);
+      const nurukTexturePath = INGREDIENTS.find((ingredient) => ingredient.id === "nuruk")?.texture;
+      const nurukTexture = nurukTexturePath ? new THREE.TextureLoader().load(nurukTexturePath) : null;
+      if (nurukTexture) nurukTexture.colorSpace = THREE.SRGBColorSpace;
+      const nurukTop = new THREE.Mesh(
+        new THREE.CircleGeometry(0.058, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0xc29b63, map: nurukTexture, roughness: 1 })
+      );
+      nurukTop.position.y = 0.046;
+      nurukActor.add(nurukTop);
+      addActor("NURUK", "누룩", nurukActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
+
+      const waterActor = new THREE.Group();
+      const waterDef = MODELS.find((model) => model.id === "water_jar");
+      const waterModel = waterDef ? spawnModel(waterDef) : null;
+      if (waterModel) waterActor.add(waterModel);
+      else {
+        const fallbackWater = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.045, 0.055, 0.13, 32),
+          new THREE.MeshStandardMaterial({ color: 0x7c6950, roughness: 0.86 })
+        );
+        fallbackWater.position.y = 0.065;
+        waterActor.add(fallbackWater);
+      }
+      addActor("WATER", "물 항아리", waterActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
+
+      const streamPositions = new Float32Array(30 * 3);
+      const streamGeometry = new THREE.BufferGeometry();
+      streamGeometry.setAttribute("position", new THREE.BufferAttribute(streamPositions, 3));
+      const streamMaterial = new THREE.PointsMaterial({
+        color: 0xeadfc4, size: 0.008, transparent: true, opacity: 0.92, depthWrite: false,
+      });
+      const stream = new THREE.Points(streamGeometry, streamMaterial);
+      stream.visible = false;
+      stageGroup.add(stream);
+
+      const kneadGesture = new KneadGesture();
+      const emptyKneadSnapshot = (): KneadSnapshot => ({
+        state: "WAIT_OPEN", pose: "TRANSITION", onMash: false, handRatio: 0,
+        fingertipMeanDistance: 0, palmScale: 0, count: 0, progress: 0, justKneaded: false,
+      });
+      let kneadSnapshot = emptyKneadSnapshot();
+      let held: PourActor | null = null;
+      let heldDepth = 1;
+      let pouring = false;
+      let lastPourAt = performance.now();
+      let streamTime = 0;
+      let kneadPulse = 0;
+      const actorWorld = new THREE.Vector3();
+      const actorScreen = { x: 0.5, y: 0.5 };
+      const followTarget = new THREE.Vector3();
+      const jarOpeningWorld = new THREE.Vector3();
+      const jarOpeningScreen = { x: 0.5, y: 0.5 };
+      const mashRightWorld = new THREE.Vector3();
+      const mashFrontWorld = new THREE.Vector3();
+      const mashRightScreen = { x: 0.5, y: 0.5 };
+      const mashFrontScreen = { x: 0.5, y: 0.5 };
+
+      const phaseIndex = (phase: MixPhase) => PHASES.indexOf(phase);
+      const activeActor = () => actors.find((actor) => actor.phase === S.mitsulPhase) ?? null;
+      const setMixDebug = (id: string, value: string) => {
+        const element = $(id);
+        if (element) element.textContent = value;
+      };
+
+      function syncActorVisibility() {
+        actors.forEach((actor) => { actor.node.visible = actor.phase === S.mitsulPhase; });
+      }
+
+      function applyMixVisual() {
+        const phase = S.mitsulPhase as MixPhase;
+        const index = phaseIndex(phase);
+        const pour = S.mitsulPourProgress;
+        mash.visible = index > 0 || (phase === "RICE" && pour > 0);
+        nurukLayer.visible = index > 1 || (phase === "NURUK" && pour > 0);
+        liquid.visible = index > 2 || (phase === "WATER" && pour > 0);
+        const riceAmount = index > 0 ? 1 : phase === "RICE" ? pour : 0;
+        const nurukAmount = index > 1 ? 1 : phase === "NURUK" ? pour : 0;
+        const waterAmount = index > 2 ? 1 : phase === "WATER" ? pour : 0;
+        const riceAmountScale = THREE.MathUtils.lerp(0.72, 1, riceAmount);
+        nurukMaterial.opacity = THREE.MathUtils.lerp(0.18, 1, nurukAmount);
+        liquid.scale.setScalar(THREE.MathUtils.lerp(0.55, 1, waterAmount));
+        liquidMaterial.opacity = THREE.MathUtils.lerp(0.12, 0.42, waterAmount);
+
+        const kneadProgress = phase === "COMPLETE" ? 1 : phase === "KNEAD" ? kneadSnapshot.progress : 0;
+        const height = THREE.MathUtils.lerp(mashStartHeight, mashFinalHeight, kneadProgress);
+        const spread = riceAmountScale * THREE.MathUtils.lerp(0.94, 1.04, kneadProgress) + kneadPulse * 0.025;
+        mash.scale.set(spread, height / mashStartHeight, spread);
+        mash.position.y = mashBottomY + height * 0.5 + kneadPulse * 0.002;
+        liquid.position.y = mashBottomY + height + 0.004 + waterAmount * 0.008;
+        nurukLayer.position.y = height - mashStartHeight;
+        targetOutline.position.y = liquid.position.y + 0.006;
+        mashMaterial.color.setHex(kneadProgress >= 1 ? 0xd2bd91 : 0xeadfc4);
+
+        const riceSource = trayActor.getObjectByName("mitsul-rice-source");
+        if (riceSource) {
+          const remaining = phase === "RICE" ? 1 - pour : index > 0 ? 0 : 1;
+          const footprint = Math.sqrt(Math.max(0.01, remaining));
+          riceSource.scale.set(footprint, Math.max(0.08, remaining), footprint);
+          riceSource.visible = remaining > 0.02;
+        }
+      }
+
+      function updateMixPanel(frame: HandFrame | null, nearJar = false, tilt = 0, onMash = false) {
+        if (!mitsulMixDebug) return;
+        const index = phaseIndex(S.mitsulPhase as MixPhase);
+        setMixDebug("#mitsul-debug-hand", frame?.present ? "FOUND" : "LOST");
+        setMixDebug("#mitsul-debug-phase", S.mitsulPhase);
+        setMixDebug("#mitsul-debug-grab", held ? "YES" : "NO");
+        setMixDebug("#mitsul-debug-target", nearJar ? "IN" : "OUT");
+        setMixDebug("#mitsul-debug-tilt", `${THREE.MathUtils.radToDeg(tilt).toFixed(0)}°`);
+        setMixDebug("#mitsul-debug-pour", `${Math.round(S.mitsulPourProgress * 100)}%`);
+        setMixDebug("#mitsul-debug-knead", `${S.mitsulKneadCount} / ${KNEAD.TARGET_KNEAD_COUNT}`);
+        setMixDebug("#mitsul-debug-on-mash", onMash ? "YES" : "NO");
+        setMixDebug("#mitsul-debug-jar", jarReady ? "READY" : "MISSING");
+        setMixDebug("#mitsul-debug-rice", index > 0 ? "DONE" : index === 0 && S.mitsulPourProgress > 0 ? "POURING" : "WAIT");
+        setMixDebug("#mitsul-debug-nuruk", index > 1 ? "DONE" : index === 1 && S.mitsulPourProgress > 0 ? "POURING" : "WAIT");
+        setMixDebug("#mitsul-debug-water", index > 2 ? "DONE" : index === 2 && S.mitsulPourProgress > 0 ? "POURING" : "WAIT");
+        $("#mitsul-debug-ok")?.classList.toggle("visible", S.mitsulDone);
+      }
+
+      function returnHeldHome() {
+        if (!held) return;
+        held.node.position.copy(held.home);
+        held.node.rotation.copy(held.node.userData.baseRotation as THREE.Euler);
+        held = null;
+        pouring = false;
+        stream.visible = false;
+      }
+
+      function advancePhase() {
+        const next = PHASES[Math.min(PHASES.length - 1, phaseIndex(S.mitsulPhase as MixPhase) + 1)];
+        returnHeldHome();
+        S.mitsulPhase = next;
+        S.mitsulPourProgress = 0;
+        if (next === "KNEAD") {
+          kneadGesture.reset();
+          kneadSnapshot = emptyKneadSnapshot();
+          targetOutline.visible = mitsulMixDebug;
+        }
+        syncActorVisibility();
+        applyMixVisual();
+        syncMitsulMixUi();
+        updateMixPanel(null);
+      }
+
+      resetMitsulMixInteraction = () => {
+        returnHeldHome();
+        kneadGesture.reset();
+        kneadSnapshot = emptyKneadSnapshot();
+        S.mitsulPhase = "RICE";
+        S.mitsulPourProgress = 0;
+        S.mitsulKneadCount = 0;
+        S.mitsulDone = false;
+        kneadPulse = 0;
+        targetOutline.visible = false;
+        handTracker?.setPaused(false);
+        syncActorVisibility();
+        applyMixVisual();
+        syncMitsulMixUi();
+        updateMixPanel(null);
+        setHandHud("tracking", "식힌 고두밥 채반을 집어 항아리에 부어주세요");
+      };
+
+      const resetButton = $("#mitsul-debug-reset") as HTMLButtonElement | null;
+      if (resetButton) resetButton.onclick = resetMitsulMixInteraction;
+      resetMitsulMixInteraction();
+
+      live.onHand = (frame, hand) => {
+        const now = performance.now();
+        const phase = S.mitsulPhase as MixPhase;
+        jarRig.updateWorldMatrix(true, true);
+        jarRig.localToWorld(jarOpeningWorld.set(0, liquid.position.y, 0));
+        worldToScreen(jarOpeningWorld, camera, jarOpeningScreen);
+
+        if (phase === "KNEAD" || phase === "COMPLETE") {
+          const rawPalm = palmCenter(frame);
+          const palm = rawPalm ? toScreen(rawPalm, handFit) : { x: 0.5, y: 0.5 };
+          let onMash = false;
+          if (rawPalm) {
+            jarRig.localToWorld(mashRightWorld.set(mashRadius, liquid.position.y, 0));
+            jarRig.localToWorld(mashFrontWorld.set(0, liquid.position.y, mashRadius));
+            worldToScreen(mashRightWorld, camera, mashRightScreen);
+            worldToScreen(mashFrontWorld, camera, mashFrontScreen);
+            const ax = mashRightScreen.x - jarOpeningScreen.x;
+            const ay = mashRightScreen.y - jarOpeningScreen.y;
+            const bx = mashFrontScreen.x - jarOpeningScreen.x;
+            const by = mashFrontScreen.y - jarOpeningScreen.y;
+            const px = palm.x - jarOpeningScreen.x;
+            const py = palm.y - jarOpeningScreen.y;
+            const det = ax * by - ay * bx;
+            if (Math.abs(det) > 1e-6) {
+              const localX = (px * by - py * bx) / det;
+              const localZ = (ax * py - ay * px) / det;
+              onMash = localX * localX + localZ * localZ <= KNEAD.TARGET_PADDING ** 2;
+            }
+          }
+          if (phase === "KNEAD") {
+            kneadSnapshot = kneadGesture.update(frame, onMash);
+            S.mitsulKneadCount = kneadSnapshot.count;
+            if (kneadSnapshot.justKneaded) kneadPulse = 1;
+            if (kneadSnapshot.state === "COMPLETE") {
+              S.mitsulPhase = "COMPLETE";
+              S.mitsulDone = true;
+              targetOutline.visible = false;
+              handTracker?.setPaused(true);
+            }
+            applyMixVisual();
+            syncMitsulMixUi();
+            updateMixPanel(frame, false, 0, onMash);
+            if (S.mitsulDone) setHandHud("dropped", "재료가 골고루 섞였어요 · 혼합 완료");
+            else if (!frame.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+            else if (!onMash) setHandHud("tracking", "손바닥을 항아리 속 재료 위에 올려주세요");
+            else if (kneadSnapshot.justKneaded) setHandHud("dropped", `치대기 ${kneadSnapshot.count}/${KNEAD.TARGET_KNEAD_COUNT}`);
+            else if (kneadSnapshot.pose === "CLOSED") setHandHud("holding", "손을 다시 펼쳐 한 번을 완성하세요");
+            else setHandHud("hover", "손을 오므렸다 다시 펼쳐 치대주세요");
+          }
+          return;
+        }
+
+        const current = activeActor();
+        if (!current) return;
+        if (!frame.present) {
+          returnHeldHome();
+          updateMixPanel(frame);
+          setHandHud("idle", "손을 카메라에 비춰 주세요");
+          return;
+        }
+
+        const pinch = hand.pinchScreen;
+        const wrist = toScreen(frame.landmarks[0], handFit);
+        const middle = toScreen(frame.landmarks[9], handFit);
+        const signedTilt = Math.atan2(middle.x - wrist.x, -(middle.y - wrist.y));
+        const tilt = Math.min(Math.PI / 2, Math.abs(signedTilt));
+
+        if (held) {
+          screenToWorld(pinch.x, pinch.y, heldDepth, camera, followTarget);
+          stageGroup.worldToLocal(followTarget);
+          held.node.position.lerp(followTarget, 0.48);
+          held.node.rotation.z = THREE.MathUtils.lerp(held.node.rotation.z, signedTilt, 0.24);
+          const nearJar = screenDist(pinch, jarOpeningScreen) <= POUR_TARGET_RADIUS;
+          pouring = frame.pinching && nearJar && tilt >= POUR_TILT_RAD;
+          if (pouring) {
+            const elapsed = Math.min(80, Math.max(0, now - lastPourAt));
+            S.mitsulPourProgress = Math.min(1, S.mitsulPourProgress + elapsed / POUR_DURATION_MS);
+            stream.visible = true;
+            streamMaterial.color.setHex(phase === "RICE" ? 0xeadfc4 : phase === "NURUK" ? 0xb88a4d : 0x7fc8dd);
+            if (S.mitsulPourProgress >= 1) {
+              advancePhase();
+              return;
+            }
+          } else stream.visible = false;
+          lastPourAt = now;
+          applyMixVisual();
+          syncMitsulMixUi();
+          updateMixPanel(frame, nearJar, tilt);
+          if (frame.justReleased) {
+            returnHeldHome();
+            setHandHud("tracking", `${current.label}을(를) 다시 집어주세요`);
+          } else if (!nearJar) setHandHud("holding", `${current.label}을(를) 항아리 입구로 옮겨주세요`);
+          else if (tilt < POUR_TILT_RAD) setHandHud("holding", "항아리 위에서 손을 기울여 부어주세요");
+          else setHandHud("dropped", `${current.label} 붓는 중… ${Math.round(S.mitsulPourProgress * 100)}%`);
+          return;
+        }
+
+        current.node.getWorldPosition(actorWorld);
+        worldToScreen(actorWorld, camera, actorScreen);
+        const hovering = screenDist(pinch, actorScreen) <= PICK_RADIUS;
+        if (hovering && frame.justPinched) {
+          held = current;
+          heldDepth = camera.getWorldPosition(handOrigin).distanceTo(actorWorld);
+          lastPourAt = now;
+          setHandHud("holding", `${current.label}을(를) 집었어요`);
+        } else {
+          setHandHud(hovering ? "hover" : "tracking", hovering
+            ? `${current.label} · 엄지와 검지를 붙여 집으세요`
+            : `${current.label} 위로 손을 옮겨주세요`);
+        }
+        updateMixPanel(frame, false, tilt);
+      };
+
+      live.tick = (_time, dt) => {
+        kneadPulse = Math.max(0, kneadPulse - dt * 4.5);
+        applyMixVisual();
+        if (!pouring || !held) {
+          stream.visible = false;
+          return;
+        }
+        streamTime += dt;
+        held.node.getWorldPosition(actorWorld);
+        stageGroup.worldToLocal(actorWorld);
+        jarRig.localToWorld(jarOpeningWorld.set(0, liquid.position.y, 0));
+        stageGroup.worldToLocal(jarOpeningWorld);
+        for (let i = 0; i < 30; i++) {
+          const p = (streamTime * 1.8 + i / 30) % 1;
+          const offset = i * 3;
+          streamPositions[offset] = THREE.MathUtils.lerp(actorWorld.x, jarOpeningWorld.x, p) + Math.sin(i * 9.1) * 0.006 * (1 - p);
+          streamPositions[offset + 1] = THREE.MathUtils.lerp(actorWorld.y, jarOpeningWorld.y, p) + Math.sin(Math.PI * p) * 0.045;
+          streamPositions[offset + 2] = THREE.MathUtils.lerp(actorWorld.z, jarOpeningWorld.z, p) + Math.cos(i * 7.3) * 0.006 * (1 - p);
+        }
+        (streamGeometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      };
+    }
+
     function buildFerment() {
       const platformTop = addPlatform();
       frame3D(platformTop, 0.64, 0.5);
@@ -2202,6 +2683,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       else if (step === "godubap") buildGodubap();
       else if (step === "ferment") {
         if (kneadDebug) buildKneadDebug();
+        else if (productionMitsulMix) buildMitsulMix();
         else buildFerment();
       }
       else if (step === "done") buildFinish();
@@ -2266,6 +2748,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       xrSession!.addEventListener("end", () => {
         if (productionCooling) resetCoolingInteraction?.();
         if (kneadDebug) resetKneadInteraction?.();
+        if (productionMitsulMix) resetMitsulMixInteraction?.();
         S.xr = false;
         S.hand = false;
         uiRoot!.classList.remove("hands-on");
@@ -2372,7 +2855,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         reticle.visible = false;
       }
 
-      if (S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
+      if (!productionMitsulMix && S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
         const dist = Math.abs(S.temp - OPTIMAL_C);
         // 25℃에서 약 17초에 완주. 너무 빨리 끝나면 온도를 조절해 본 효과를 느끼기 어렵다.
         const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 6;
@@ -2490,7 +2973,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         applySurfaceScale();
         S.placed = true;
         if (!S.xr) controls.target.copy(anchor.position).add(new THREE.Vector3(0, 0.2, 0));
-        if (skipToKnead) {
+        if (skipToMitsulMix) {
+          // 공간 배치까지 정상 수행한 뒤 밑술 혼합의 첫 재료부터 시작한다.
+          S.fstage = 0;
+          S.ferment = 0;
+          S.mitsulPhase = "RICE";
+          S.mitsulPourProgress = 0;
+          S.mitsulKneadCount = 0;
+          S.mitsulDone = false;
+          setStep("ferment");
+          syncMitsulMixUi();
+        } else if (skipToKnead) {
           // 평면 배치와 anchor는 그대로 거친 뒤 knead spike만 독립 실행한다.
           S.fstage = 0;
           S.ferment = 0;
@@ -2834,6 +3327,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
         // 발효는 '혼합'부터 탭으로 진행 — 항아리·자동 발효는 후발효에서만 켜진다.
         S.fstage = 0;
+        S.mitsulPhase = "RICE";
+        S.mitsulPourProgress = 0;
+        S.mitsulKneadCount = 0;
+        S.mitsulDone = false;
         S.ferment = 0;
         setStep("ferment");
         onFermentTick();
@@ -2893,6 +3390,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         b.dataset.idx = String(i);
         b.textContent = st.name;
         b.onclick = () => {
+          if (productionMitsulMix) return;
           if (i !== S.fstage) return;   // 지금 켜진 단계만 누를 수 있다
           if (i >= F_LAST) return;       // 후발효는 클릭이 아니라 발효로 완료된다
           S.fstage = i + 1;
@@ -2901,8 +3399,61 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         fpills.appendChild(b);
       });
     }
+    function syncMitsulMixUi() {
+      if (!productionMitsulMix) return;
+      const phaseOrder = ["RICE", "NURUK", "WATER", "KNEAD", "COMPLETE"] as const;
+      const phase = S.mitsulPhase;
+      const phaseIndex = phaseOrder.indexOf(phase);
+      const currentProgress = phase === "KNEAD"
+        ? S.mitsulKneadCount / KNEAD.TARGET_KNEAD_COUNT
+        : phase === "COMPLETE"
+          ? 1
+          : S.mitsulPourProgress;
+      const overall = phase === "COMPLETE" ? 1 : (phaseIndex + currentProgress) / 4;
+      const labels = {
+        RICE: "식힌 고두밥을 항아리에 부어주세요",
+        NURUK: "누룩 그릇을 집어 항아리에 부어주세요",
+        WATER: "물 항아리를 집어 기울여 부어주세요",
+        KNEAD: `손으로 치대며 버무리기 · ${S.mitsulKneadCount}/${KNEAD.TARGET_KNEAD_COUNT}`,
+        COMPLETE: "재료가 골고루 섞였어요 · 혼합 완료",
+      } satisfies Record<typeof phase, string>;
+      const captions = {
+        RICE: "밑술 — 일양 · 넓게 식힌 고두밥을 항아리에 담아요",
+        NURUK: "밑술 — 일양 · 누룩을 넣어 발효의 씨앗을 더해요",
+        WATER: "밑술 — 일양 · 물을 부어 고두밥과 누룩을 적셔요",
+        KNEAD: "밑술 — 일양 · 손으로 치대며 재료를 고루 버무려요",
+        COMPLETE: "밑술 — 일양 · 혼합 완료",
+      } satisfies Record<typeof phase, string>;
+
+      $("#ferment-game")?.classList.add("hidden");
+      $("#btn-ferment")?.classList.add("hidden");
+      $("#mitsul-mix-game")?.classList.remove("hidden");
+      $$("#ferment-pills .pill").forEach((pill, index) => {
+        (pill as HTMLElement).dataset.state = index === 0 ? (S.mitsulDone ? "done" : "now") : "todo";
+      });
+      const hint = $("#ferment-hint");
+      if (hint) hint.textContent = S.mitsulDone ? "혼합까지만 구현된 production 검증입니다" : "고두밥 → 누룩 → 물 → 치대기 순서로 진행해요";
+      const caption = $("#cap-ferment");
+      if (caption) caption.textContent = captions[phase];
+      const label = $("#mitsul-mix-label");
+      if (label) label.textContent = labels[phase];
+      const pct = $("#mitsul-mix-pct");
+      if (pct) pct.textContent = `${Math.round(overall * 100)}%`;
+      const bar = $("#bar-mitsul-mix") as HTMLElement | null;
+      if (bar) bar.style.width = `${overall * 100}%`;
+      const button = $("#btn-mitsul-mix") as HTMLButtonElement | null;
+      if (button) {
+        button.disabled = true;
+        button.classList.toggle("complete", S.mitsulDone);
+        button.textContent = S.mitsulDone ? "혼합 완료" : labels[phase];
+      }
+    }
     // 후발효(fstage 3)에서만 온도 게임·항아리 자동 발효가 돈다. 그 전엔 탭으로만 진행.
     function syncFermentPhase() {
+      if (productionMitsulMix) {
+        syncMitsulMixUi();
+        return;
+      }
       fermentShowStage?.(); // 혼합=채반+고두밥 / 1차발효~=항아리
       $$("#ferment-pills .pill").forEach((p, i) => {
         (p as HTMLElement).dataset.state = i < S.fstage ? "done" : i === S.fstage ? "now" : "todo";
@@ -3041,6 +3592,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         S.temp = 27;
         S.ferment = 0;
         S.fstage = 0;
+        S.mitsulPhase = "RICE";
+        S.mitsulPourProgress = 0;
+        S.mitsulKneadCount = 0;
+        S.mitsulDone = false;
         S.press = 0;
         S.tempLog = [];
         uiRoot!.classList.remove("shipped");
@@ -3177,6 +3732,25 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       </aside>
       <i id="knead-debug-palm-marker" aria-hidden="true" />
 
+      {/* ?mitsulMixDebug=1 전용 — production 혼합 장면의 순서/판정 확인 */}
+      <aside className="mitsul-debug-panel" aria-label="Mitsul mix debug values">
+        <div className="mitsul-debug-title">MITSUL② · PRODUCTION MIX</div>
+        <div>HAND <b id="mitsul-debug-hand">LOST</b></div>
+        <div>PHASE <b id="mitsul-debug-phase">RICE</b></div>
+        <div>JAR MODEL <b id="mitsul-debug-jar">LOADING</b></div>
+        <div>GRAB <b id="mitsul-debug-grab">NO</b></div>
+        <div>JAR TARGET <b id="mitsul-debug-target">OUT</b></div>
+        <div>ON MASH <b id="mitsul-debug-on-mash">NO</b></div>
+        <div>TILT <b id="mitsul-debug-tilt">0°</b></div>
+        <div>POUR <b id="mitsul-debug-pour">0%</b></div>
+        <div>RICE <b id="mitsul-debug-rice">WAIT</b></div>
+        <div>NURUK <b id="mitsul-debug-nuruk">WAIT</b></div>
+        <div>WATER <b id="mitsul-debug-water">WAIT</b></div>
+        <div>KNEAD <b id="mitsul-debug-knead">0 / 6</b></div>
+        <strong id="mitsul-debug-ok">MIX COMPLETE</strong>
+        <button type="button" id="mitsul-debug-reset">RESET MIX</button>
+      </aside>
+
       {/* 11 · AR 시작 */}
       <div className="panel-step" id="p-place">
         <div className="fill lead-center">
@@ -3260,6 +3834,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           <div className="caption" id="cap-ferment">{recipe.fermentSteps[0]?.caption}</div>
         </div>
         <div className="dock">
+          <div className="hand-hud" data-state="idle">
+            <i className="lamp" />
+            <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+          </div>
+          <div id="mitsul-mix-game" className="hidden">
+            <div className="ferment-row">
+              <span className="ferment-rate" id="mitsul-mix-label">식힌 고두밥을 항아리에 부어주세요</span>
+              <span className="ferment-pct" id="mitsul-mix-pct">0%</span>
+            </div>
+            <div className="bar"><i id="bar-mitsul-mix" /></div>
+            <button className="cta" id="btn-mitsul-mix" disabled>식힌 고두밥을 항아리에 부어주세요</button>
+          </div>
           <div id="ferment-game" className="hidden">
             <div className="ferment-row">
               <span className="ferment-rate" id="ferment-rate">발효 속도 정상</span>

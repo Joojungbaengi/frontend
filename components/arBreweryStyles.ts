@@ -84,6 +84,24 @@ export const styles = `
 .ar-ui.knead-debug #p-ferment .steps-hint,
 .ar-ui.knead-debug #p-ferment .dock{display:none}
 
+/* 밑술 production 혼합 QA — mitsulMixDebug query에서만 보인다. */
+.ar-ui .mitsul-debug-panel{display:none}
+.ar-ui.mitsul-mix-debug .mitsul-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(226px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(222,174,100,.6); border-radius:10px;
+  background:rgba(25,17,9,.9); color:rgba(249,240,220,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.4); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .mitsul-debug-panel > div:not(.mitsul-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .mitsul-debug-panel b{color:#fff8e8; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .mitsul-debug-title{margin-bottom:3px; color:#e8c07a; font-weight:800; letter-spacing:.04em}
+.ar-ui #mitsul-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
+  background:#3f7a4e; color:#fff; text-align:center; letter-spacing:.05em}
+.ar-ui #mitsul-debug-ok.visible{display:block}
+.ar-ui #mitsul-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px; border:1px solid rgba(232,192,122,.62);
+  border-radius:6px; background:rgba(232,192,122,.12); color:#f4d99d;
+  font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.04em; cursor:pointer}
+.ar-ui #mitsul-debug-reset:active{background:rgba(232,192,122,.28)}
+
 .ar-ui.ar-mode{background:transparent}
 .ar-ui.ar-mode canvas#gl{background:transparent}
 .ar-ui.ar-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
@@ -193,6 +211,9 @@ export const styles = `
   color:var(--cream-dim); text-shadow:0 1px 6px rgba(0,0,0,.7)}
 /* 온도 게임 묶음 — 후발효에서만 보인다. dock과 같은 간격을 안에서 유지한다. */
 .ar-ui #ferment-game{display:flex; flex-direction:column; gap:14px}
+.ar-ui #mitsul-mix-game{display:flex; flex-direction:column; gap:12px}
+.ar-ui #mitsul-mix-game.hidden{display:none}
+.ar-ui #btn-mitsul-mix.complete{background:#3f7a4e; color:#fff; opacity:1}
 .ar-ui .ferment-rate[data-state="ok"]{color:var(--sage)}
 .ar-ui .ferment-rate[data-state="warn"]{color:#e8c07a}
 .ar-ui .ferment-rate[data-state="bad"]{color:#e8927a}
