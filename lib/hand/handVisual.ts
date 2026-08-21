@@ -106,12 +106,6 @@ export class HandVisual {
    * 화면 좌표는 사용자가 보는 것("손가락이 쌀 위에 있다")과 항상 일치한다.
    */
   readonly pinchScreen = { x: 0.5, y: 0.5 };
-  /**
-   * 물건을 쥐는 지점의 화면 좌표(0~1).
-   * 엄지-검지를 맞대면 손끝, 주먹을 쥐면 손바닥 한가운데가 된다 — 원료·소쿠리·뚜껑처럼
-   * "움켜쥐어 잡는" 물건은 pinchScreen 대신 이 값으로 판정한다.
-   */
-  readonly grabScreen = { x: 0.5, y: 0.5 };
   /** 손까지의 거리 추정(m). 집어 든 물건을 얼마나 멀리 둘지 정하는 데 쓴다. */
   depth = 1;
 
@@ -120,7 +114,6 @@ export class HandVisual {
   }
 
   private pinchWorld = new THREE.Vector3();
-  private grabWorld = new THREE.Vector3();
   private collisionOffset = new THREE.Vector3();
   private collisionTarget = new THREE.Vector3();
   private overlayReady = false;
@@ -239,12 +232,6 @@ export class HandVisual {
     this.pinchScreen.y = ps.y;
     screenToWorld(ps.x, ps.y, HAND_DRAW_DEPTH, camera, this.pinchWorld);
 
-    // 움켜쥐는 지점 — 주먹을 쥐면 손끝이 아니라 손바닥 쪽으로 옮겨간다.
-    const gs = toScreen(frame.grabPoint, fit);
-    this.grabScreen.x = gs.x;
-    this.grabScreen.y = gs.y;
-    screenToWorld(gs.x, gs.y, HAND_DRAW_DEPTH, camera, this.grabWorld);
-
     // 상호작용은 원래 MediaPipe 좌표를 그대로 사용하고, 렌더링용 관절만
     // 별도 충돌 계층으로 보정한다. 충돌 중에는 즉시 밀어내고 해제 시에만
     // 잔여 오프셋을 짧게 감쇠해 표면에서 떨리는 현상을 줄인다.
@@ -279,14 +266,13 @@ export class HandVisual {
       });
     }
 
-    // 고리는 실제로 물건을 잡는 지점에 둔다 (핀치면 손끝, 주먹이면 손바닥)
-    this.cursor.position.copy(this.grabWorld);
+    this.cursor.position.copy(this.pinchWorld);
     this.cursor.quaternion.copy(camera.quaternion); // 항상 화면을 마주보게
     // 쥐면 붉게, 펴면 금색으로
     (this.cursor.material as THREE.MeshBasicMaterial).color.setHex(
-      frame.grasping ? 0xc2452f : 0xe8c98a
+      frame.pinching ? 0xc2452f : 0xe8c98a
     );
-    this.cursor.scale.setScalar(worldSpan * THREE.MathUtils.lerp(0.85, 0.5, frame.grasp));
+    this.cursor.scale.setScalar(worldSpan * THREE.MathUtils.lerp(0.85, 0.5, frame.pinch));
   }
 
   hide() {

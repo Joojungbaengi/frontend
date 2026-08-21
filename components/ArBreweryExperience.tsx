@@ -790,10 +790,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     /**
      * 원료 고르기.
      *
-     * 가운데 큰 담금 항아리를 두고, 그 둘레에 재료 그릇을 놓는다.
-     * 그릇을 손으로 **움켜쥐어**(엄지·검지를 정확히 맞대지 않아도 된다) 항아리 위로
-     * 가져가면 그릇이 기울어지며 내용물이 쏟아지고, 항아리 안에 그만큼 쌓인다.
-     * 누룩은 덩어리라 붓지 않는다 — 항아리 안에 갖다 넣기만 하면 된다.
+     * 가운데 큰 담금 그릇을 두고, 그 둘레에 재료 그릇을 놓는다.
+     * 그릇을 엄지와 검지로 집어 그릇 위로 가져가면 기울어지며 내용물이 쏟아지고,
+     * 담금 그릇 안에 그만큼 쌓인다.
+     * 누룩은 덩어리라 붓지 않는다 — 그릇 안에 갖다 넣기만 하면 된다.
      */
     function buildIngredients() {
       const nameOf = (id: string) => INGREDIENTS.find((i) => i.id === id)?.name ?? "재료";
@@ -1074,7 +1074,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        * 3D 거리로 고르면 화면에서는 재료 위에 손이 있는데도 안 집히는 일이 생긴다.
        * 화면 기준으로 고르면 사용자가 보는 것과 판정이 항상 일치한다.
        *
-       * 쥐는 판정은 핀치가 아니라 **움켜쥠**(주먹도 포함)이다 — 손만 오므리면 잡힌다.
        */
       const basinLocal = new THREE.Vector3(0, (basinFloorY + basinRimY) / 2, 0);
       const basinWorld = new THREE.Vector3();
@@ -1085,9 +1084,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const tiltAxis = new THREE.Vector3();
 
       /** 화면에서 이 반경(0~1) 안에 있으면 집을 수 있다 */
-      const PICK_R = 0.16;
-      /** 항아리 위로 인정하는 반경 — 붓기는 넉넉하게 봐준다 */
-      const DROP_R = 0.2;
+      const PICK_R = 0.13;
+      /** 그릇 위로 인정하는 반경 — 붓기는 넉넉하게 봐준다 */
+      const DROP_R = 0.18;
 
       let hovered: THREE.Group | null = null;
       let held: THREE.Group | null = null;
@@ -1131,8 +1130,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
         lastSeenAt = performance.now();
 
-        // 주먹을 쥐어도 잡히도록 pinchScreen 이 아니라 grabScreen 을 본다.
-        const grab = hand.grabScreen;
+        const grab = hand.pinchScreen;
 
         stageGroup.localToWorld(basinWorld.copy(basinLocal));
         worldToScreen(basinWorld, interactionCamera, basinScreen);
@@ -1168,7 +1166,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             );
           }
 
-          if (f.justLetGo) {
+          if (f.justReleased) {
             const id: string = ud.id;
             if (!ud.pours && overBasin) {
               // 누룩·부재료는 붓지 않는다 — 항아리에 넣기만 하면 담긴 것으로 본다
@@ -1207,8 +1205,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
         const id: string = (best.userData as any).id;
 
-        // 3) 재료 위에서 움켜쥐면 집어 든다
-        if (f.justGrasped) {
+        // 3) 재료 위에서 엄지·검지를 붙이면 집어 든다
+        if (f.justPinched) {
           const ud = best.userData as any;
           ud.grabbed = true;
           held = best;
@@ -1225,7 +1223,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           return;
         }
 
-        setHandHud("hover", `${nameOf(id)} · 손을 움켜쥐어 잡으세요`);
+        setHandHud("hover", `${nameOf(id)} · 엄지와 검지를 붙여 집으세요`);
       };
     }
 
@@ -1766,7 +1764,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       /* ── 손으로 하는 일 ──────────────────────────────────────────────
        * 세미는 둥글게 휘젓기(stirGesture), 탈수는 위아래로 털기(shakeGesture),
        * 냉각은 좌우로 부치기(fanGesture)가 각각 판정한다.
-       * 증자에서는 뚜껑을 움켜쥐어 솥 위에 놓는다.
+       * 증자에서는 뚜껑을 집어 솥 위에 놓는다.
        */
       const grabTarget = new THREE.Vector3();
       const nodeWorld = new THREE.Vector3();
@@ -1778,7 +1776,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       let heldDepth = 1;
 
       live.onHand = (f, hand, cam) => {
-        const grab = hand.grabScreen;
+        const grab = hand.pinchScreen;
 
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
         if (rinseActive()) {
@@ -1815,16 +1813,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             return;
           }
 
-          // 소쿠리를 움켜쥐면 손을 따라온다
+          // 소쿠리를 집으면 손을 따라온다
           if (basketGroup) {
             basketGroup.getWorldPosition(nodeWorld);
             worldToScreen(nodeWorld, cam, nodeScreen);
             const near = screenDist(grab, nodeScreen) < GRAB_R;
-            if (!heldBasket && near && f.justGrasped) {
+            if (!heldBasket && near && f.justPinched) {
               heldBasket = true;
               heldDepth = cam.getWorldPosition(handOrigin).distanceTo(nodeWorld);
             }
-            if (heldBasket && !f.grasping) heldBasket = false;
+            if (heldBasket && !f.pinching) heldBasket = false;
             if (heldBasket) {
               screenToWorld(grab.x, grab.y, heldDepth, cam, grabTarget);
               stageGroup.worldToLocal(grabTarget);
@@ -1833,7 +1831,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
 
           // 손만 오므리고 흔들어도 세어 준다 — 잡기 판정에서 막히지 않게.
-          const counted = heldBasket || f.grasping;
+          const counted = heldBasket || f.pinching;
           const gained = counted ? shake.update(f) : 0;
           if (shake.downBeat && counted) shakePulse = 1;
           if (gained) {
@@ -1853,7 +1851,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             heldBasket ? "holding" : counted ? "tracking" : "hover",
             heldBasket
               ? `소쿠리를 위아래로 털어 주세요 · ${S.shakes}/${REQUIRED_SHAKES}번`
-              : "소쿠리를 움켜쥐고 위아래로 털어 주세요"
+              : "소쿠리를 집고 위아래로 털어 주세요"
           );
           return;
         }
@@ -1879,7 +1877,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             screenToWorld(grab.x, grab.y, heldDepth, cam, grabTarget);
             stageGroup.worldToLocal(grabTarget);
             lidGroup.position.lerp(grabTarget, 0.45);
-            if (f.justLetGo || !f.grasping) {
+            if (f.justReleased || !f.pinching) {
               heldLid = false;
               if (overPot) {
                 lidSettled = true;
@@ -1897,13 +1895,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           lidGroup.getWorldPosition(nodeWorld);
           worldToScreen(nodeWorld, cam, nodeScreen);
           const nearLid = screenDist(grab, nodeScreen) < GRAB_R;
-          if (nearLid && f.justGrasped) {
+          if (nearLid && f.justPinched) {
             heldLid = true;
             heldDepth = cam.getWorldPosition(handOrigin).distanceTo(nodeWorld);
             setHandHud("holding", "뚜껑을 잡았어요");
             return;
           }
-          setHandHud(nearLid ? "hover" : "tracking", nearLid ? "손을 움켜쥐어 뚜껑을 잡으세요" : "뚜껑 가까이 손을 가져가세요");
+          setHandHud(nearLid ? "hover" : "tracking", nearLid ? "엄지와 검지를 붙여 뚜껑을 집으세요" : "뚜껑 가까이 손을 가져가세요");
           return;
         }
 
@@ -3864,7 +3862,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         pct = Math.round((S.shakes / REQUIRED_SHAKES) * 100);
         text =
           S.shakes === 0
-            ? "소쿠리를 움켜쥐고 위아래로 털어 주세요"
+            ? "소쿠리를 집고 위아래로 털어 주세요"
             : `물을 터는 중 · ${S.shakes}/${REQUIRED_SHAKES}번`;
       } else if (drainSettling()) {
         pct = 100;
