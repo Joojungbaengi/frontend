@@ -775,7 +775,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 3D 모드에서는 정면에서 보면 항아리 옆에 놓인 재료가 서로 겹쳐 보인다.
       // 대각선 위에서 내려다보며, 세로 화면에 지름 0.7m 짜리 재료 원이 다 들어올
       // 만큼 물러선다. (AR은 실제 시점을 쓰므로 건드리지 않는다)
-      frame3D(platformTop + 0.04, 1.45, 1.2);
+      frame3D(platformTop + 0.04, 1.62, 1.34);
 
       /* ── 가운데 담금 항아리 ─────────────────────────────────────────── */
       const basinBaseY = platformTop + (BASIN_MODEL?.y ?? 0.03);
@@ -829,7 +829,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       /* ── 둘레에 놓는 재료 ───────────────────────────────────────────── */
       const textureLoader = new THREE.TextureLoader();
-      const ringR = 0.33;                       // 항아리를 둘러싸는 배치 반경
+      const ringR = 0.39;                       // 담금 그릇을 둘러싸는 배치 반경
       // 앞뒤(z)는 조금 눌러 타원으로 놓는다. 세로 화면에서 앞쪽 재료가 아래로 멀리
       // 밀려나 하단 카드에 가리는 걸 막는다.
       const ringSquash = 0.72;
