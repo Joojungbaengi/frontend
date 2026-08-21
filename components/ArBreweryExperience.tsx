@@ -1961,6 +1961,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             if (heldBasket) {
               screenToWorld(grab.x, grab.y, heldDepth, cam, grabTarget);
               stageGroup.worldToLocal(grabTarget);
+              // 아래로 크게 털면 소쿠리가 받침대를 뚫고 내려간다. 상판 아래로는 못 가게 막는다.
+              grabTarget.y = Math.max(grabTarget.y, platformTop + 0.01);
               basketGroup.position.lerp(grabTarget, 0.45);
             }
           }
