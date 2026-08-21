@@ -41,9 +41,9 @@ export function commonStageModels(): ModelDef[] {
   ];
 }
 
-/** 원료 고르기 한가운데 놓이는 큰 담금 항아리 — 재료를 여기에 붓는다 */
+/** 원료 고르기 한가운데 놓이는 큰 담금 그릇 — 재료를 여기에 붓는다 */
 export function ingredientBasinModel(): ModelDef {
-  return { id: "large_basin", file: `${AR_ASSETS}/large-basin.glb`, step: "ingredient", height: 0.13, y: 0.03 };
+  return { id: "mixing_bowl", file: `${AR_ASSETS}/bowl.glb`, step: "ingredient", height: 0.15, y: 0.03 };
 }
 
 /**
