@@ -67,8 +67,10 @@ export interface IngredientProp {
   flowColor?: number;
   /** 항아리 안에 쌓였을 때의 색 (없으면 flowColor) */
   fillColor?: number;
-  /** 항아리를 채우는 정도 0~1 — 네 재료의 합이 대략 1이 되게 나눠 준다 */
+  /** 담금 그릇을 채우는 정도 0~1 — 네 재료의 합이 대략 1이 되게 나눠 준다 */
   fillAmount?: number;
+  /** 재료 위에 띄우는 이름표. 없으면 원료 이름을 그대로 쓴다 */
+  label?: string;
 }
 
 export interface Ingredient {

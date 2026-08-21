@@ -750,6 +750,56 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       controls.update();
     }
 
+    /**
+     * 3D 무대에 띄우는 이름표.
+     * 후발효 일수 게이지와 같은 방식 — 캔버스에 그려 평면에 입히고, 늘 화면을 마주보게 한다.
+     */
+    function makeLabelPlane(text: string, worldHeight: number): THREE.Mesh {
+      const FONT = "700 72px serif";
+      const PAD = 26;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      // 글자 수에 맞춰 캔버스를 잡는다. 고정 폭에 그리면 긴 이름이 잘리거나
+      // 짧은 이름이 여백만 잔뜩 차지해 글자가 작아 보인다.
+      let textW = 200;
+      if (ctx) {
+        ctx.font = FONT;
+        textW = Math.ceil(ctx.measureText(text).width);
+      }
+      canvas.width = textW + PAD * 2;
+      canvas.height = 120;
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = FONT;
+        // 어두운 무대에서도 읽히도록 글자 뒤에 그늘을 깐다
+        ctx.shadowColor = "rgba(20,12,6,0.95)";
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = "rgba(24,16,8,0.9)";
+        ctx.fillText(text, canvas.width / 2, 64);
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = "#f8efdb";
+        ctx.fillText(text, canvas.width / 2, 60);
+      }
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = false;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(worldHeight * (canvas.width / canvas.height), worldHeight),
+        new THREE.MeshBasicMaterial({
+          map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+        })
+      );
+      // 재료나 담금 그릇에 가리지 않고 늘 읽혀야 한다
+      mesh.material.depthTest = false;
+      mesh.renderOrder = 30;
+      live.cleanup.push(() => texture.dispose());
+      return mesh;
+    }
+
     /* --- 12 · 원료 --- */
     let ingredientNodes: THREE.Group[] = [];
 
@@ -851,8 +901,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const homeY = node ? platformTop + 0.03 : floatY;
         g.position.set(px, homeY, pz);
 
+        // 재료의 실제 높이 — 이름표를 얼마나 위에 띄울지의 기준
+        let propH = prop?.height ?? 0.1;
         if (node) {
-          g.rotation.y = (prop?.yaw ?? 0) - a;   // 아가리가 항아리를 보게
+          const nb = new THREE.Box3().setFromObject(node);
+          propH = nb.max.y - nb.min.y;
+        }
+
+        if (node) {
+          g.rotation.y = (prop?.yaw ?? 0) - a;   // 아가리가 담금 그릇을 보게
           g.add(node);
         } else {
           const texture = textureLoader.load(
@@ -870,6 +927,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           mesh.onBeforeRender = (_r, _s, cam) => mesh.quaternion.copy(cam.quaternion);
           g.add(mesh);
         }
+
+        // 무엇이 담긴 재료인지 위에 적어 둔다. 그릇 모양만으로는 알기 어렵다.
+        const label = makeLabelPlane(prop?.label ?? ing.name, 0.05);
+        (label.userData as any).lift = propH + 0.045;
+        stageGroup.add(label);
 
         (g.userData as any) = {
           id: ing.id,
@@ -895,6 +957,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           phase: i,
           hover: false,
           grabbed: false,
+          label,
           home: new THREE.Vector3(px, homeY, pz),
           homeYaw: g.rotation.y,
           /** 붓지 않는 재료가 항아리 안에 내려앉을 자리 */
@@ -982,6 +1045,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               ud.fade = 0;
               ud.settled = false;
             }
+          }
+
+          // 이름표는 재료 위에 떠서 늘 화면을 마주본다
+          if (ud.label) {
+            const lb = ud.label as THREE.Mesh;
+            lb.position.set(n.position.x, n.position.y + (lb.userData as any).lift, n.position.z);
+            lb.quaternion.copy(camera.quaternion);
+            lb.visible = n.visible && ud.fade < 0.5;
           }
 
           if (ud.grabbed) {
