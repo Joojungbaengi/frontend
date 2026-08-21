@@ -140,8 +140,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * 어떤 건 허공에 뜨고 어떤 건 상판(또는 실제 탁자) 속에 파묻힌다.
      */
 
-    // 원료 단계에 막 들어온 시각 — 화면 전환 직후 밀려오는 '유령 클릭'을 걸러내는 데 쓴다.
-    let enteredIngredientAt = 0;
     // 고두밥 하위 단계가 바뀔 때 무대 모델을 갈아 끼우는 함수(buildGodubap 이 채운다)
     let godubapShowStage: (() => void) | null = null;
     // 완성 공정 단계가 바뀔 때 출고 제품(Nyangi)을 보이는 함수(buildFinish 가 채운다)
@@ -199,7 +197,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     function resetIngredientSelection() {
-      enteredIngredientAt = performance.now();
       S.selected.clear();
       resetIngredientUi();
       syncIngredient(); // 버튼 "주원료 0/N" 로 초기화 (interacted=false → 멘트는 인트로 유지)
@@ -979,12 +976,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           label,
           home: new THREE.Vector3(px, homeY, pz),
           homeYaw: g.rotation.y,
-          /** 붓지 않는 재료가 항아리 안에 내려앉을 자리 */
-          inside: new THREE.Vector3(
-            Math.cos(a) * basinInnerR * 0.42,
-            basinFloorY + 0.015,
-            Math.sin(a) * basinInnerR * 0.42
-          ),
         };
         stageGroup.add(g);
         return g;
@@ -996,9 +987,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const seat = new THREE.Vector3();
       /** 지금 붓고 있는 재료 (onHand 가 정하고 tick 이 진행시킨다) */
       let pouringNode: THREE.Group | null = null;
+      /**
+       * 지금 손에 들린 재료. onHand 가 잡고 놓지만, 다 부은 순간에는 tick 이
+       * 손에서 놓아야 한다 — 빈 그릇이 손에 남아 있으면 사라질 수가 없다.
+       */
+      let held: THREE.Group | null = null;
+      /**
+       * 집은 순간의 카메라~재료 거리. 들고 다니는 동안 이 거리를 유지해야
+       * 손 거리 추정이 흔들려도 재료 크기가 커졌다 작아졌다 하지 않는다.
+       */
+      let heldDepth = 1;
       const pourWorld = new THREE.Vector3();
-      /** 항아리에 쌓인 내용물의 높이 — 누룩이 그 위에 얹히도록 프레임마다 이어 쓴다 */
-      let fillH = 0;
 
       live.tick = (t, dt) => {
         let fillAmount = 0;
@@ -1012,11 +1011,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (n === pouringNode) {
             // 붓는 중 — 시간에 비례해 차오른다
             ud.poured = Math.min(1, ud.poured + dt / (POUR_MS / 1000));
-            if (ud.poured >= 1 && !on) {
-              S.selected.add(ud.id);
-              syncIngredient(INGREDIENTS.find((x) => x.id === ud.id), true);
+            if (ud.poured >= 1) {
+              if (!on) {
+                S.selected.add(ud.id);
+                syncIngredient(INGREDIENTS.find((x) => x.id === ud.id), true);
+              }
               setHandHud("dropped", `${nameOf(ud.id)}을(를) 다 부었어요`);
               pouringNode = null;
+              // 다 부었으니 손에서 놓는다. 그래야 그 자리에서 사라질 수 있다.
+              if (held === n) held = null;
+              ud.grabbed = false;
             }
           } else if (on) {
             // 손을 놓쳐 담긴 것으로만 표시된 재료도 3D 가 따라온다
@@ -1045,7 +1049,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 다 부은 그릇은 부은 그 자리에서 사라졌다가 제자리에 다시 놓인다.
           // 빈 그릇이 손에 남아 있으면 "다 넣었다"가 안 읽히고, 그렇다고 영영
           // 없애 버리면 다시 담고 싶을 때 집을 것이 없다.
-          if (ud.pours) {
+          {
             if (ud.state === "idle" && ud.poured > 0.99 && !ud.grabbed && !ud.settled) {
               ud.state = "vanish";
             }
@@ -1085,44 +1089,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
 
           if (ud.grabbed) {
-            // 위치는 onHand 가 정한다. 크기만 키워 "들고 있다"를 보인다.
-            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.12, 0.22);
+            // 위치는 onHand 가 정한다. 손에 들었다고 크게 부풀리지는 않는다 —
+            // 갑자기 커지면 그릇이 아니라 다른 물건처럼 보인다.
+            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.04, 0.22);
             n.scale.setScalar(ud.vis * (1 - ud.fade));
             return;
           }
 
-          // 붓는 재료는 다 부으면 제자리로 돌아가 빈 그릇으로 남고,
-          // 누룩처럼 붓지 않는 재료는 항아리 안에 그대로 들어앉는다.
-          const home: THREE.Vector3 = ud.home;
-          const inside: THREE.Vector3 = ud.inside;
-          const p = ud.pours ? 0 : ud.poured;
-          const ph = THREE.MathUtils.smoothstep(p, 0, 0.62);   // 수평으로 먼저
-          const pv = THREE.MathUtils.smoothstep(p, 0.45, 1);   // 아가리 위에서 하강
-          const bob = ud.prop
-            ? 0
-            : Math.sin(t * 1.4 + ud.phase) * THREE.MathUtils.lerp(0.018, 0.004, p);
-          // 누룩·부재료는 항아리에 쌓인 것 **위에** 얹힌다. 바닥에 두면 묻혀서 안 보인다.
-          const insideY = basinFloorY + fillH + 0.014;
-          seat.set(
-            THREE.MathUtils.lerp(home.x, inside.x, ph),
-            THREE.MathUtils.lerp(THREE.MathUtils.lerp(home.y, basinRimY + 0.06, ph), insideY, pv) + bob,
-            THREE.MathUtils.lerp(home.z, inside.z, ph)
-          );
+          // 다 넣은 재료는 사라지는 동안 그 자리에 머물고, 사라진 뒤 제자리로 돌아온다.
           if (ud.state !== "vanish") {
+            seat.copy(ud.home);
             n.position.lerp(seat, 0.25);
             n.rotation.set(0, ud.homeYaw, 0);
           }
 
-          const base = ud.pours ? 1 : THREE.MathUtils.lerp(1, 0.78, p);
-          const want = ud.hover ? base * 1.16 : base;
-          ud.vis = THREE.MathUtils.lerp(ud.vis ?? base, want, 0.2);
+          const want = ud.hover ? 1.08 : 1;
+          ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, want, 0.2);
           n.scale.setScalar(ud.vis * (1 - ud.fade));
           n.visible = ud.fade < 0.999;
         });
 
         // 항아리 안 내용물
         const h = Math.min(1, fillAmount) * FILL_MAX_H;
-        fillH = h;
         fill.visible = h > 0.002;
         fill.scale.set(1, Math.max(h, 0.0001), 1);
         fill.position.set(0, basinFloorY + h / 2, 0);
@@ -1171,6 +1159,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const nodeScreen = { x: 0.5, y: 0.5 };
       const grabTarget = new THREE.Vector3();
       const tiltAxis = new THREE.Vector3();
+      const tiltDir = new THREE.Vector3();
 
       /** 화면에서 이 반경(0~1) 안에 있으면 집을 수 있다 */
       const PICK_R = 0.13;
@@ -1184,12 +1173,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const HELD_FRONT_MARGIN = 0.24;
 
       let hovered: THREE.Group | null = null;
-      let held: THREE.Group | null = null;
-      /**
-       * 집은 순간의 카메라~재료 거리. 들고 다니는 동안 이 거리를 유지해야
-       * 손 거리 추정이 흔들려도 재료 크기가 커졌다 작아졌다 하지 않는다.
-       */
-      let heldDepth = 1;
 
       const setHover = (n: THREE.Group | null) => {
         if (hovered === n) return;
@@ -1243,11 +1226,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
           if (ud.pours && overBasin) {
             pouringNode = held;
-            // 그릇 쪽으로 주둥이가 넘어가도록 기운다
-            const dx = -held.position.x;
-            const dz = -held.position.z;
-            const len = Math.hypot(dx, dz) || 1;
-            tiltAxis.set(dz / len, 0, -dx / len);
+            // 잡은 손 반대쪽으로 기운다 — 오른손으로 들면 왼쪽으로, 왼손이면 오른쪽으로.
+            // 그릇 한가운데에 올렸을 때는 '그릇 쪽'이라는 방향 자체가 없어서,
+            // 재료 위치로 기울기를 정하면 엉뚱한 데로 쏟아진다.
+            tiltDir.setFromMatrixColumn(interactionCamera.matrixWorld, 0);
+            tiltDir.y = 0;
+            if (tiltDir.lengthSq() < 1e-6) tiltDir.set(1, 0, 0);
+            tiltDir.normalize().multiplyScalar(f.handedness === "left" ? 1 : -1);
+            tiltAxis.set(tiltDir.z, 0, -tiltDir.x);
             held.quaternion.setFromAxisAngle(tiltAxis, 2.0 * ud.tilt);
             setHandHud("holding", `${nameOf(ud.id)}을(를) 붓는 중 · ${Math.round(ud.poured * 100)}%`);
           } else {
@@ -1265,9 +1251,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (f.justReleased) {
             const id: string = ud.id;
             if (!ud.pours && overBasin) {
-              // 누룩·부재료는 붓지 않는다 — 항아리에 넣기만 하면 담긴 것으로 본다
+              // 누룩은 붓지 않는다 — 그릇에 넣기만 하면 담긴 것으로 본다.
+              // 덩어리가 그대로 그릇에 남으면 "담겼다"가 아니라 딴 물건이 하나 놓인 것처럼
+              // 보이므로, 다른 재료와 똑같이 사라지며 그릇 내용물로만 녹아든다.
               S.selected.add(id);
               syncIngredient(INGREDIENTS.find((x) => x.id === id), true);
+              ud.poured = 1;
               setHandHud("dropped", `${nameOf(id)}을(를) 그릇에 넣었어요`);
             } else if (ud.pours && ud.poured > 0.05 && ud.poured < 1) {
               setHandHud("tracking", `${nameOf(id)} · 조금 더 부어 주세요`);
