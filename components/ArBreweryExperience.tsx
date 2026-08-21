@@ -841,9 +841,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const FILL_MAX_H = (basinRimY - basinFloorY) * 0.86;
 
       // 쏟아지는 알갱이·물방울. 어느 재료를 붓든 이 하나를 색만 바꿔 쓴다.
-      const pour = makeParticles(90, {
-        color: 0xf4ece0, size: 0.008, opacity: 0, speed: 1.5,
-        radius: 0.022, baseY: 0, height: -0.2, taper: -0.5,
+      const pour = makeParticles(160, {
+        color: 0xf4ece0, size: 0.011, opacity: 0, speed: 2.2,
+        radius: 0.032, baseY: 0, height: -0.2, taper: -0.5,
       });
       pour.visible = false;
       stageGroup.add(pour);
@@ -886,9 +886,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const homeY = node ? platformTop + 0.03 : floatY;
         g.position.set(px, homeY, pz);
 
-        // 다 부은 뒤 빈 그릇으로 보이게, 안에 담긴 부분을 미리 찾아 둔다
-        const contents = node && prop?.pour && prop.emptyOnPour ? vesselContents(node) : [];
-
         if (node) {
           g.rotation.y = (prop?.yaw ?? 0) - a;   // 아가리가 항아리를 보게
           g.add(node);
@@ -919,8 +916,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           poured: 0,
           /** 기울어진 정도 0~1 */
           tilt: 0,
-          /** 그릇 안에 담긴 부분 — 다 부으면 감춘다 */
-          contents,
+          /**
+           * 다 붓고 난 뒤의 뒷정리 상태.
+           *   idle    평소
+           *   vanish  다 부은 자리에서 스르르 사라지는 중
+           *   return  제자리에서 다시 나타나는 중
+           */
+          state: "idle" as "idle" | "vanish" | "return",
+          /** 사라진 정도 0(보임) ~ 1(안 보임) */
+          fade: 0,
+          /** 이번에 부은 몫을 이미 치웠나 — 사라짐 연출이 반복되지 않게 */
+          settled: false,
           phase: i,
           hover: false,
           grabbed: false,
@@ -990,16 +996,34 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 기울이기 — 붓는 동안만
           ud.tilt = THREE.MathUtils.lerp(ud.tilt, n === pouringNode ? 1 : 0, 0.18);
 
-          // 다 부었으면 그릇 안이 비어 보여야 한다
-          const emptied = ud.poured > 0.88;
-          (ud.contents as THREE.Object3D[]).forEach((o) => {
-            if (o.visible === emptied) o.visible = !emptied;
-          });
+          // 다 부은 그릇은 부은 그 자리에서 사라졌다가 제자리에 다시 놓인다.
+          // 빈 그릇이 손에 남아 있으면 "다 넣었다"가 안 읽히고, 그렇다고 영영
+          // 없애 버리면 다시 담고 싶을 때 집을 것이 없다.
+          if (ud.pours) {
+            if (ud.state === "idle" && ud.poured > 0.99 && !ud.grabbed && !ud.settled) {
+              ud.state = "vanish";
+            }
+            if (ud.state === "vanish") {
+              ud.fade = Math.min(1, ud.fade + dt / 0.3);
+              if (ud.fade >= 1) {
+                n.position.copy(ud.home);
+                n.rotation.set(0, ud.homeYaw, 0);
+                ud.state = "return";
+                ud.settled = true;
+              }
+            } else if (ud.state === "return") {
+              ud.fade = Math.max(0, ud.fade - dt / 0.35);
+              if (ud.fade <= 0) ud.state = "idle";
+            } else if (ud.poured < 0.99) {
+              ud.fade = 0;
+              ud.settled = false;
+            }
+          }
 
           if (ud.grabbed) {
             // 위치는 onHand 가 정한다. 크기만 키워 "들고 있다"를 보인다.
             ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.12, 0.22);
-            n.scale.setScalar(ud.vis);
+            n.scale.setScalar(ud.vis * (1 - ud.fade));
             return;
           }
 
@@ -1020,15 +1044,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             THREE.MathUtils.lerp(THREE.MathUtils.lerp(home.y, basinRimY + 0.06, ph), insideY, pv) + bob,
             THREE.MathUtils.lerp(home.z, inside.z, ph)
           );
-          n.position.lerp(seat, 0.25);
-          n.rotation.set(0, ud.homeYaw, 0);
+          if (ud.state !== "vanish") {
+            n.position.lerp(seat, 0.25);
+            n.rotation.set(0, ud.homeYaw, 0);
+          }
 
-          const base = ud.pours
-            ? THREE.MathUtils.lerp(1, 0.94, ud.poured)   // 비우면 살짝 가라앉는 느낌만
-            : THREE.MathUtils.lerp(1, 0.78, p);
+          const base = ud.pours ? 1 : THREE.MathUtils.lerp(1, 0.78, p);
           const want = ud.hover ? base * 1.16 : base;
           ud.vis = THREE.MathUtils.lerp(ud.vis ?? base, want, 0.2);
-          n.scale.setScalar(ud.vis);
+          n.scale.setScalar(ud.vis * (1 - ud.fade));
+          n.visible = ud.fade < 0.999;
         });
 
         // 항아리 안 내용물
@@ -1143,7 +1168,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           stageGroup.worldToLocal(grabTarget);
           held.position.lerp(grabTarget, 0.5);
 
-          if (ud.pours && overBasin && !S.selected.has(ud.id)) {
+          if (ud.pours && overBasin) {
             pouringNode = held;
             // 항아리 쪽으로 주둥이가 넘어가도록 기운다
             const dx = -held.position.x;
@@ -1158,11 +1183,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             held.rotation.y = ud.homeYaw;
             setHandHud(
               "holding",
-              S.selected.has(ud.id)
-                ? `${nameOf(ud.id)}은(는) 이미 다 담았어요`
-                : ud.pours
-                  ? `${nameOf(ud.id)}을(를) 항아리 위로 가져가세요`
-                  : `${nameOf(ud.id)} · 항아리 안에서 손을 펴 놓으세요`
+              ud.pours
+                ? `${nameOf(ud.id)}을(를) 그릇 위로 가져가세요`
+                : `${nameOf(ud.id)} · 그릇 안에서 손을 펴 놓으세요`
             );
           }
 
@@ -1173,7 +1196,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               S.selected.add(id);
               cardOf(id)?.setAttribute("aria-pressed", "true");
               syncIngredient(INGREDIENTS.find((x) => x.id === id), true);
-              setHandHud("dropped", `${nameOf(id)}을(를) 항아리에 넣었어요`);
+              setHandHud("dropped", `${nameOf(id)}을(를) 그릇에 넣었어요`);
             } else if (ud.pours && ud.poured > 0.05 && ud.poured < 1) {
               setHandHud("tracking", `${nameOf(id)} · 조금 더 부어 주세요`);
             } else if (!overBasin) {
@@ -1219,6 +1242,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             syncIngredient(undefined, true);
             ud.poured = 0;
           }
+          ud.state = "idle";
+          ud.fade = 0;
+          ud.settled = false;
           setHandHud("holding", `${nameOf(id)}을(를) 잡았어요`);
           return;
         }

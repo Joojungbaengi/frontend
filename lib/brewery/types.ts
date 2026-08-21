@@ -69,12 +69,6 @@ export interface IngredientProp {
   fillColor?: number;
   /** 항아리를 채우는 정도 0~1 — 네 재료의 합이 대략 1이 되게 나눠 준다 */
   fillAmount?: number;
-  /**
-   * 다 부으면 그릇 안이 비어 보이게 한다.
-   * 내용물이 별도 메시로 들어 있는 그릇에만 켠다 — 그릇과 내용물이 한 덩어리로
-   * 만들어진 모델에 켜면 엉뚱한 부분이 사라진다.
-   */
-  emptyOnPour?: boolean;
 }
 
 export interface Ingredient {
