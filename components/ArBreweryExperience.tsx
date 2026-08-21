@@ -1430,7 +1430,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             // 더미 위에 얹을 때는 겉면에 딱 붙고, 그냥 담길 때는 바닥에 흩어진다
             const stack = mound > 0
               ? mound * moundProfile(rr[i]) + hh[i] * grainLen * 1.4
-              : hh[i] * radius * 0.24;
+              : hh[i] * radius * 0.42;
             dummy.position.set(
               cx + Math.cos(a) * r,
               cy + stack + lift + bounce,
@@ -1472,7 +1472,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        * (물이나 쌀이 그릇을 뚫고 나오거나 파묻히면 이 숫자만 손보면 된다)
        */
       const VESSEL_FIT: Record<string, { inner: number; rim: number; radius: number }> = {
-        rice_bowl:     { inner: 0.30, rim: 0.68, radius: 0.62 },  // 비워 낸 이남박 (담겨 있던 쌀 높이만큼 위가 비어 있다)
+        rice_bowl:     { inner: 0.26, rim: 0.70, radius: 0.78 },  // 비워 낸 이남박 (담겨 있던 쌀 높이만큼 위가 비어 있다)
         bamboo_basket: { inner: 0.46, rim: 0.94, radius: 0.66 },  // 얕은 소쿠리
         steamer_pot:   { inner: 0.66, rim: 0.96, radius: 0.58 },  // 시루 — 위에서 쌀이 보이게 높이 담는다
       };
@@ -1590,7 +1590,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        */
       const bowlV = vessel.rice_bowl ?? { innerY: platformTop + 0.05, rimY: platformTop + 0.15, radius: 0.11 };
       const WATER_R = bowlV.radius;             // 물 반경 (그릇 실측)
-      const DOME_FLATTEN = 0.34;                // 돔 납작 정도 (작을수록 평평, 클수록 봉긋)
+      const DOME_FLATTEN = 0.44;                // 돔 납작 정도 (작을수록 평평, 클수록 봉긋)
       const waterMat = new THREE.MeshBasicMaterial({
         color: 0x5db4e6, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
       });
@@ -1622,7 +1622,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const riceTint = new THREE.Color();
       // 낱알 크기는 실제(5mm)보다 굵게 잡는다. 폰 화면에서 실제 비율로 그리면
       // 알갱이가 아니라 잡티처럼 보여 "쌀이 움직인다"가 읽히지 않는다.
-      const riceField = makeRiceField(620, RICE_PLAIN, 0.0095);
+      const riceField = makeRiceField(1150, RICE_PLAIN, 0.0095);
       riceField.mesh.visible = false;
       stageGroup.add(riceField.mesh);
       stage["bowl_rice"] = [riceField.mesh];
@@ -1824,7 +1824,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
         const wobble = (0.012 + swirl * 0.05 + jolt * 0.05) * waterLevel;
         const ripple = 1 + Math.sin(t * (2.2 + swirl * 6 + jolt * 10)) * wobble;
-        water.position.set(hx, v.innerY + hy + (v.rimY - v.innerY) * waterLevel * 0.5, hz);
+        water.position.set(hx, v.innerY + hy + (v.rimY - v.innerY) * waterLevel * 0.82, hz);
         water.rotation.y += (0.25 + swirl * 6) * dt;
         water.scale.set(
           v.radius * ripple,
