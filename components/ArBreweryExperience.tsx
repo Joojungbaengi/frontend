@@ -901,11 +901,29 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const homeY = node ? platformTop + 0.03 : floatY;
         g.position.set(px, homeY, pz);
 
-        // 재료의 실제 높이 — 이름표를 얼마나 위에 띄울지의 기준
+        // 재료의 실제 크기 — 이름표를 얼마나 위에 띄울지, 액체를 얼마나 채울지의 기준
         let propH = prop?.height ?? 0.1;
+        let propW = 0.09;
         if (node) {
           const nb = new THREE.Box3().setFromObject(node);
           propH = nb.max.y - nb.min.y;
+          propW = Math.min(nb.max.x - nb.min.x, nb.max.z - nb.min.z);
+        }
+
+        // 속이 비치는 통이면 안에 담긴 액체를 그려 넣는다. 부을수록 줄어든다.
+        let liquid: THREE.Mesh | null = null;
+        if (node && prop?.liquid) {
+          const r = propW * 0.34;
+          liquid = new THREE.Mesh(
+            new THREE.CylinderGeometry(r, r, 1, 20, 1, false),
+            new THREE.MeshStandardMaterial({
+              color: prop.liquid.color, roughness: 0.15, metalness: 0,
+              transparent: true, opacity: 0.85,
+            })
+          );
+          (liquid.userData as any).full = propH * 0.6;
+          (liquid.userData as any).baseY = propH * 0.05;
+          g.add(liquid);
         }
 
         if (node) {
@@ -957,6 +975,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           phase: i,
           hover: false,
           grabbed: false,
+          liquid,
           label,
           home: new THREE.Vector3(px, homeY, pz),
           homeYaw: g.rotation.y,
@@ -1047,6 +1066,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             }
           }
 
+          // 통에 담긴 액체는 부을수록 줄어든다
+          if (ud.liquid) {
+            const lq = ud.liquid as THREE.Mesh;
+            const full = (lq.userData as any).full as number;
+            const baseY = (lq.userData as any).baseY as number;
+            const h = Math.max(0.0001, full * (1 - ud.poured));
+            lq.scale.set(1, h, 1);
+            lq.position.y = baseY + h / 2;
+            lq.visible = ud.poured < 0.98;
+          }
           // 이름표는 재료 위에 떠서 늘 화면을 마주본다
           if (ud.label) {
             const lb = ud.label as THREE.Mesh;

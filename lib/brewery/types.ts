@@ -69,6 +69,11 @@ export interface IngredientProp {
   fillColor?: number;
   /** 담금 그릇을 채우는 정도 0~1 — 네 재료의 합이 대략 1이 되게 나눠 준다 */
   fillAmount?: number;
+  /**
+   * 속이 비쳐 보이는 통이면, 안에 담긴 액체를 코드로 그려 넣는다.
+   * 부을수록 줄어들어 통이 비어 가는 게 보인다. (투명한 물통처럼)
+   */
+  liquid?: { color: number };
   /** 재료 위에 띄우는 이름표. 없으면 원료 이름을 그대로 쓴다 */
   label?: string;
 }

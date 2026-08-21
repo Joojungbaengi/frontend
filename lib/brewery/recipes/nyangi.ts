@@ -40,6 +40,8 @@ export const nyangiTakju: Recipe = {
       prop: {
         file: `${AR_ASSETS}/water_bottle.glb`, height: 0.19, label: "물",
         pour: true, flow: "liquid", flowColor: 0x9fd8ef, fillColor: 0xbcd9e4, fillAmount: 0.3,
+        // 속이 비치는 통이라 안에 담긴 물이 줄어드는 게 그대로 보인다
+        liquid: { color: 0x8ccfe8 },
       },
     },
     {
