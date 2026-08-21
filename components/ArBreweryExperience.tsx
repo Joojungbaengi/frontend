@@ -1082,6 +1082,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const PICK_R = 0.13;
       /** 그릇 위로 인정하는 반경 — 붓기는 넉넉하게 봐준다 */
       const DROP_R = 0.18;
+      /**
+       * 들고 있는 재료를 담금 그릇보다 이만큼 앞에 둔다(m).
+       * 뒤쪽에 놓인 재료를 집어 그릇 위로 가져가면 그릇에 가려 안 보이는데,
+       * 그러면 부어지고 있는지를 알 수가 없다. 손에 든 것은 언제나 그릇 앞에 온다.
+       */
+      const HELD_FRONT_MARGIN = 0.24;
 
       let hovered: THREE.Group | null = null;
       let held: THREE.Group | null = null;
@@ -1131,16 +1137,19 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         worldToScreen(basinWorld, interactionCamera, basinScreen);
         const overBasin = screenDist(grab, basinScreen) < DROP_R;
 
-        // 1) 들고 있는 중 — 손을 따라오게 하고, 항아리 위에서는 기울여 붓는다
+        // 1) 들고 있는 중 — 손을 따라오게 하고, 그릇 위에서는 기울여 붓는다
         if (held) {
           const ud = held.userData as any;
-          screenToWorld(grab.x, grab.y, heldDepth, interactionCamera, grabTarget);
+          // 그릇보다 뒤에 놓이지 않도록 거리를 잘라 준다
+          const basinDepth = interactionCamera.getWorldPosition(handOrigin).distanceTo(basinWorld);
+          const showDepth = Math.max(0.3, Math.min(heldDepth, basinDepth - HELD_FRONT_MARGIN));
+          screenToWorld(grab.x, grab.y, showDepth, interactionCamera, grabTarget);
           stageGroup.worldToLocal(grabTarget);
           held.position.lerp(grabTarget, 0.5);
 
           if (ud.pours && overBasin) {
             pouringNode = held;
-            // 항아리 쪽으로 주둥이가 넘어가도록 기운다
+            // 그릇 쪽으로 주둥이가 넘어가도록 기운다
             const dx = -held.position.x;
             const dz = -held.position.z;
             const len = Math.hypot(dx, dz) || 1;
