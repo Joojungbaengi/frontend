@@ -1897,24 +1897,27 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           potWorld.set(0, vessel.steamer_pot?.rimY ?? campFireTopY, 0);
           stageGroup.localToWorld(potWorld);
           worldToScreen(potWorld, cam, potScreen);
-          const overPot = screenDist(grab, potScreen) < 0.22;
+          const overPot = screenDist(grab, potScreen) < 0.26;
 
           if (heldLid) {
             screenToWorld(grab.x, grab.y, heldDepth, cam, grabTarget);
             stageGroup.worldToLocal(grabTarget);
             lidGroup.position.lerp(grabTarget, 0.45);
-            if (f.justReleased || !f.pinching) {
+
+            // 솥 위에 가져다 대기만 하면 알아서 덮인다.
+            // 손을 펴는 걸 조건으로 걸면, 놓는 순간 손 모양이 흔들려 판정이 어긋나면서
+            // 아무리 잘 펴도 안 닫히는 일이 생긴다.
+            if (overPot) {
               heldLid = false;
-              if (overPot) {
-                lidSettled = true;
-                S.lidAt = performance.now();
-                shakePulse = 0;
-                syncGodubap();
-                setHandHud("dropped", "뚜껑을 덮었어요 · 김이 오르는 중");
-                return;
-              }
+              lidSettled = true;
+              S.lidAt = performance.now();
+              shakePulse = 0;
+              syncGodubap();
+              setHandHud("dropped", "뚜껑을 덮었어요 · 김이 오르는 중");
+              return;
             }
-            setHandHud("holding", overPot ? "여기에서 손을 펴 덮으세요" : "뚜껑을 솥 위로 옮기세요");
+            if (f.justReleased || !f.pinching) heldLid = false;
+            setHandHud("holding", "뚜껑을 솥 위로 옮기세요");
             return;
           }
 
@@ -3899,7 +3902,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         pct = Math.round(Math.min(1, steamed / STEAM_MS) * 100);
         done = pct >= 100;
         text = !S.lidAt
-          ? "옆에 놓인 뚜껑을 잡아 솥 위에 덮으세요"
+          ? "옆에 놓인 뚜껑을 집어 솥 위로 가져가세요"
           : done
             ? "고두밥이 다 쪄졌어요"
             : "김이 오르는 중 · 잠시 기다려요";
@@ -3951,7 +3954,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
                     : steamingStep()
                       ? S.lidAt
                         ? "김이 오르는 동안 잠시 기다려요"
-                        : "옆에 놓인 뚜껑을 잡아 솥 위에 덮어주세요"
+                        : "옆에 놓인 뚜껑을 집어 솥 위로 가져가주세요"
                       : "";
       }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
