@@ -1361,7 +1361,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             const bounce = jolt * Math.abs(Math.sin(t * 22 + phase[i])) * radius * 0.3;
             dummy.position.set(
               cx + Math.cos(a) * r,
-              cy + hh[i] * radius * 0.16 + lift + bounce,
+              cy + hh[i] * radius * 0.24 + lift + bounce,
               cz + Math.sin(a) * r
             );
             dummy.rotation.set(spin[i] + t * swirl * 2, a, spin[i] * 0.5 + t * (swirl + jolt));
@@ -1548,7 +1548,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const RICE_STEAMED = 0xd2b872; // 쪄서 누리끼리해진 고두밥
       // 낱알 크기는 실제(5mm)보다 굵게 잡는다. 폰 화면에서 실제 비율로 그리면
       // 알갱이가 아니라 잡티처럼 보여 "쌀이 움직인다"가 읽히지 않는다.
-      const riceField = makeRiceField(300, RICE_PLAIN, 0.0095);
+      const riceField = makeRiceField(430, RICE_PLAIN, 0.0095);
       riceField.mesh.visible = false;
       stageGroup.add(riceField.mesh);
       stage["bowl_rice"] = [riceField.mesh];
