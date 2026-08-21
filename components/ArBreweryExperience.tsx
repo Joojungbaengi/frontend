@@ -1285,17 +1285,25 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      */
     interface RiceField {
       mesh: THREE.InstancedMesh;
-      /** 담긴 그릇의 반경·바닥 높이를 바꾼다 */
-      place(x: number, y: number, z: number, radius: number): void;
+      /**
+       * 담긴 그릇의 반경·바닥 높이를 바꾼다.
+       * moundH 를 주면 그 높이만큼 봉긋한 더미의 **겉면**에 낱알을 얹는다 —
+       * 시루처럼 가득 채워야 하는 자리는 속을 덩어리로 메우고 겉만 낱알로 덮는다.
+       */
+      place(x: number, y: number, z: number, radius: number, moundH?: number): void;
       /** swirl: 물살 세기 0~1, jolt: 털어서 튀는 세기 0~1, swell: 불은 정도 0~1 */
       update(t: number, dt: number, swirl: number, jolt: number, swell: number): void;
-      setColor(hex: number): void;
+      setColor(color: THREE.Color): void;
     }
-    function makeRiceField(count: number, color: number, grainLen: number): RiceField {
+    /** 봉긋한 고두밥 더미의 옆모습 — 가운데가 제일 높고 가장자리에서 0이 된다 */
+    function moundProfile(u: number) {
+      return Math.cos(THREE.MathUtils.clamp(u, 0, 1) * Math.PI / 2);
+    }
+    function makeRiceField(count: number, color: THREE.Color, grainLen: number): RiceField {
       // 쌀알 한 톨 — 길쭉하게 눌러 놓은 저해상도 구
       const geo = new THREE.SphereGeometry(0.5, 6, 4);
       geo.scale(0.42, 0.42, 1);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0 });
+      const mat = new THREE.MeshStandardMaterial({ color: color.clone(), roughness: 0.82, metalness: 0 });
       const mesh = new THREE.InstancedMesh(geo, mat, count);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.castShadow = false;
@@ -1316,31 +1324,35 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         phase[i] = Math.random() * Math.PI * 2;
       }
 
-      let cx = 0, cy = 0, cz = 0, radius = 0.1;
+      let cx = 0, cy = 0, cz = 0, radius = 0.1, mound = 0;
       let angleOffset = 0;
       const dummy = new THREE.Object3D();
 
       return {
         mesh,
-        setColor(hex: number) {
-          mat.color.setHex(hex);
+        setColor(color: THREE.Color) {
+          mat.color.copy(color);
         },
-        place(x, y, z, r) {
-          cx = x; cy = y; cz = z; radius = r;
+        place(x, y, z, r, moundH = 0) {
+          cx = x; cy = y; cz = z; radius = r; mound = moundH;
         },
         update(t, dt, swirl, jolt, swell) {
           // 물살을 따라 도는 각도. 저을수록 빨라진다.
           angleOffset += (0.15 + swirl * 5.5) * dt;
-          const scale = grainLen * (1 + swell * 0.28);
+          const scale = grainLen * (1 + swell * 0.45);
           for (let i = 0; i < count; i++) {
             const r = rr[i] * radius;
             const a = aa[i] + angleOffset * (0.55 + rr[i] * 0.9);
             // 물살이 셀수록 안쪽 낱알이 위로 말려 올라간다
             const lift = (0.25 + swirl * 1.6) * (1 - rr[i]) * radius * 0.24;
             const bounce = jolt * Math.abs(Math.sin(t * 22 + phase[i])) * radius * 0.3;
+            // 더미 위에 얹을 때는 겉면에 딱 붙고, 그냥 담길 때는 바닥에 흩어진다
+            const stack = mound > 0
+              ? mound * moundProfile(rr[i]) + hh[i] * grainLen * 1.4
+              : hh[i] * radius * 0.24;
             dummy.position.set(
               cx + Math.cos(a) * r,
-              cy + hh[i] * radius * 0.24 + lift + bounce,
+              cy + stack + lift + bounce,
               cz + Math.sin(a) * r
             );
             dummy.rotation.set(spin[i] + t * swirl * 2, a, spin[i] * 0.5 + t * (swirl + jolt));
@@ -1523,14 +1535,38 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       live.particles.push(drip);
 
       // 그릇 속 쌀 — 물에 잠겨 있다가 휘저으면 물살을 따라 돌고, 털면 튀어오른다.
-      const RICE_PLAIN = 0xf2ead9;   // 씻은 쌀
-      const RICE_STEAMED = 0xd2b872; // 쪄서 누리끼리해진 고두밥
+      const RICE_PLAIN = new THREE.Color(0xf2ead9);   // 씻은 쌀
+      const RICE_SOAKED = new THREE.Color(0xfdf8ec);  // 물을 먹어 뽀얘진 쌀
+      const RICE_STEAMED = new THREE.Color(0xd8bb72); // 쪄서 누리끼리해진 고두밥
+      const riceTint = new THREE.Color();
       // 낱알 크기는 실제(5mm)보다 굵게 잡는다. 폰 화면에서 실제 비율로 그리면
       // 알갱이가 아니라 잡티처럼 보여 "쌀이 움직인다"가 읽히지 않는다.
-      const riceField = makeRiceField(430, RICE_PLAIN, 0.0095);
+      const riceField = makeRiceField(620, RICE_PLAIN, 0.0095);
       riceField.mesh.visible = false;
       stageGroup.add(riceField.mesh);
       stage["bowl_rice"] = [riceField.mesh];
+
+      /* ── 시루에 안친 고두밥 ──────────────────────────────────────────
+       * 냄비를 낱알로 바닥부터 채우면 폰이 못 버틴다. 속은 덩어리 하나로 메우고
+       * 겉면에만 낱알을 얹어 "가득 찼다"로 보이게 한다.
+       */
+      const moundMat = new THREE.MeshStandardMaterial({ color: RICE_STEAMED, roughness: 0.95 });
+      const steamedMound = new THREE.Mesh(new THREE.BufferGeometry(), moundMat);
+      steamedMound.visible = false;
+      stageGroup.add(steamedMound);
+      /** 시루 안을 채운 고두밥 더미를 반경·높이에 맞춰 다시 빚는다 */
+      let moundShape = { r: 0, h: 0 };
+      function shapeSteamedMound(r: number, h: number) {
+        if (Math.abs(moundShape.r - r) < 1e-4 && Math.abs(moundShape.h - h) < 1e-4) return;
+        moundShape = { r, h };
+        const pts: THREE.Vector2[] = [new THREE.Vector2(r, -h * 1.6)];
+        for (let i = 12; i >= 0; i--) {
+          const u = i / 12;
+          pts.push(new THREE.Vector2(r * u, h * moundProfile(u)));
+        }
+        steamedMound.geometry.dispose();
+        steamedMound.geometry = new THREE.LatheGeometry(pts, 40);
+      }
 
       let coolT = 0; // 냉각 연출 진행 시간
       /** 한 번 부칠 때마다 1로 튀었다가 잦아든다 — 김이 훅 흩어지는 연출에 쓴다 */
@@ -1585,13 +1621,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             if (lidGroup) lidGroup.position.copy(lidHome);
           }
           heldLid = false;
-          riceField.setColor(RICE_STEAMED);
           frame3D(campFireTopY + 0.02, 1.12, 1.24);
         } else {
           lidSettled = false;
           heldLid = false;
           heldBasket = false;
-          riceField.setColor(RICE_PLAIN);
         }
         const dark = cur?.dark === true;
         if (!dark) coolT = 0;
@@ -1726,11 +1760,26 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         drip.material.opacity += ((dripping ? 0.95 : 0) - drip.material.opacity) * 0.18;
 
         /* ── 쌀 ─────────────────────────────────────────────────────── */
-        // 침수에서 물을 먹고 20~30% 통통해진다.
+        // 침수에서 물을 먹고 통통하게 불면서 뽀얘진다.
         const swell =
           S.godubap === 0 ? 0 : S.godubap === 1 ? THREE.MathUtils.clamp((now - S.soakAt) / SOAK_MS, 0, 1) : 1;
+
+        // 증자에서는 시루를 가득 채운 고두밥 더미 위에 낱알을 얹는다.
+        const onMound = steamingStep();
+        const moundR = v.radius * 1.32;
+        const moundH = (v.rimY - v.innerY) * 0.85;
+        steamedMound.visible = onMound;
+        if (onMound) {
+          shapeSteamedMound(moundR, moundH);
+          steamedMound.position.set(hx, v.innerY + hy, hz);
+        }
+
         if (riceField.mesh.visible) {
-          riceField.place(hx, v.innerY + hy, hz, v.radius * 0.86);
+          riceField.setColor(
+            onMound ? RICE_STEAMED : riceTint.copy(RICE_PLAIN).lerp(RICE_SOAKED, swell)
+          );
+          if (onMound) riceField.place(hx, v.innerY + hy, hz, moundR * 0.97, moundH);
+          else riceField.place(hx, v.innerY + hy, hz, v.radius * 0.86);
           riceField.update(t, dt, swirl, S.godubap === 2 ? jolt : 0, swell);
         }
 
