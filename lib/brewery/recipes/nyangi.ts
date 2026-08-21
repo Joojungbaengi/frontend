@@ -31,7 +31,7 @@ export const nyangiTakju: Recipe = {
     {
       id: "rice", name: "가와지쌀", texture: "/ar/images/rice.png", essential: true,
       prop: {
-        file: `${AR_ASSETS}/rice_wood.glb`, height: 0.13,
+        file: `${AR_ASSETS}/rice_wood.glb`, height: 0.115,
         pour: true, flow: "grain", flowColor: 0xf4ece0, fillColor: 0xefe6d6, fillAmount: 0.34,
       },
     },
@@ -45,15 +45,15 @@ export const nyangiTakju: Recipe = {
     {
       id: "nuruk", name: "누룩", texture: "/ar/images/nuruk.png", essential: true,
       prop: {
-        // 그릇 없이 덩어리 하나. 붓는 게 아니라 항아리에 넣기만 하면 된다.
-        file: `${AR_ASSETS}/nuruk_lump.glb`, height: 0.075,
+        // 그릇 없이 덩어리 하나. 붓는 게 아니라 그릇에 넣기만 하면 된다.
+        file: `${AR_ASSETS}/nuruk_lump.glb`, height: 0.095,
         pour: false, flow: "grain", flowColor: 0xd8bd86, fillColor: 0xd2b881, fillAmount: 0.18,
       },
     },
     {
       id: "mil", name: "밀함유", texture: "/ar/images/mil.png", essential: true,
       prop: {
-        file: `${AR_ASSETS}/wheat_sack.glb`, height: 0.105,
+        file: `${AR_ASSETS}/wheat_sack.glb`, height: 0.135,
         pour: true, flow: "grain", flowColor: 0xdcc38a, fillColor: 0xd6bd85, fillAmount: 0.18,
       },
     },

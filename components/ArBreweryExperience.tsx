@@ -234,10 +234,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     function resetIngredientUi() {
-      $$("#grid .card").forEach((c) =>
-        c.setAttribute("aria-pressed", "false")
-      );
-
       const msg = $("#msg-ingredient");
 
       if (msg) {
@@ -767,7 +763,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      */
     function buildIngredients() {
       const nameOf = (id: string) => INGREDIENTS.find((i) => i.id === id)?.name ?? "재료";
-      const cardOf = (id: string) => $(`#grid .card[data-id="${id}"]`);
 
       const platformTop = addPlatform();       // 실제 상판 높이를 받음
       placeModelsForStep("ingredient", stageGroup, platformTop);
@@ -937,13 +932,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             ud.poured = Math.min(1, ud.poured + dt / (POUR_MS / 1000));
             if (ud.poured >= 1 && !on) {
               S.selected.add(ud.id);
-              cardOf(ud.id)?.setAttribute("aria-pressed", "true");
               syncIngredient(INGREDIENTS.find((x) => x.id === ud.id), true);
               setHandHud("dropped", `${nameOf(ud.id)}을(를) 다 부었어요`);
               pouringNode = null;
             }
           } else if (on) {
-            // 아래 카드로 담았을 때도 3D 가 따라온다
+            // 손을 놓쳐 담긴 것으로만 표시된 재료도 3D 가 따라온다
             ud.poured = THREE.MathUtils.lerp(ud.poured, 1, 0.12);
           } else if (ud.poured > 0.85 || !ud.pours) {
             // 담아 뒀던 걸 뺐다 — 도로 비운다.
@@ -1113,7 +1107,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
 
       // 조명이 어둡거나 손이 화면 밖이면 인식이 안 잡힌다. 한참 못 잡으면
-      // 아래 카드로도 담을 수 있다는 걸 알려 체험이 막히지 않게 한다.
+      // 손을 어떻게 비춰야 하는지 일러 준다.
       let lastSeenAt = performance.now();
       const LOST_HINT_MS = 6000;
 
@@ -1124,7 +1118,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           setHandHud(
             "idle",
             performance.now() - lastSeenAt > LOST_HINT_MS
-              ? "손이 안 보여요 · 아래 카드를 눌러 담아도 돼요"
+              ? "손이 안 보여요 · 밝은 곳에서 손바닥을 펴 비춰 주세요"
               : "손을 카메라에 비춰 주세요"
           );
           return;
@@ -1173,7 +1167,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             if (!ud.pours && overBasin) {
               // 누룩·부재료는 붓지 않는다 — 항아리에 넣기만 하면 담긴 것으로 본다
               S.selected.add(id);
-              cardOf(id)?.setAttribute("aria-pressed", "true");
               syncIngredient(INGREDIENTS.find((x) => x.id === id), true);
               setHandHud("dropped", `${nameOf(id)}을(를) 그릇에 넣었어요`);
             } else if (ud.pours && ud.poured > 0.05 && ud.poured < 1) {
@@ -1217,7 +1210,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 이미 담아 둔 걸 다시 집었다면 선택에서 빼 준다 (손에 들려 있으니까)
           if (S.selected.has(id)) {
             S.selected.delete(id);
-            cardOf(id)?.setAttribute("aria-pressed", "false");
             syncIngredient(undefined, true);
             ud.poured = 0;
           }
@@ -3770,32 +3762,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     /* --- 12 · 원료 --- */
-    const grid = $("#grid");
-    if (grid) {
-      // 개발 모드(StrictMode)에서 이 effect가 두 번 실행돼도 카드가 쌓이지 않도록 비우고 시작한다.
-      grid.innerHTML = "";
-      INGREDIENTS.forEach((ing) => {
-        const b = document.createElement("button");
-        b.className = "card";
-        b.dataset.id = ing.id; // 손으로 담았을 때 이 카드를 찾아 눌린 상태로 맞춘다
-        b.setAttribute("aria-pressed", "false");
-        // 배경 크기·정렬은 CSS에서 잡는다. 여기서 cover 를 주면 투명 PNG가 잘리고
-        // .chip 의 배경색이 테두리처럼 비쳐 보인다.
-        b.innerHTML = `<span class="chip" style="background-image:url('${ing.texture}')"></span>${ing.name}`;
-        b.onclick = () => {
-          // 평면 놓기 → 원료 화면으로 넘어온 그 탭이 카드로 새어 들어오는 유령 클릭 방지.
-          if (performance.now() - enteredIngredientAt < 500) return;
-          const had = S.selected.has(ing.id);
-          if (had) S.selected.delete(ing.id);
-          else S.selected.add(ing.id);
-          b.setAttribute("aria-pressed", String(S.selected.has(ing.id)));
-          // 방금 새로 담은 재료를 넘겨, 부재료면 그 향을 장인이 짚어준다.
-          syncIngredient(had ? undefined : ing, true);
-        };
-        grid.appendChild(b);
-      });
-    }
-    
     function syncIngredient(justAdded?: (typeof INGREDIENTS)[number], interacted = false) {
       const needed = INGREDIENTS.filter((i) => i.essential && !S.selected.has(i.id));
       const extras = INGREDIENTS.filter((i) => !i.essential && S.selected.has(i.id));
@@ -4661,7 +4627,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             <i className="lamp" />
             <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
           </div>
-          <div className="grid" id="grid" />
           <button className="cta" id="btn-ingredient" disabled>주원료 선택</button>
         </div>
       </div>
