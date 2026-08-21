@@ -31,12 +31,6 @@ import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
 import { shouldTrackHand } from "@/lib/hand/handStep";
-import {
-  createVisualHandBox,
-  setVisualHandBoxMatrix,
-  type VisualHandCollider,
-  type VisualHandCollisionSpace,
-} from "@/lib/hand/visualCollision";
 
 /**
  * 공통 엔진 — 술 종류별 데이터는 recipe(Recipe) 하나로만 받는다.
@@ -648,11 +642,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     /* --- 무대 관리 --- */
     const stageGroup = new THREE.Group();
     anchor.add(stageGroup);
-    const visualHandColliders: VisualHandCollider[] = [];
-    const visualHandCollision: VisualHandCollisionSpace = {
-      root: stageGroup,
-      colliders: visualHandColliders,
-    };
     const live: {
       particles: THREE.Points[];
       mixers: THREE.AnimationMixer[];
@@ -677,9 +666,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       live.mixers.forEach((m) => m.stopAllAction());
       live.mixers.length = 0;
       live.models.length = 0;
-      visualHandColliders.length = 0;
       platformNode = null;
-      platformCollider = null;
       live.cleanup.forEach((dispose) => dispose());
       live.cleanup.length = 0;
       live.tick = null;
@@ -694,16 +681,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
     
     /**
-     * 직전에 놓은 받침대와 그 충돌 박스.
+     * 직전에 놓은 받침대.
      * 증자처럼 받침대를 치우고 바닥에 화덕을 놓는 국면에서 통째로 감추는 데 쓴다.
      */
     let platformNode: THREE.Object3D | null = null;
-    let platformCollider: VisualHandCollider | null = null;
 
-    /** 받침대를 감추거나 되살린다 — 손 충돌 박스도 같이 껐다 켠다 */
+    /** 받침대를 감추거나 되살린다 */
     function setPlatformVisible(on: boolean) {
       if (platformNode) platformNode.visible = on;
-      if (platformCollider) platformCollider.enabled = on;
     }
 
     /** 받침대를 놓고 그 "상판 y좌표"를 돌려준다. y=0 이 곧 인식된 바닥면이다. */
@@ -733,15 +718,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         stageGroup.add(root);
         platformNode = root;
 
-        // 인터랙션 hit 영역과 분리된 시각 전용 받침대 충돌 박스.
-        // 모델의 실제 삼각형 대신 로드 시 한 번 구한 bounds만 사용한다.
-        platformCollider = createVisualHandBox(
-          [raw.min.x, 0, raw.min.z],
-          [raw.max.x, raw.max.y - raw.min.y, raw.max.z],
-          0.004,
-        );
-        visualHandColliders.push(platformCollider);
-
         return raw.max.y - raw.min.y; // 받침대 높이 = 상판의 로컬 y
       }
 
@@ -758,12 +734,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       fallbackMesh.receiveShadow = true;
       stageGroup.add(fallbackMesh);
       platformNode = fallbackMesh;
-      platformCollider = createVisualHandBox(
-        [-0.38, 0, -0.38],
-        [0.38, thickness, 0.38],
-        0.004,
-      );
-      visualHandColliders.push(platformCollider);
       return thickness;
     }
 
@@ -2677,32 +2647,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         chamberEntry.group.add(coldVolume);
       }
 
-      // 손 시각 모델용 저비용 충돌체. 창고의 열린 앞면(+Z)은 비워 두고
-      // 바닥·천장·좌우 벽·뒤판만 5개의 얇은 박스로 근사한다.
-      // grab/배치 판정에는 사용하지 않아 기존 인터랙션 좌표에 영향을 주지 않는다.
-      const chamberVisualColliders = chamberEntry
-        ? [
-            createVisualHandBox([-0.085, 0, -0.06], [-0.0575, 0.145, 0.1], 0.004),
-            createVisualHandBox([0.0575, 0, -0.06], [0.085, 0.145, 0.1], 0.004),
-            createVisualHandBox([-0.085, 0, -0.06], [0.085, 0.145, -0.0375], 0.004),
-            createVisualHandBox([-0.085, 0, -0.06], [0.085, 0.0125, 0.1], 0.004),
-            createVisualHandBox([-0.085, 0.1175, -0.06], [0.085, 0.145, 0.1], 0.004),
-          ]
-        : [];
-      chamberVisualColliders.forEach((collider) => {
-        collider.enabled = false;
-        visualHandColliders.push(collider);
-      });
-      const syncChamberVisualColliders = () => {
-        if (!chamberEntry) return;
-        // 창고가 처음 배치되거나 최초 방향 고정이 일어난 프레임에만 갱신한다.
-        chamberEntry.group.updateMatrix();
-        chamberVisualColliders.forEach((collider) => {
-          setVisualHandBoxMatrix(collider, chamberEntry.group.matrix);
-        });
-      };
-      syncChamberVisualColliders();
-
       // 냉장고와 함께 회전하는 바닥 목표 영역. 별도 충돌 GLB 대신 이 그룹의
       // 로컬 좌표를 보이지 않는 박스 영역으로 사용한다.
       const coldZoneAnchor = new THREE.Group();
@@ -3109,9 +3053,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         });
 
         const inAging = S.press === agingIndex;
-        chamberVisualColliders.forEach((collider) => {
-          collider.enabled = inAging;
-        });
         const inPress = S.press === pressIndex;
         // 압착·여과에서는 공정 항아리 아래의 low_wooden_bench를 반드시
         // 노출한다. 다른 공정 모델의 visible 토글과 분리해 유지한다.
@@ -3218,7 +3159,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // Ry(yaw)로 변환된 로컬 +Z가 (dx, dz)를 향하도록 한다.
           chamberEntry.group.rotation.y = Math.atan2(dx, dz);
           chamberEntry.group.updateMatrixWorld(true);
-          syncChamberVisualColliders();
           syncJarTargetToColdZone();
           chamberFacingLocked = true;
         }
@@ -3518,7 +3458,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * ===================================================================*/
     let handTracker: HandTracker | null = null;
     const handVisual = new HandVisual();
-    handVisual.attachTo(scene);
+    handVisual.attachTo();
     // 영상이 화면에 cover 로 잘리는 것을 보정하는 값 — 매 프레임 화면 크기로 다시 잰다
     let handFit: CoverFit = { scaleX: 1, scaleY: 1, offX: 0, offY: 0 };
     // AR 모드에서 XR 카메라 이미지를 내려받는 도구 (camera-access 를 받았을 때만 만든다)
@@ -3530,7 +3470,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      */
     // 항아리를 잡는 동안만 반응성을 높이고, 탐색 중에는 추론 빈도를 낮춰
     // 카메라 회전과 3D 렌더링에 GPU 시간을 더 배분한다.
-    const ACTIVE_AR_DETECT_MS = 72;
+    // 빠르게 움직이는 손을 따라가려면 표본이 촘촘해야 한다.
+    const ACTIVE_AR_DETECT_MS = 56;
     const IDLE_AGING_DETECT_MS = 132;
     let arDetectMs = ACTIVE_AR_DETECT_MS;
 
@@ -3657,7 +3598,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
         // 무대까지의 거리 — 오클루더를 그 앞에 놓고, 집어 든 물건 거리의 기준으로도 쓴다
         const stageAt = handCamera.getWorldPosition(handOrigin).distanceTo(anchor.position);
-        handVisual.update(f, handCamera, handFit, Math.max(stageAt, 0.2), visualHandCollision);
+        handVisual.update(f, handCamera, handFit, Math.max(stageAt, 0.2));
         // 손이 사라진 프레임도 그대로 넘긴다 — 잡고 있던 물건을 놓아야 하기 때문
         // 항아리 충돌 판정과 월드/화면 좌표 변환은 새 손 검출 결과가 생긴
         // 프레임에서만 수행한다. 같은 결과를 60fps로 반복 계산할 필요가 없다.

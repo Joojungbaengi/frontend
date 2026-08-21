@@ -3,11 +3,12 @@
 /**
  * 손 좌표 계산 + 장갑 손 그리기.
  *
- * 메인 장면의 깊이와 커서 오버레이를 분리한다.
+ * 그리는 순서로 층을 만든다.
  *   L0  카메라 영상 — WebXR 이 캔버스 뒤에 (바닥·책상)
  *   L1  AR 에셋     — 엔진이 먼저 그린다
- *   L2  장갑 손     — AR 에셋과 같은 깊이 버퍼를 써서 실제 앞뒤 관계를 표현한다.
- *   L3  집는 고리   — 조작 위치가 가려지지 않도록 별도 오버레이로 그린다.
+ *   L2  손 그림자   — 손 모양을 어둡게, 살짝 어긋나게. 에셋 위에 그림자가 진다.
+ *   L3  장갑 손     — 깊이를 비우고 그려 항상 에셋 위. 손가락끼리는 정상적으로 가려진다.
+ *   L4  집는 고리
  *
  * 손 모양은 뼈대가 든 3D 모델(riggedHand.ts)이 맡는다. 모델은 비동기로 오므로,
  * 도착하기 전이나 못 불러왔을 때는 코드로 그린 손(gloveHand.ts)이 대신 나온다.
@@ -17,10 +18,6 @@ import * as THREE from "three";
 import { GloveHand, HAND_DRAW_DEPTH } from "@/lib/hand/gloveHand";
 import { RiggedHand } from "@/lib/hand/riggedHand";
 import { LM, type HandFrame } from "@/lib/hand/types";
-import {
-  resolveVisualHandPenetration,
-  type VisualHandCollisionSpace,
-} from "@/lib/hand/visualCollision";
 
 /** 화면에서 손이 이만큼 크게 보일 때를 기준 거리로 삼는다 (손목~중지뿌리, 화면 정규화) */
 const REF_SPAN = 0.16;
@@ -88,7 +85,7 @@ export function screenDist(a: { x: number; y: number }, b: { x: number; y: numbe
 }
 
 export class HandVisual {
-  /** 집는 고리만 그리는 가벼운 오버레이 Scene */
+  /** 장갑 손 씬 — 그림자 패스에도 같은 지오메트리를 재사용한다 */
   private readonly handScene = new THREE.Scene();
   private glove: GloveHand;
   private rigged = new RiggedHand();
@@ -114,8 +111,6 @@ export class HandVisual {
   }
 
   private pinchWorld = new THREE.Vector3();
-  private collisionOffset = new THREE.Vector3();
-  private collisionTarget = new THREE.Vector3();
   private overlayReady = false;
 
   constructor() {
@@ -134,6 +129,13 @@ export class HandVisual {
     });
     this.glove = new GloveHand(glove, cuff);
 
+    this.handScene.add(this.glove.group);
+
+    this.handScene.add(new THREE.HemisphereLight(0xfff6e6, 0x4a3a28, 1.1));
+    const key = new THREE.DirectionalLight(0xfff4e2, 2.3);
+    key.position.set(0.4, 1, 0.8);
+    this.handScene.add(key);
+
     this.cursor = new THREE.Mesh(
       new THREE.RingGeometry(0.22, 0.3, 28),
       new THREE.MeshBasicMaterial({
@@ -147,16 +149,16 @@ export class HandVisual {
     );
     this.cursor.frustumCulled = false;
     this.cursor.renderOrder = 1000;
-    // 고리만 별도 패스로 그린다. MeshBasicMaterial이라 별도 조명은 필요 없다.
+    // 고리도 같은 씬에 둔다 — 씬을 나누면 그릴 때마다 XR 이 카메라를 다시 세팅해 비싸다
     this.handScene.add(this.cursor);
     this.handScene.visible = false;
   }
 
-  /** 손 모델은 메인 AR Scene에, 커서는 별도 Overlay Scene에 준비한다. */
-  attachTo(scene: THREE.Scene) {
+  /** 손과 커서를 메인 AR 모델과 분리된 Overlay Scene에 준비한다. */
+  attachTo() {
     if (this.overlayReady) return;
-    scene.add(this.glove.group);
-    scene.add(this.rigged.group);
+    // glove와 cursor는 생성자에서 이미 handScene에 들어 있다.
+    this.handScene.add(this.rigged.group);
     this.glove.group.visible = false;
     this.rigged.group.visible = false;
     this.cursor.visible = false;
@@ -164,8 +166,8 @@ export class HandVisual {
   }
 
   /**
-   * 메인 Scene에는 이미 손 모델이 함께 렌더링되어 있다.
-   * 깊이를 비운 뒤 조작 위치를 알리는 커서만 별도 패스로 덧그린다.
+   * 메인 Scene을 모두 그린 뒤 깊이만 비우고 손을 별도 패스로 덧그린다.
+   * AR 모델의 깊이 순서를 건드리지 않으면서 손 내부의 정상적인 self-occlusion을 유지한다.
    */
   renderOverlay(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
     if (!this.overlayReady || !this.handScene.visible) return;
@@ -182,14 +184,14 @@ export class HandVisual {
       this.rigged.group.traverse((object) => {
         const mesh = object as THREE.Mesh;
         if (!mesh.isMesh) return;
-        // 메인 AR 에셋과 같은 깊이 버퍼를 사용해 손과 물체의 앞뒤를 구분한다.
+        // 메인 Scene과 분리된 두 번째 패스에서 손 자체의 깊이 판정은 정상 사용한다.
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         materials.forEach((material) => {
           material.depthTest = true;
           material.depthWrite = true;
           material.needsUpdate = true;
         });
-        mesh.renderOrder = 0;
+        mesh.renderOrder = 900;
         mesh.castShadow = false;
         mesh.receiveShadow = false;
       });
@@ -202,13 +204,7 @@ export class HandVisual {
    * 한 프레임 갱신.
    * @param baseDepth 무대(앵커)까지의 거리 — 손 거리 추정의 기준
    */
-  update(
-    frame: HandFrame,
-    camera: THREE.Camera,
-    fit: CoverFit,
-    baseDepth: number,
-    visualCollision: VisualHandCollisionSpace | null = null,
-  ) {
+  update(frame: HandFrame, camera: THREE.Camera, fit: CoverFit, baseDepth: number) {
     if (!frame.present || frame.landmarks.length < 21) {
       this.hide();
       return;
@@ -232,16 +228,6 @@ export class HandVisual {
     this.pinchScreen.y = ps.y;
     screenToWorld(ps.x, ps.y, HAND_DRAW_DEPTH, camera, this.pinchWorld);
 
-    // 상호작용은 원래 MediaPipe 좌표를 그대로 사용하고, 렌더링용 관절만
-    // 별도 충돌 계층으로 보정한다. 충돌 중에는 즉시 밀어내고 해제 시에만
-    // 잔여 오프셋을 짧게 감쇠해 표면에서 떨리는 현상을 줄인다.
-    resolveVisualHandPenetration(this.joints, visualCollision, this.collisionTarget);
-    if (this.collisionTarget.lengthSq() > 1e-8) this.collisionOffset.copy(this.collisionTarget);
-    else this.collisionOffset.multiplyScalar(0.72);
-    if (this.collisionOffset.lengthSq() > 1e-10) {
-      this.joints.forEach((joint) => joint.add(this.collisionOffset));
-    }
-
     // 손 크기 — 집는 고리를 얼마나 키울지의 기준
     const worldSpan = this.joints[LM.WRIST].distanceTo(this.joints[LM.MIDDLE_MCP]);
 
@@ -259,10 +245,10 @@ export class HandVisual {
         if (!mesh.isMesh) return;
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         materials.forEach((material) => {
-          material.depthTest = true;
-          material.depthWrite = true;
+          material.depthTest = false;
+          material.depthWrite = false;
         });
-        mesh.renderOrder = 0;
+        mesh.renderOrder = 900;
       });
     }
 
@@ -282,7 +268,6 @@ export class HandVisual {
     this.glove.group.visible = false;
     // 다시 잡혔을 때 사라진 자리에서 화면을 가로질러 쓸고 오지 않게 비운다
     this.rigged.reset();
-    this.collisionOffset.set(0, 0, 0);
   }
 
   dispose() {
