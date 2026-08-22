@@ -4,16 +4,20 @@ import { LM, type HandFrame } from "@/lib/hand/types";
 
 export const RICE_SPREAD = {
   /** tray 가로/세로 중 interaction 영역으로 쓰는 비율 */
-  TARGET_SURFACE_RATIO: 0.84,
+  TARGET_SURFACE_RATIO: 0.95,
   /** 이보다 작은 프레임 간 이동은 landmark jitter로 무시한다 */
-  MOVEMENT_DEAD_ZONE: 0.008,
-  /** 한 번의 의도적인 쓸기로 인정할 최소 화면 이동 거리 */
-  MIN_STROKE_DISTANCE: 0.075,
-  MIN_STROKE_MS: 120,
-  MAX_STROKE_MS: 1200,
-  ZONE_COLUMNS: 3,
+  MOVEMENT_DEAD_ZONE: 0.006,
+  /**
+   * 한 번의 쓸기로 인정할 최소 화면 이동 거리.
+   * 또박또박 크게 그어야만 세어 주면 "대충 휘저었는데 안 펴진다"가 된다.
+   */
+  MIN_STROKE_DISTANCE: 0.042,
+  MIN_STROKE_MS: 70,
+  MAX_STROKE_MS: 1600,
+  /** 채반을 나눠 보는 칸. 칸이 많을수록 구석구석 훑어야 해서 오래 걸린다 */
+  ZONE_COLUMNS: 2,
   ZONE_ROWS: 2,
-  COVERAGE_PER_ZONE: 2,
+  COVERAGE_PER_ZONE: 1,
   /** 현재 stroke만 취소할 hand-lost 시간 */
   HAND_LOST_TIMEOUT: 350,
   /** rice visual progress EMA 비율 */

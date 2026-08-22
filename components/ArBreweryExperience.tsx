@@ -117,6 +117,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
      * "다 됐다"를 눈으로 확인할 틈은 줘야 넘어간 걸 알아챈다.
      */
     const STAGE_HOLD_MS = 1800;
+    /** 탈수만은 조금 더 오래 보여준다 — 물이 빠진 소쿠리를 확인할 틈이 필요하다 */
+    const DRAIN_HOLD_MS = 3600;
     /** 뚜껑을 덮고 김이 오르는 시간 — 다 차면 냉각으로 넘어간다 */
     const STEAM_MS = 7000;
     /** 재료 하나를 다 붓는 데 걸리는 시간 */
@@ -1207,7 +1209,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (ud.grabbed) {
             // 위치는 onHand 가 정한다. 손에 들었다고 크게 부풀리지는 않는다 —
             // 갑자기 커지면 그릇이 아니라 다른 물건처럼 보인다.
-            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.04, 0.22);
+            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.015, 0.22);
             n.scale.setScalar(ud.vis * (1 - ud.fade));
             return;
           }
@@ -1219,7 +1221,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             n.rotation.set(0, ud.homeYaw, 0);
           }
 
-          const want = ud.hover ? 1.08 : 1;
+          const want = ud.hover ? 1.04 : 1;
           ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, want, 0.2);
           n.scale.setScalar(ud.vis * (1 - ud.fade));
           n.visible = ud.fade < 0.999;
@@ -1228,7 +1230,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         // 항아리 안 내용물
         const h = Math.min(1, fillAmount) * FILL_MAX_H;
         fill.visible = h > 0.002;
-        fill.scale.set(1, Math.max(h, 0.0001), 1);
+        // 그릇은 위로 갈수록 넓어진다. 높이만 늘리면 다 채웠을 때 안쪽 벽에서
+        // 떨어져 보이므로, 차오른 만큼 반지름도 함께 키워 둘레까지 닿게 한다.
+        const spread = 1 + (h / FILL_MAX_H) * 0.3;
+        fill.scale.set(spread, Math.max(h, 0.0001), spread);
         fill.position.set(0, basinFloorY + h / 2, 0);
         if (weight > 0) fillMat.color.copy(mixColor.multiplyScalar(1 / weight));
 
@@ -1242,14 +1247,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           stageGroup.worldToLocal(pourWorld);
           const spoutY = pourWorld.y + (ud.prop?.height ?? 0.1) * 0.45;
           const surfaceY = basinFloorY + h;
-          pour.position.set(pourWorld.x, spoutY, pourWorld.z);
+          // 그릇 바깥에 쏟아지는 것처럼 보이지 않도록, 떨어지는 자리는 그릇 한가운데다.
+          // 손에 든 그릇 쪽으로 조금만 치우쳐 어디서 나오는 건지는 알 수 있게 둔다.
+          const pourX = pourWorld.x * 0.22;
+          const pourZ = pourWorld.z * 0.22;
+          pour.position.set(pourX, spoutY, pourZ);
           opt.height = Math.min(-0.03, surfaceY - spoutY);
           (pour.material as THREE.PointsMaterial).color.setHex(ud.prop?.flowColor ?? 0xf4ece0);
 
           if (ud.prop?.flow === "liquid") {
             const len = Math.max(0.02, spoutY - surfaceY);
             pouringLiquid = true;
-            stream.position.set(pourWorld.x, spoutY - len / 2, pourWorld.z);
+            stream.position.set(pourX, spoutY - len / 2, pourZ);
             stream.scale.set(1, len, 1);
             streamMat.color.setHex(ud.prop?.flowColor ?? 0x9fd8ef);
           }
@@ -2393,7 +2402,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (drainSettling()) {
           if (!S.drainDoneAt) S.drainDoneAt = now;
           syncGodubapGame();
-          if (now - S.drainDoneAt >= STAGE_HOLD_MS) {
+          if (now - S.drainDoneAt >= DRAIN_HOLD_MS) {
             S.godubap = 3;
             syncGodubap();
           }
@@ -2444,8 +2453,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const sOpt = (steam.userData as any).opt;
         // 부친 순간에는 김이 빠르게 옆으로 퍼진다
         sOpt.speed = steaming ? 0.35 : cooling ? 0.2 + fanPulse * 0.9 : 0.15;
-        sOpt.radius = (steaming ? vessel.steamer_pot?.radius ?? 0.09 : 0.1) + fanPulse * 0.12;
-        sOpt.baseY = steaming ? (vessel.steamer_pot?.rimY ?? 0.2) + 0.02 : 0.24;
+        sOpt.radius = steaming
+          ? (vessel.steamer_pot?.radius ?? 0.09) + fanPulse * 0.12
+          // 냉각에서는 고두밥 한가운데서 좁게 올라온다
+          : cooling ? 0.05 + fanPulse * 0.1 : 0.1 + fanPulse * 0.12;
+        sOpt.baseY = steaming
+          ? (vessel.steamer_pot?.rimY ?? 0.2) + 0.02
+          // 채반은 받침대 위로 한참 올라와 있다. 0.24 는 받침대 밑이라 김이 바닥에서 났다.
+          : cooling ? platformTop + 0.135 : 0.24;
 
         /* ── 담는 그릇이 어디인가 ──────────────────────────────────── */
         // 세미·침수는 이남박, 탈수는 소쿠리, 증자는 시루.
@@ -2475,7 +2490,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
         const wobble = (0.012 + swirl * 0.05 + jolt * 0.05) * waterLevel;
         const ripple = 1 + Math.sin(t * (2.2 + swirl * 6 + jolt * 10)) * wobble;
-        water.position.set(hx, v.innerY + hy + (v.rimY - v.innerY) * waterLevel * 0.82, hz);
+        water.position.set(hx, v.innerY + hy + (v.rimY - v.innerY) * waterLevel * 0.30, hz);
         water.rotation.y += (0.25 + swirl * 6) * dt;
         water.scale.set(
           v.radius * ripple,
@@ -3144,7 +3159,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       const JAR_SCALE = 0.17;
       const PICK_RADIUS = 0.13;
-      const POUR_TARGET_RADIUS = 0.16;
+      const POUR_TARGET_RADIUS = 0.23;
       const POUR_TILT_RAD = THREE.MathUtils.degToRad(38);
       const POUR_DURATION_MS = 1200;
       const REQUIRED_RICE_SCOOPS = 3;
@@ -3371,22 +3386,33 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(riceClump);
 
       const nurukActor = new THREE.Group();
-      const bowl = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.072, 0.055, 0.045, 32, 1, true),
-        new THREE.MeshStandardMaterial({ color: 0x8c623d, roughness: 0.9, side: THREE.DoubleSide })
-      );
-      bowl.position.y = 0.0225;
-      bowl.castShadow = bowl.receiveShadow = true;
-      nurukActor.add(bowl);
-      const nurukTexturePath = INGREDIENTS.find((ingredient) => ingredient.id === "nuruk")?.texture;
-      const nurukTexture = nurukTexturePath ? new THREE.TextureLoader().load(nurukTexturePath) : null;
-      if (nurukTexture) nurukTexture.colorSpace = THREE.SRGBColorSpace;
-      const nurukTop = new THREE.Mesh(
-        new THREE.CircleGeometry(0.058, 32).rotateX(-Math.PI / 2),
-        new THREE.MeshStandardMaterial({ color: 0xc29b63, map: nurukTexture, roughness: 1 })
-      );
-      nurukTop.position.y = 0.046;
-      nurukActor.add(nurukTop);
+      // 누룩은 재료 고르기에 놓이는 것과 같은 덩어리를 쓴다.
+      // 단계마다 다른 누룩이 나오면 같은 재료라는 게 읽히지 않는다.
+      const nurukProp = INGREDIENTS.find((ingredient) => ingredient.id === "nuruk")?.prop;
+      const nurukNode = nurukProp
+        ? spawnModel({
+            id: "prop_nuruk", file: nurukProp.file, step: "ingredient",
+            height: 0.09, y: 0, scaleFactor: nurukProp.scaleFactor,
+          })
+        : null;
+      if (nurukNode) {
+        nurukActor.add(nurukNode);
+      } else {
+        // 모델을 못 받았을 때를 위한 대체 — 누룩을 담은 그릇 모양
+        const bowl = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.072, 0.055, 0.045, 32, 1, true),
+          new THREE.MeshStandardMaterial({ color: 0x8c623d, roughness: 0.9, side: THREE.DoubleSide })
+        );
+        bowl.position.y = 0.0225;
+        bowl.castShadow = bowl.receiveShadow = true;
+        nurukActor.add(bowl);
+        const nurukTop = new THREE.Mesh(
+          new THREE.CircleGeometry(0.058, 32).rotateX(-Math.PI / 2),
+          new THREE.MeshStandardMaterial({ color: 0xc29b63, roughness: 1 })
+        );
+        nurukTop.position.y = 0.046;
+        nurukActor.add(nurukTop);
+      }
       addActor("NURUK", "누룩", nurukActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
 
       const waterActor = new THREE.Group();
@@ -3962,14 +3988,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const tilt = Math.min(Math.PI / 2, Math.abs(signedTilt));
 
         if (held) {
-          screenToWorld(pinch.x, pinch.y, heldDepth, camera, followTarget);
+          // 항아리보다 뒤에 놓이면 그릇이 항아리에 파묻혀 붓는 게 안 보인다.
+          // 재료 고르기와 같은 방식으로, 든 것은 언제나 항아리 앞에 온다.
+          const jarDepth = camera.getWorldPosition(handOrigin).distanceTo(jarOpeningWorld);
+          const showDepth = Math.max(0.3, Math.min(heldDepth, jarDepth - 0.24));
+          screenToWorld(pinch.x, pinch.y, showDepth, camera, followTarget);
           stageGroup.worldToLocal(followTarget);
           held.node.position.lerp(followTarget, 0.48);
-          const visualTilt = THREE.MathUtils.clamp(signedTilt, -Math.PI / 2, Math.PI / 2);
-          held.node.rotation.z = THREE.MathUtils.lerp(held.node.rotation.z, visualTilt, 0.24);
           const nearJar = screenDist(pinch, jarOpeningScreen) <= POUR_TARGET_RADIUS;
           if (nearJar) clampHeldAboveMouth(held);
-          pouring = frame.pinching && nearJar && tilt >= POUR_TILT_RAD;
+          // 손목을 정확히 꺾어야만 부어지게 하지 않는다. 항아리 위에 올리면 부어지고,
+          // 기울기는 그 결과로 따라온다 — 그래야 "올렸는데 왜 안 부어지지"가 안 생긴다.
+          pouring = frame.pinching && nearJar;
+          const visualTilt = pouring
+            ? (held.home.x < jarOpeningLocal.x ? POUR_TILT_RAD : -POUR_TILT_RAD)
+            : THREE.MathUtils.clamp(signedTilt, -Math.PI / 2, Math.PI / 2);
+          held.node.rotation.z = THREE.MathUtils.lerp(held.node.rotation.z, visualTilt, 0.24);
           if (pouring) {
             const elapsed = Math.min(80, Math.max(0, now - lastPourAt));
             S.mitsulPourProgress = Math.min(1, S.mitsulPourProgress + elapsed / POUR_DURATION_MS);
@@ -3988,7 +4022,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             returnHeldHome();
             setHandHud("tracking", `${current.label}을(를) 다시 집어주세요`);
           } else if (!nearJar) setHandHud("holding", `${current.label}을(를) 항아리 입구로 옮겨주세요`);
-          else if (tilt < POUR_TILT_RAD) setHandHud("holding", "항아리 위에서 손을 기울여 부어주세요");
           else setHandHud("dropped", `${current.label} 붓는 중… ${Math.round(S.mitsulPourProgress * 100)}%`);
           return;
         }
