@@ -98,6 +98,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
     // 담금·발효 타임라인 — 탭을 눌러 진행, 마지막 단계에서만 항아리+자동 발효.
     const FERMENT_STEPS = recipe.fermentSteps;
+    /** 덧술이 시작되는 발효 하위 단계. 여기서부터 무대가 밑술에서 덧술로 넘어간다. */
+    const MASH_FIRST_STAGE = 2;
 
     // 완성 공정 타임라인 — 발효가 끝난 뒤 손으로 마무리하는 단계들(클릭해 진행).
     const PRESS_STEPS = recipe.pressSteps;
@@ -4042,10 +4044,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             S.mitsulFermentPhase = "COMPLETE";
             S.mitsulFermentDay = 3;
             S.mitsulFermentDone = true;
-            S.fstage = Math.min(2, FERMENT_STEPS.length);
+            S.fstage = Math.min(MASH_FIRST_STAGE, FERMENT_STEPS.length);
             fermentBubbles.geometry.setDrawRange(0, 14);
             syncMitsulMixUi();
             updateFermentPanel();
+            // 밑술이 다 됐으니 덧술 무대로 넘어간다.
+            // 지금은 이 무대의 tick 안이라, 무대를 갈아엎는 건 다음 프레임으로 미룬다.
+            handOverToMash();
           }
         } else if (S.mitsulFermentPhase === "COMPLETE") {
           fermentBubbles.visible = true;
@@ -6334,6 +6339,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
     }
 
+    /**
+     * 밑술 무대(혼합·1차 발효)에서 덧술 무대로 넘긴다.
+     * 무대를 세우는 함수가 지금 돌고 있는 tick 을 지워 버리므로 한 프레임 뒤에 바꾼다.
+     */
+    let mashHandOverPending = false;
+    function handOverToMash() {
+      if (mashHandOverPending) return;
+      mashHandOverPending = true;
+      setTimeout(() => {
+        mashHandOverPending = false;
+        if (S.step !== "ferment") return;
+        buildStageFor("ferment");
+        syncFermentPhase();
+      }, 0);
+    }
+
     function buildStageFor(step: typeof S.step) {
       clearStage();
       if (!S.placed) return;
@@ -6341,7 +6362,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       else if (step === "godubap") buildGodubap();
       else if (step === "ferment") {
         if (kneadDebug) buildKneadDebug();
-        else if (productionMitsulMix) buildMitsulMix();
+        // 밑술(혼합 → 1차 발효)까지가 한 무대, 덧술부터 후발효까지가 다음 무대다.
+        // 둘은 만든 사람도 다루는 방식도 달라서 fstage 로 갈라 세운다.
+        else if (productionMitsulMix && S.fstage < MASH_FIRST_STAGE) buildMitsulMix();
         else buildFerment();
       }
       else if (step === "done") buildFinish();
@@ -7185,6 +7208,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     // 후발효(fstage 3)에서만 항아리 자동 발효가 돈다. 그 전엔 탭으로만 진행.
     function syncMitsulMixUi() {
       if (!productionMitsulMix) return;
+      // 덧술로 넘어간 뒤에는 young 의 발효 UI 가 핀과 문구를 맡는다.
+      if (S.fstage >= MASH_FIRST_STAGE) return;
       uiRoot!.classList.toggle(
         "mitsul-no-hands",
         S.mitsulDone && S.mitsulFermentPhase !== "LID"
@@ -7327,10 +7352,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
     // 후발효(fstage 3)에서만 온도 게임·항아리 자동 발효가 돈다. 그 전엔 탭으로만 진행.
     function syncFermentPhase() {
-      if (productionMitsulMix) {
+      // 밑술(혼합·1차 발효)까지는 밑술 쪽 UI 가, 덧술부터는 이 아래 발효 UI 가 맡는다.
+      if (productionMitsulMix && S.fstage < MASH_FIRST_STAGE) {
         syncMitsulMixUi();
         return;
       }
+      // 밑술 무대에서 쓰던 진행바·타임랩스는 덧술로 넘어오면 자리를 비운다.
+      $("#mitsul-mix-game")?.classList.add("hidden");
+      $("#mitsul-timelapse")?.classList.add("hidden");
+      uiRoot!.classList.remove("mitsul-no-hands");
+
       fermentShowStage?.(); // 혼합=채반+고두밥 / 1차발효~=항아리
       $$("#ferment-pills .pill").forEach((p, i) => {
         (p as HTMLElement).dataset.state = i < S.fstage ? "done" : i === S.fstage ? "now" : "todo";
@@ -7377,7 +7408,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const btnFerment = $("#btn-ferment");
     if (btnFerment)
       (btnFerment as HTMLElement).onclick = () => {
-        if (productionMitsulMix) {
+        if (productionMitsulMix && S.fstage < MASH_FIRST_STAGE) {
           startMitsulFermentation?.();
           return;
         }
@@ -7847,6 +7878,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       .then(() => {
         S.isInitializing = false; // 👈 로딩 완료
         syncPlaceButton();         // 👈 준비가 끝나면 실제 버튼으로 갱신
+        void preloadExtraModels();
         void preloadRemainingModels();
       })
       .catch(() => {
