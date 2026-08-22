@@ -25,12 +25,15 @@ import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type Co
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
+import { TRAY_PULL, TrayPullGesture, type TrayPullSnapshot } from "@/lib/hand/trayPullGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
 import { shouldTrackHand } from "@/lib/hand/handStep";
+import { CurledGrabGesture } from "@/lib/hand/curledGrabGesture";
 import {
   createVisualHandBox,
+  createVisualHandEllipsoid,
   setVisualHandBoxMatrix,
   type VisualHandCollider,
   type VisualHandCollisionSpace,
@@ -100,6 +103,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       temp: OPTIMAL_C,
       ferment: 0,
       fstage: 0,
+      mashTrayDone: new Set<string>(),
       press: 0,
       tempLog: [] as number[],
       xr: false,
@@ -198,45 +202,52 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
 
     /* =========================================================
-    * TEMP DEBUG — 저온숙성 직전으로 바로 이동
+    * TEMP DEBUG — 압착·여과 직전의 후발효 완료 화면으로 이동
     * 나중에 삭제
     * ======================================================= */
-    async function debugSkipToBeforeAging() {
+    async function debugSkipToBeforePress() {
       S.placed = true;
       anchor.visible = true;
 
-      // 저온숙성의 바로 앞 공정(압착·여과)으로 이동한다.
-      const agingIndex = PRESS_STEPS.findIndex((step) => step.id === "aging");
-      S.press = Math.max(0, agingIndex - 1);
+      // 압착·여과로 바로 건너뛰지 않고 후발효가 100% 완료된 화면을 보여준다.
+      // 사용자가 기존 CTA를 누르면 정상 흐름을 통해 압착·여과로 넘어간다.
+      const postFermentIndex = Math.max(0, FERMENT_STEPS.length - 1);
+      S.fstage = postFermentIndex;
+      S.ferment = 100;
+      S.press = 0;
       uiRoot!.classList.remove("shipped");
       delete uiRoot!.dataset.shipSequence;
-      setStep("done");
-      syncPress();
+      setStep("ferment");
+      syncFermentPhase();
 
       // 초기 로딩 중 DEV 버튼을 눌러도 빈 무대가 만들어지지 않도록
-      // 압착·여과에 필요한 모델을 받은 뒤 현재 무대를 한 번 더 구성한다.
+      // 후발효 항아리에 필요한 모델을 받은 뒤 현재 무대를 한 번 더 구성한다.
       const debugModels = MODELS.filter(
-        (model) => model.id === "low_wooden_bench" || model.step === "done"
+        (model) => model.id === "low_wooden_bench" || model.step === "ferment"
       );
       await Promise.all(debugModels.map(loadModel));
-      if (S.step === "done" && S.press === Math.max(0, agingIndex - 1)) {
-        buildStageFor("done");
-        syncPress();
+      if (S.step === "ferment" && S.fstage === postFermentIndex && S.ferment === 100) {
+        buildStageFor("ferment");
+        syncFermentPhase();
       }
 
       console.log(
-        "[DEBUG] 저온숙성 직전으로 이동",
-        `finishStep=${S.press}`,
-        `stepId=${PRESS_STEPS[S.press]?.id ?? "unknown"}`
+        "[DEBUG] 후발효 완료 화면으로 이동",
+        `fermentStep=${S.fstage}`,
+        `stepId=${FERMENT_STEPS[S.fstage]?.id ?? "unknown"}`,
+        `progress=${S.ferment}`
       );
     }
 
-    /** TEMP DEBUG — 후발효 바로 전 단계로 이동 */
-    async function debugSkipToBeforePostFermentation() {
+    /** TEMP DEBUG — 덧술1 바로 전 단계로 이동 */
+    async function debugSkipToBeforeFirstMash() {
       S.placed = true;
       anchor.visible = true;
-      S.fstage = Math.max(0, FERMENT_STEPS.length - 2);
+      const firstMashIndex = FERMENT_STEPS.findIndex((step) => step.id === "mash1");
+      const beforeFirstMashIndex = Math.max(0, firstMashIndex - 1);
+      S.fstage = beforeFirstMashIndex;
       S.ferment = 0;
+      S.mashTrayDone.clear();
       setStep("ferment");
 
       // 초기 로딩 중에도 발효 무대가 비지 않도록 필요한 모델을 먼저 받는다.
@@ -244,13 +255,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         (model) => model.id === "low_wooden_bench" || model.step === "ferment"
       );
       await Promise.all(debugModels.map(loadModel));
-      if (S.step === "ferment" && S.fstage === Math.max(0, FERMENT_STEPS.length - 2)) {
+      if (S.step === "ferment" && S.fstage === beforeFirstMashIndex) {
         buildStageFor("ferment");
         syncFermentPhase();
       }
 
       console.log(
-        "[DEBUG] 후발효 직전으로 이동",
+        "[DEBUG] 덧술1 직전으로 이동",
         `fermentStep=${S.fstage}`,
         `stepId=${FERMENT_STEPS[S.fstage]?.id ?? "unknown"}`
       );
@@ -1248,6 +1259,151 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       cooled.visible = false;
       stageGroup.add(cooled);
 
+      // 덧술 1·2에서 새 고두밥 채반을 항아리 뒤에서 몸 쪽으로 꺼낸다.
+      // 각 덧술의 완료 상태는 step id별로 따로 보관한다.
+      const mashTrayGesture = new TrayPullGesture();
+      const emptyMashTraySnapshot = (): TrayPullSnapshot => ({
+        state: "IDLE", grabbed: false, startSpan: null,
+        currentSpan: 0, spanRatio: 1, progress: 0,
+      });
+      let mashTraySnapshot = emptyMashTraySnapshot();
+      let mashTrayVisualProgress = 0;
+      let activeMashId: string | null = null;
+      let mashTrayCompletionAnnounced = false;
+      let mashTrayDirectionLocked = false;
+      let mashTrayPhase: "pulling" | "extracted" | "carrying" | "snapping" | "placed" = "pulling";
+      let mashTrayHeldDepth = 0.65;
+      let mashCoachStartedAt: number | null = null;
+      let mashCoachLineIndex = -1;
+      const MASH_MASTER_LINES = [
+        "먼저 채반부터 꺼내 보게.",
+        "식힌 고두밥을 항아리에 넣어 보게.",
+        "덧술에 쓸 새 고두밥이라네.",
+        "이제 정제수를 서두르지 말고 천천히 부어 보게.",
+        "고두밥과 술덧이 잘 어우러지도록 도와주게.",
+        "나무 주걱을 단단히 잡고 8자 모양으로 저어 보게.",
+        "서두르지 말고, 구석구석 천천히 골고루 섞어 보게.",
+        "좋아, 덧술이 완성되었네. 고두밥과 술덧이 고루 잘 섞였군.",
+      ];
+      const setMashMasterLine = (index: number) => {
+        const nextIndex = THREE.MathUtils.clamp(index, 0, MASH_MASTER_LINES.length - 1);
+        if (mashCoachLineIndex === nextIndex) return;
+        mashCoachLineIndex = nextIndex;
+        const message = $("#msg-ferment");
+        if (message) message.textContent = MASH_MASTER_LINES[nextIndex];
+      };
+
+      // 다단식 랙과 당기는 Metal_Tray가 같은 무대 기준점을 공유한다.
+      const mashRackPosition = new THREE.Vector3(0.3, platformTop + 0.032, -0.25);
+      // 중앙 보정 오류를 고치기 전 화면에서 맞췄던 높이를 그대로 재현한다.
+      // 당시 root.position 잔여값 때문에 실제 메시는 약 0.44m 낮게 보였다.
+      const mashTrayShelfY = 0.28;
+      // 랙 GLB에 포함된 고정 트레이와 완전히 겹치지 않도록, 손으로 꺼낼
+      // 독립 Metal_Tray의 앞 테두리를 선반 밖으로 살짝 돌출시킨다.
+      const mashTrayRestZ = 0.15;
+      const mashTrayRig = new THREE.Group();
+      mashTrayRig.position.copy(mashRackPosition);
+      const mashTrayMover = new THREE.Group();
+      // 나무 상판 아래에 묻히지 않도록 랙의 첫 사용 선반 높이에 올린다.
+      mashTrayMover.position.set(0, mashTrayShelfY, mashTrayRestZ);
+      mashTrayRig.add(mashTrayMover);
+      stageGroup.add(mashTrayRig);
+
+      const mashTrayDef = MODELS.find((model) => model.id === "mash_metal_tray");
+      const mashTrayNode = mashTrayDef ? spawnModel(mashTrayDef) : null;
+      const mashTrayModelPivot = new THREE.Group();
+      mashTrayMover.add(mashTrayModelPivot);
+      let mashTrayDepth = 0.18;
+      let mashTrayHeight = 0.05;
+      if (mashTrayNode) {
+        // spawnModel이 중앙 정렬한 root 자체를 다시 scale/rotate하면 root.position은
+        // 그대로 남아 모델 중심과 잡기 링이 갈라진다. 별도 pivot에 변환을 적용해
+        // 중앙 보정 위치와 실제 메시가 항상 같은 비율·회전으로 움직이게 한다.
+        mashTrayModelPivot.add(mashTrayNode);
+        mashTrayModelPivot.scale.setScalar(0.35);
+        mashTrayModelPivot.updateWorldMatrix(true, true);
+        let size = new THREE.Box3().setFromObject(mashTrayModelPivot).getSize(new THREE.Vector3());
+        // +Z 방향 끝의 변을 잡게 되므로, 그 변의 길이(X)가 항상 짧은 쪽이
+        // 되도록 긴 축을 Z에 맞춘다. 즉 긴 변이 아니라 짧은 변 중앙에서 당긴다.
+        if (size.x > size.z) {
+          mashTrayModelPivot.rotation.y = Math.PI / 2;
+          mashTrayModelPivot.updateWorldMatrix(true, true);
+          size = new THREE.Box3().setFromObject(mashTrayModelPivot).getSize(new THREE.Vector3());
+        }
+        mashTrayDepth = Math.max(0.12, size.z);
+        mashTrayHeight = Math.max(0.03, size.y);
+      }
+
+      const mashTrayTarget = new THREE.Group();
+      mashTrayTarget.position.set(0, mashTrayHeight + 0.018, mashTrayDepth * 0.42);
+      const targetRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.022, 0.034, 28).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0xffd45f, transparent: true, opacity: 0.88,
+          side: THREE.DoubleSide, depthWrite: false,
+        })
+      );
+      targetRing.renderOrder = 8;
+      mashTrayTarget.add(targetRing);
+      mashTrayMover.add(mashTrayTarget);
+      mashTrayRig.visible = false;
+
+      // jar_body 입구 오른쪽 위의 최종 배치 자세. 오른쪽 끝은 높고 항아리 쪽
+      // 가장자리는 낮게 기울여, 고두밥을 바로 부을 수 있는 모습으로 고정한다.
+      const mashTrayDropPosition = new THREE.Vector3(0.28, platformTop + 0.285, 0.3);
+      const mashTrayDropQuaternion = new THREE.Quaternion().setFromEuler(
+        // 긴 축을 따라 기울여 짧은 끝부분이 항아리 쪽으로 내려가게 한다.
+        new THREE.Euler(-0.58, 0.08, 0.12),
+      );
+      const mashTrayDropTarget = new THREE.Group();
+      mashTrayDropTarget.position.copy(mashTrayDropPosition);
+      mashTrayDropTarget.quaternion.copy(mashTrayDropQuaternion);
+      const mashTrayDropGuideTexture = new THREE.TextureLoader().load(
+        "/ar/ui/mash-tray-drop-guide.jpg",
+      );
+      mashTrayDropGuideTexture.colorSpace = THREE.SRGBColorSpace;
+      const mashTrayDropRing = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.36, 0.24).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          map: mashTrayDropGuideTexture,
+          color: 0xffd45f,
+          transparent: true,
+          opacity: 0.72,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      );
+      mashTrayDropRing.renderOrder = 8;
+      mashTrayDropTarget.add(mashTrayDropRing);
+      mashTrayDropTarget.visible = false;
+      stageGroup.add(mashTrayDropTarget);
+
+      const resetMashTray = (stepId: string) => {
+        activeMashId = stepId;
+        mashTrayRig.add(mashTrayMover);
+        mashTrayGesture.reset();
+        mashTraySnapshot = emptyMashTraySnapshot();
+        mashTrayVisualProgress = S.mashTrayDone.has(stepId) ? 1 : 0;
+        mashTrayMover.position.z = mashTrayRestZ + mashTrayVisualProgress * TRAY_PULL.TRAY_PULL_DISTANCE;
+        mashTrayMover.position.x = 0;
+        mashTrayMover.position.y = mashTrayShelfY;
+        mashTrayMover.quaternion.identity();
+        mashTrayPhase = S.mashTrayDone.has(stepId) ? "placed" : "pulling";
+        if (mashTrayPhase === "placed") {
+          stageGroup.attach(mashTrayMover);
+          mashTrayMover.position.copy(mashTrayDropPosition);
+          mashTrayMover.quaternion.copy(mashTrayDropQuaternion);
+        }
+        mashTrayDropTarget.visible = false;
+        mashTrayCompletionAnnounced = S.mashTrayDone.has(stepId);
+        mashTrayDirectionLocked = false;
+        mashCoachStartedAt = null;
+        mashCoachLineIndex = -1;
+        setMashMasterLine(S.mashTrayDone.has(stepId) ? 1 : 0);
+      };
+
       // 1차발효(fstage 1)부터 등장하는 발효 항아리
       const jar = new THREE.Group();
       const jarDef = MODELS.find((m) => m.step === "ferment");
@@ -1264,15 +1420,102 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(jar);
 
       // 표에 지정된 발효 세부 공정 모델. 현재 타임라인 id와 일치할 때만 보인다.
+      const mashWaterMaterials: THREE.ShaderMaterial[] = [];
       const fermentProcessModels = MODELS
         .filter((m) => m.step === "ferment" && m.processSteps?.length)
+        // 움직이는 Metal_Tray는 mashTrayMover가 별도로 소유한다.
+        .filter((m) => m.id !== "mash_metal_tray")
         .map((def) => {
           const group = new THREE.Group();
           const node = spawnModel(def);
           group.position.set(0, platformTop + def.y, 0);
           if (def.id === "wooden_spatula") {
-            group.position.x = 0.08;
+            group.position.x = -0.34;
             group.rotation.z = -0.72;
+          }
+          if (def.id === "mash_tray_rack") {
+            // 화면 오른쪽(+x), 사용자에게서 먼 쪽(-z)에 배치한다. 직전 크기
+            // (1.59 * 1.3)에서 다시 50% 키우고 Y축 90도 회전은 유지한다.
+            group.position.copy(mashRackPosition);
+            group.scale.setScalar(1.59 * 1.3 * 1.5);
+            group.rotation.y = Math.PI / 2;
+          }
+          if (def.id === "mash_water_spout_jar") {
+            // 큰 랙의 반대편에 두고 주구가 중앙 작업 공간을 향하게 한다.
+            group.position.set(-0.2, platformTop + def.y, 0);
+            group.rotation.y = -Math.PI / 4;
+
+            // GLB 내부에 물 메시가 없으므로 항아리 입구 안쪽에 얇은 원형 수면만
+            // 넣는다. 그룹의 로컬 좌표라 덧술 무대와 회전을 그대로 따른다.
+            const waterMaterial = new THREE.ShaderMaterial({
+              uniforms: {
+                uTime: { value: 0 },
+                uDeepColor: { value: new THREE.Color(0x3d91a5) },
+                uShallowColor: { value: new THREE.Color(0xd5f4f2) },
+              },
+              vertexShader: /* glsl */ `
+                uniform float uTime;
+                varying vec2 vWaterPosition;
+                varying vec3 vWorldPosition;
+
+                void main() {
+                  vec3 p = position;
+                  float waveA = sin(p.x * 72.0 + uTime * 1.35) * 0.00075;
+                  float waveB = sin(p.z * 91.0 - uTime * 1.05) * 0.00055;
+                  p.y += waveA + waveB;
+                  vWaterPosition = p.xz;
+                  vec4 world = modelMatrix * vec4(p, 1.0);
+                  vWorldPosition = world.xyz;
+                  gl_Position = projectionMatrix * viewMatrix * world;
+                }
+              `,
+              fragmentShader: /* glsl */ `
+                uniform float uTime;
+                uniform vec3 uDeepColor;
+                uniform vec3 uShallowColor;
+                varying vec2 vWaterPosition;
+                varying vec3 vWorldPosition;
+
+                void main() {
+                  float phaseA = vWaterPosition.x * 72.0 + uTime * 1.35;
+                  float phaseB = vWaterPosition.y * 91.0 - uTime * 1.05;
+                  float slopeX = cos(phaseA) * 0.054;
+                  float slopeZ = cos(phaseB) * 0.050;
+                  vec3 rippleNormal = normalize(vec3(-slopeX, 1.0, -slopeZ));
+                  vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+                  float facing = clamp(dot(rippleNormal, viewDirection), 0.0, 1.0);
+                  float fresnel = pow(1.0 - facing, 2.4);
+
+                  vec3 lightDirection = normalize(vec3(-0.35, 0.82, 0.46));
+                  vec3 halfDirection = normalize(lightDirection + viewDirection);
+                  float sparkle = pow(max(dot(rippleNormal, halfDirection), 0.0), 72.0);
+                  float shimmer = 0.5 + 0.5 * sin(
+                    vWaterPosition.x * 128.0 + vWaterPosition.y * 103.0 + uTime * 1.8
+                  );
+
+                  vec3 waterColor = mix(uDeepColor, uShallowColor, 0.55 + fresnel * 0.34);
+                  waterColor += sparkle * (0.34 + shimmer * 0.18);
+                  float alpha = 0.22 + fresnel * 0.34 + sparkle * 0.10;
+                  gl_FragColor = vec4(waterColor, min(alpha, 0.68));
+                }
+              `,
+              transparent: true,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            });
+            mashWaterMaterials.push(waterMaterial);
+            const waterSurface = new THREE.Mesh(
+              new THREE.CircleGeometry(0.056, 48).rotateX(-Math.PI / 2),
+              waterMaterial,
+            );
+            // 림보다 안쪽에 내려 놓아 원형 판이 아니라 담긴 수면처럼 보이게 한다.
+            waterSurface.position.y = 0.08;
+            waterSurface.renderOrder = 4;
+            group.add(waterSurface);
+          }
+          if (def.id === "mash_jar_body") {
+            // 덧술 재료를 받을 항아리는 중앙에서 사용자 쪽(+Z)으로 당긴다.
+            group.position.set(0, platformTop + def.y, 0.12);
           }
           if (node) group.add(node);
           group.visible = false;
@@ -1283,6 +1526,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // Closed_jar 자체 형상을 살짝 키운 후면 셸. 별도 원형 링이 아니라 실제
       // 몸통과 뚜껑 윤곽을 그대로 따라가므로 바깥 실루엣에만 얇은 역광이 남는다.
       const closedJarProcess = fermentProcessModels.find(({ def }) => def.id === "closed_jar");
+      const mashRackProcess = fermentProcessModels.find(({ def }) => def.id === "mash_tray_rack");
       const jarGlowShellMaterial = new THREE.MeshBasicMaterial({
         color: 0xffa85c,
         transparent: true,
@@ -1545,12 +1789,24 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const F_LAST_I = FERMENT_STEPS.length - 1;
       fermentShowStage = () => {
         const processId = FERMENT_STEPS[Math.min(S.fstage, F_LAST_I)]?.id;
+        const mashStage = processId?.startsWith("mash") === true;
+        if (mashStage && processId && activeMashId !== processId) resetMashTray(processId);
+        if (!mashStage) activeMashId = null;
         cooled.visible = S.fstage === 0;   // 혼합에서만 채반+고두밥
         // 후발효에는 밀봉 항아리가 대신 등장한다.
-        jar.visible = S.fstage >= 1 && processId !== "post";
+        jar.visible = S.fstage >= 1 && processId !== "post" && !mashStage;
         fermentProcessModels.forEach(({ def, group }) => {
           group.visible = Boolean(processId && def.processSteps?.includes(processId));
         });
+        mashTrayRig.visible = mashStage;
+        // 꺼낸 뒤 stageGroup으로 분리된 경우에도 현재 덧술 단계에서만 보인다.
+        mashTrayMover.visible = mashStage;
+        if (!mashStage) mashTrayDropTarget.visible = false;
+        const mashTrayPlaceGuide = $("#mash-tray-place-guide");
+        mashTrayPlaceGuide?.classList.toggle(
+          "hidden",
+          !mashStage || mashTrayPhase === "pulling" || mashTrayPhase === "placed",
+        );
         gauge.visible = S.fstage >= F_LAST_I;
         if (gauge.visible) {
           const day = Math.min(30, 1 + Math.floor(S.ferment / 3.4));
@@ -1566,6 +1822,60 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const effectPosition = new THREE.Vector3();
       live.tick = (time) => {
         const active = S.fstage >= F_LAST_I; // 후발효에서만 실제 발효 진행
+        mashWaterMaterials.forEach((material) => {
+          material.uniforms.uTime.value = time;
+        });
+        if (mashTrayRig.visible) {
+          targetRing.visible = mashTrayPhase === "pulling";
+          if (mashTrayPhase === "pulling") {
+            mashTrayVisualProgress += (mashTraySnapshot.progress - mashTrayVisualProgress) * 0.18;
+            mashTrayMover.position.z = mashTrayRestZ + mashTrayVisualProgress * TRAY_PULL.TRAY_PULL_DISTANCE;
+          } else if (mashTrayPhase === "snapping") {
+            mashTrayMover.position.lerp(mashTrayDropPosition, 0.2);
+            mashTrayMover.quaternion.slerp(mashTrayDropQuaternion, 0.2);
+            if (mashTrayMover.position.distanceTo(mashTrayDropPosition) < 0.004) {
+              mashTrayMover.position.copy(mashTrayDropPosition);
+              mashTrayMover.quaternion.copy(mashTrayDropQuaternion);
+              mashTrayPhase = "placed";
+              if (activeMashId) S.mashTrayDone.add(activeMashId);
+              if (!mashTrayCompletionAnnounced) {
+                mashTrayCompletionAnnounced = true;
+                navigator.vibrate?.(28);
+                syncFermentPhase();
+              }
+            }
+          }
+          (targetRing.material as THREE.MeshBasicMaterial).opacity =
+            0.62 + Math.sin(time * 4.5) * 0.22;
+          const targetRingMaterial = targetRing.material as THREE.MeshBasicMaterial;
+          targetRingMaterial.color.setHex(
+            mashTraySnapshot.grabbed
+              ? 0x62e89a // 초록: 트레이 잡기 성공
+              : mashTraySnapshot.state === "HOVER"
+                ? 0x65d9ff // 하늘색: 잡을 수 있는 위치
+                : 0xffd45f, // 노랑: 손을 가져갈 위치
+          );
+          targetRing.scale.setScalar(1 + mashTraySnapshot.progress * 0.32);
+          (mashTrayDropRing.material as THREE.MeshBasicMaterial).opacity =
+            0.5 + Math.sin(time * 3.8) * 0.2;
+
+          // 현재 구현에서 손으로 판별할 수 있는 세부 동작은 채반 꺼내기까지다.
+          // 완료 뒤에는 장인의 다음 작업 안내를 일정 간격으로 순환시켜,
+          // 고두밥 투입 → 물 붓기 → 8자 젓기 순서를 놓치지 않게 한다.
+          const trayDone = Boolean(activeMashId && S.mashTrayDone.has(activeMashId));
+          if (!trayDone) {
+            mashCoachStartedAt = null;
+            setMashMasterLine(0);
+          } else {
+            if (mashCoachStartedAt === null) mashCoachStartedAt = time;
+            const guidedIndex = 1 + Math.floor((time - mashCoachStartedAt) / 4.2);
+            setMashMasterLine(guidedIndex);
+          }
+          $("#mash-tray-place-guide")?.classList.toggle(
+            "hidden",
+            mashTrayPhase === "pulling" || mashTrayPhase === "placed",
+          );
+        }
         gauge.visible = active;
         if (active) gauge.quaternion.copy(camera.quaternion);
         jarHalo.visible = active;
@@ -1634,6 +1944,158 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const hot = THREE.MathUtils.clamp((S.temp - 24) / 10, 0, 1);
         heat.intensity += ((active ? hot * 1.4 : 0) - heat.intensity) * 0.06;
       };
+
+      const trayWorld = new THREE.Vector3();
+      const trayCameraLocal = new THREE.Vector3();
+      const trayCameraWorld = new THREE.Vector3();
+      const trayCarryTarget = new THREE.Vector3();
+      const trayGrabOffset = new THREE.Vector3();
+      const trayScreen = { x: 0.5, y: 0.5 };
+      live.onHand = (frame, hand, interactionCamera) => {
+        const processId = FERMENT_STEPS[Math.min(S.fstage, F_LAST_I)]?.id;
+        if (!processId?.startsWith("mash") || !mashTrayRig.visible) return;
+        if (mashTrayPhase === "placed" || S.mashTrayDone.has(processId)) {
+          setHandHud("dropped", "채반을 놓았어요 · 이제 고두밥을 항아리에 넣어 주세요");
+          return;
+        }
+        if (mashTrayPhase === "snapping") {
+          setHandHud("dropped", "채반을 항아리 옆에 내려놓고 있어요");
+          return;
+        }
+
+        const beginTrayCarry = () => {
+          mashTrayMover.getWorldPosition(trayWorld);
+          interactionCamera.getWorldPosition(trayCameraWorld);
+          mashTrayHeldDepth = Math.max(0.35, trayCameraWorld.distanceTo(trayWorld));
+          stageGroup.attach(mashTrayMover);
+          screenToWorld(
+            hand.pinchScreen.x,
+            hand.pinchScreen.y,
+            mashTrayHeldDepth,
+            interactionCamera,
+            trayCarryTarget,
+          );
+          stageGroup.worldToLocal(trayCarryTarget);
+          trayGrabOffset.copy(mashTrayMover.position).sub(trayCarryTarget);
+          mashTrayPhase = "carrying";
+          mashTrayDropTarget.visible = true;
+        };
+
+        if (mashTrayPhase === "carrying") {
+          if (!frame.present) {
+            mashTrayPhase = "extracted";
+            setHandHud("idle", "손이 놓였어요 · 채반을 다시 잡아 주세요");
+            return;
+          }
+          screenToWorld(
+            hand.pinchScreen.x,
+            hand.pinchScreen.y,
+            mashTrayHeldDepth,
+            interactionCamera,
+            trayCarryTarget,
+          );
+          stageGroup.worldToLocal(trayCarryTarget);
+          trayCarryTarget.add(trayGrabOffset);
+          trayCarryTarget.y = THREE.MathUtils.clamp(
+            trayCarryTarget.y,
+            platformTop + 0.055,
+            platformTop + 0.95,
+          );
+          mashTrayMover.position.lerp(trayCarryTarget, 0.48);
+
+          const dropDistance = Math.hypot(
+            mashTrayMover.position.x - mashTrayDropPosition.x,
+            mashTrayMover.position.z - mashTrayDropPosition.z,
+          );
+          const overDropTarget = dropDistance <= 0.13;
+          (mashTrayDropRing.material as THREE.MeshBasicMaterial).color.setHex(
+            overDropTarget ? 0x78e39b : 0xffd45f,
+          );
+          if (frame.justReleased) {
+            if (overDropTarget) {
+              mashTrayPhase = "snapping";
+              mashTrayDropTarget.visible = false;
+              setHandHud("dropped", "좋아, 항아리 옆에 채반을 놓아 보게");
+            } else {
+              mashTrayPhase = "extracted";
+              setHandHud("tracking", "채반을 다시 잡아 노란 자리에 놓아 주세요");
+            }
+            return;
+          }
+          setHandHud(
+            "holding",
+            overDropTarget
+              ? "여기에서 손가락을 펴 채반을 놓으세요"
+              : "채반을 항아리 옆의 노란 자리로 옮기세요",
+          );
+          return;
+        }
+
+        if (mashTrayPhase === "extracted") {
+          (mashTrayDropRing.material as THREE.MeshBasicMaterial).color.setHex(0xffd45f);
+          mashTrayMover.getWorldPosition(trayWorld);
+          worldToScreen(trayWorld, interactionCamera, trayScreen);
+          const nearExtractedTray = frame.present &&
+            screenDist(hand.pinchScreen, trayScreen) <= 0.12;
+          if (nearExtractedTray && frame.justPinched) beginTrayCarry();
+          else if (!frame.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+          else setHandHud(
+            nearExtractedTray ? "hover" : "tracking",
+            nearExtractedTray
+              ? "엄지와 검지를 붙여 채반을 다시 잡으세요"
+              : "꺼낸 채반 가까이 손을 가져가세요",
+          );
+          return;
+        }
+
+        // 단계 진입 후 첫 유효 프레임에서만 +Z 레일을 카메라 쪽으로 맞춘다.
+        // 이후에는 pinch 전에도 다시 회전시키지 않아 AR pose의 작은 흔들림으로
+        // 채반 전체가 계속 돌아가는 현상을 막는다.
+        if (!mashTrayDirectionLocked) {
+          interactionCamera.getWorldPosition(trayCameraLocal);
+          stageGroup.worldToLocal(trayCameraLocal);
+          trayCameraLocal.sub(mashTrayRig.position).setY(0);
+          if (trayCameraLocal.lengthSq() > 1e-6) {
+            const facing = Math.atan2(trayCameraLocal.x, trayCameraLocal.z);
+            mashTrayRig.rotation.y = facing;
+            if (mashRackProcess) mashRackProcess.group.rotation.y = facing + Math.PI / 2;
+            mashTrayDirectionLocked = true;
+          }
+        }
+
+        // ar_chaerin_test의 검증 코드처럼 투영 직전에 전체 부모 행렬을 갱신한다.
+        // XR pose와 랙 회전이 바뀐 프레임에도 표시 원과 실제 hit 좌표가 일치한다.
+        mashTrayRig.updateWorldMatrix(true, true);
+        mashTrayTarget.getWorldPosition(trayWorld);
+        worldToScreen(trayWorld, interactionCamera, trayScreen);
+        const hovering = frame.present &&
+          screenDist(hand.pinchScreen, trayScreen) <= TRAY_PULL.GRAB_RADIUS;
+        mashTraySnapshot = mashTrayGesture.update(frame, hovering);
+
+        if (mashTraySnapshot.state === "COMPLETE") {
+          mashTrayVisualProgress = 1;
+          beginTrayCarry();
+          setHandHud("holding", "꺼낸 채반을 항아리 옆의 노란 자리로 옮기세요");
+        } else if (mashTraySnapshot.grabbed) {
+          setHandHud("holding", "트레이 잡기 성공 · 손가락을 붙인 채 몸 쪽으로 당기세요");
+        } else if (hovering) {
+          setHandHud(
+            "hover",
+            frame.pinching
+              ? "집기 인식됨 · 잠시 그대로 유지하세요"
+              : "하늘색 표시에서 엄지와 검지를 붙이세요",
+          );
+        } else if (!frame.present) {
+          setHandHud("idle", "손을 카메라에 비춰 주세요");
+        } else {
+          setHandHud(
+            "tracking",
+            frame.pinching
+              ? "빨간 손 표시는 집기 인식이에요 · 노란 원 안으로 옮기세요"
+              : "채반 앞쪽의 노란 표시에 손을 가까이 대세요",
+          );
+        }
+      };
     }
 
     /* --- 15 · 완성 --- */
@@ -1641,13 +2103,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const platformTop = addPlatform();
       const contentY = platformTop + 0.03;
       const finishBench = stageGroup.children.find((child) => child.userData.isLowWoodenBench);
-      const finishBenchBaseY = finishBench?.position.y ?? 0;
       const forceShowFinishBench = () => {
         if (!finishBench) return;
         finishBench.visible = true;
-        // 실물 바닥 depth와 정확히 겹쳐 가려지지 않도록 압착 단계에서만
-        // 모델 전체를 8mm 띄우고 GLB 내부의 메시·재질도 다시 활성화한다.
-        finishBench.position.y = finishBenchBaseY + 0.008;
+        // 압착·여과에서도 다른 공정과 같은 테이블과 배치 좌표를 유지한다.
+        // 단계 전환 중 바뀔 수 있는 가시성만 복원한다.
         finishBench.traverse((object) => {
           object.visible = true;
           object.layers.enableAll();
@@ -1665,16 +2125,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         });
       };
 
-      // 압착·여과 전용 받침대. 공용 무대가 비동기 재구성되는 경우에도
-      // low_wooden_bench.glb가 반드시 남도록 별도 인스턴스를 둔다.
-      const pressBench = new THREE.Group();
-      const benchDef = MODELS.find((model) => model.id === "low_wooden_bench");
-      const pressBenchNode = benchDef ? spawnModel(benchDef) : null;
-      if (pressBenchNode) pressBench.add(pressBenchNode);
-      pressBench.position.set(0, Math.max(0.008, contentY - (benchDef?.height ?? 0.14)), 0);
-      pressBench.visible = false;
-      stageGroup.add(pressBench);
-      
       // ── 완성 병 등장 연출 상태 ──
       let shipRevealT = 0;
       let shipRestY = 0;
@@ -1683,12 +2133,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       // 출고 연출은 짧고 선명하게 끝낸다. 이전 3.8초 시퀀스는 병이 이미
       // 준비된 뒤에도 UI를 오래 잠가 모바일에서 로딩처럼 느껴졌다.
-      const SHIP_SETTLE_END = 0.12;
-      const SHIP_REVEAL_END = 0.72;
-      const SHIP_BOUNCE_END = 1.02;
-      const SHIP_CELEBRATE_END = 1.25;
-      const SHIP_RESULT_END = 2.05;
-      const SHIP_READY_AT = 2.2;
+      const SHIP_SETTLE_END = 0;
+      const SHIP_REVEAL_END = 0.3;
+      const SHIP_BOUNCE_END = 0.48;
+      const SHIP_CELEBRATE_END = 0.62;
+      const SHIP_RESULT_END = 0.82;
+      const SHIP_READY_AT = 0.9;
 
       const setShipSequence = (phase?: "settling" | "reveal" | "celebrate" | "result" | "ready") => {
         if (phase) {
@@ -1745,7 +2195,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           return { def, group };
         });
 
-      /* ── 압착·여과: receiving_jar 수위 인터랙션 ──────────────────
+      /* ── 압착·여과: 항아리 수위 인터랙션 ─────────────────────────
        * Interaction_Collider는 렌더링하지 않고 raycast/손 위치 판정에만
        * 사용한다. 아래로 짜는 동작량을 ClearWine_Surface의 local Y로
        * 변환하여 항아리 안의 맑은 술이 차오르게 한다.
@@ -1756,12 +2206,20 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       let pressCollider: THREE.Object3D | null = null;
       let pressFill = 0;
       let pressFillTarget = 0;
-      let pressSurfaceEmptyY = 0;
-      let pressSurfaceFullY = 0;
+      const PRESS_LIQUID_BOTTOM_Y = 0.2;
+      const PRESS_LIQUID_FULL_Y = 0.4;
+      const PRESS_LIQUID_RADIUS = 0.098;
+      let pressSurfaceEmptyY = PRESS_LIQUID_BOTTOM_Y;
+      let pressSurfaceFullY = PRESS_LIQUID_FULL_Y;
+      let pressLiquidVolume: THREE.Mesh | null = null;
+      let pressSplashRing: THREE.Mesh | null = null;
+      let pressIntroPlayed = false;
+      let pressIntroRemaining = 0;
       let pressDragging = false;
       let pressPointerId: number | null = null;
       let pressLastPointerY = 0;
       let pressLastHandY: number | null = null;
+      let pressLastHapticAt = 0;
 
       if (pressEntry) {
         pressEntry.group.traverse((object) => {
@@ -1779,22 +2237,169 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             object.visible = true;
           }
         });
+
+        // jar_body.glb 자체에 액체/입력 노드가 없어도 압착 이펙트가 동작하도록
+        // 항아리 내부의 유백색 술 볼륨과 수면을 절차형 메시로 보완한다.
+        const liquidMaterial = new THREE.MeshPhysicalMaterial({
+          color: 0xead5a1,
+          roughness: 0.28,
+          metalness: 0,
+          transmission: 0.08,
+          transparent: true,
+          opacity: 0.94,
+          depthWrite: true,
+          side: THREE.DoubleSide,
+        });
+        pressLiquidVolume = new THREE.Mesh(
+          new THREE.CylinderGeometry(PRESS_LIQUID_RADIUS, PRESS_LIQUID_RADIUS * 0.9, 1, 48, 1, false),
+          liquidMaterial,
+        );
+        pressLiquidVolume.position.y = PRESS_LIQUID_BOTTOM_Y;
+        pressLiquidVolume.scale.y = 0.001;
+        pressLiquidVolume.visible = false;
+        pressLiquidVolume.renderOrder = 3;
+        pressEntry.group.add(pressLiquidVolume);
+
+        if (!pressSurface) {
+          pressSurface = new THREE.Mesh(
+            new THREE.CircleGeometry(PRESS_LIQUID_RADIUS, 64).rotateX(-Math.PI / 2),
+            liquidMaterial.clone(),
+          );
+          pressSurface.position.y = pressSurfaceEmptyY;
+          pressSurface.renderOrder = 4;
+          pressEntry.group.add(pressSurface);
+        }
+
+        pressSplashRing = new THREE.Mesh(
+          new THREE.RingGeometry(0.018, 0.042, 48).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({
+            color: 0xffefc8,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+        pressSplashRing.position.y = pressSurfaceEmptyY + 0.001;
+        pressSplashRing.renderOrder = 5;
+        pressEntry.group.add(pressSplashRing);
+
+        if (!pressCollider) {
+          pressCollider = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.105, 0.115, 0.13, 24),
+            new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+          );
+          pressCollider.position.y = 0.255;
+          pressEntry.group.add(pressCollider);
+        }
       }
 
+      const pressStreamUniforms = {
+        uTime: { value: 0 },
+        uOpacity: { value: 0.88 },
+        uReveal: { value: 0 },
+        uDrain: { value: 0 },
+        uColor: { value: new THREE.Color(0xf2ddb0) },
+      };
+      let pressStreamHold = 0;
       const pressStream = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.004, 0.007, 0.17, 12),
-        new THREE.MeshPhysicalMaterial({
-          color: 0xf3e4bd,
+        new THREE.TubeGeometry(
+          new THREE.CatmullRomCurve3([
+            new THREE.Vector3(-0.0015, 0.088, 0),
+            new THREE.Vector3(0.002, 0.038, 0.001),
+            new THREE.Vector3(-0.001, -0.018, -0.001),
+            new THREE.Vector3(0.0015, -0.088, 0),
+          ]),
+          28,
+          0.0048,
+          7,
+          false,
+        ),
+        new THREE.ShaderMaterial({
+          uniforms: pressStreamUniforms,
+          vertexShader: /* glsl */ `
+            varying float vStreamY;
+            varying float vLight;
+            void main() {
+              vStreamY = clamp((position.y + 0.088) / 0.176, 0.0, 1.0);
+              vec3 viewNormal = normalize(normalMatrix * normal);
+              vLight = 0.72 + abs(viewNormal.x) * 0.28;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: /* glsl */ `
+            uniform float uOpacity;
+            uniform float uReveal;
+            uniform float uDrain;
+            uniform vec3 uColor;
+            varying float vStreamY;
+            varying float vLight;
+            void main() {
+              // 시작: 위에서 아래로 나타나므로 아직 닿지 않은 하단을 투명하게 한다.
+              float revealEdge = 0.95 - uReveal;
+              float revealMask = smoothstep(revealEdge - 0.11, revealEdge + 0.11, vStreamY);
+              // 종료: 위쪽부터 투명해지고 항아리에 가까운 하단이 마지막에 남는다.
+              float drainEdge = 1.14 - uDrain * 1.22;
+              float drainMask = 1.0 - smoothstep(drainEdge - 0.10, drainEdge + 0.10, vStreamY);
+              float alpha = uOpacity * revealMask * drainMask;
+              if (alpha < 0.012) discard;
+              gl_FragColor = vec4(uColor * vLight, alpha);
+            }
+          `,
           transparent: true,
-          opacity: 0,
-          roughness: 0.18,
-          transmission: 0.28,
           depthWrite: false,
+          side: THREE.DoubleSide,
         })
       );
-      pressStream.position.set(0, contentY + 0.31, 0);
+      // 항아리 입구 바로 위까지 이어지는 가는 술줄기.
+      pressStream.position.set(0, platformTop + 0.405, 0);
       pressStream.visible = false;
       stageGroup.add(pressStream);
+
+      const PRESS_DROPLET_COUNT = 7;
+      const pressDropletMaterial = new THREE.MeshBasicMaterial({
+        color: 0xf2ddb0,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      // 7개의 개별 PhysicalMaterial 메시 대신 하나의 인스턴스 메시로 합쳐
+      // 드로우콜과 투명 재질 연산을 줄인다.
+      const pressDroplets = new THREE.InstancedMesh(
+        new THREE.LatheGeometry([
+          new THREE.Vector2(0, -0.011),
+          new THREE.Vector2(0.0058, -0.009),
+          new THREE.Vector2(0.0076, -0.003),
+          new THREE.Vector2(0.0072, 0.004),
+          new THREE.Vector2(0.0047, 0.011),
+          new THREE.Vector2(0.0018, 0.017),
+          new THREE.Vector2(0, 0.021),
+        ], 16),
+        pressDropletMaterial,
+        PRESS_DROPLET_COUNT,
+      );
+      pressDroplets.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      pressDroplets.frustumCulled = false;
+      pressDroplets.visible = false;
+      stageGroup.add(pressDroplets);
+      const pressDropletTransform = new THREE.Object3D();
+      const pressDropletStates = Array.from({ length: PRESS_DROPLET_COUNT }, (_, i) => ({
+        position: new THREE.Vector3(),
+        scale: 0.44 + (i % 3) * 0.04,
+        speed: 0.2 + (i % 3) * 0.045,
+        alive: false,
+      }));
+      const syncPressDropletInstances = () => {
+        pressDropletStates.forEach((state, i) => {
+          pressDropletTransform.position.copy(state.position);
+          const scale = state.alive ? state.scale : 0;
+          pressDropletTransform.scale.setScalar(scale);
+          pressDropletTransform.updateMatrix();
+          pressDroplets.setMatrixAt(i, pressDropletTransform.matrix);
+        });
+        pressDroplets.instanceMatrix.needsUpdate = true;
+      };
+      syncPressDropletInstances();
 
       const pressRaycaster = new THREE.Raycaster();
       const pressPointerNdc = new THREE.Vector2();
@@ -1815,9 +2420,31 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const addPressFill = (screenDeltaY: number) => {
         if (screenDeltaY <= 0) return;
         pressFillTarget = THREE.MathUtils.clamp(pressFillTarget + screenDeltaY * 0.0045, 0, 1);
+        if (!pressStream.visible) pressStreamUniforms.uReveal.value = 0;
         pressStream.visible = true;
-        (pressStream.material as THREE.MeshPhysicalMaterial).opacity = 0.68;
-        navigator.vibrate?.(8);
+        pressStreamUniforms.uDrain.value = 0;
+        pressStreamUniforms.uOpacity.value = 0.88;
+        pressStreamHold = 0.38;
+        pressDropletStates.forEach((droplet, i) => {
+          droplet.alive = true;
+          droplet.position.set(
+            Math.sin(i * 2.17) * 0.014,
+            platformTop + 0.31 + ((i * 0.037) % 0.2),
+            Math.cos(i * 1.63) * 0.012,
+          );
+        });
+        pressDropletMaterial.opacity = 0.9;
+        pressDroplets.visible = true;
+        syncPressDropletInstances();
+        if (pressSplashRing) {
+          pressSplashRing.scale.setScalar(0.55);
+          (pressSplashRing.material as THREE.MeshBasicMaterial).opacity = 0.72;
+        }
+        const hapticNow = performance.now();
+        if (hapticNow - pressLastHapticAt >= 120) {
+          pressLastHapticAt = hapticNow;
+          navigator.vibrate?.(8);
+        }
       };
       const onPressPointerDown = (event: PointerEvent) => {
         if (!pointerHitsPressCollider(event.clientX, event.clientY)) return;
@@ -1883,6 +2510,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const agingJarNode = closedJarDef ? spawnModel(closedJarDef) : null;
       const chamberCameraInStage = new THREE.Vector3();
       let chamberFacingLocked = false;
+      const chamberEmissiveInstances: THREE.MeshStandardMaterial[] = [];
+      let coldVolumeMaterial: THREE.MeshBasicMaterial | null = null;
       if (agingJarNode) {
         // 5MB가 넘는 항아리를 그림자 맵에 다시 그리면 모바일 회전 시 끊김이
         // 커진다. 저온숙성은 바닥 발광 UI로 접지를 표현하므로 그림자 패스를 뺀다.
@@ -1918,32 +2547,43 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         // 첫 표시 프레임에서만 이 축을 실제 XR 카메라 쪽으로 맞춘다.
         chamberEntry.group.rotation.y = 0;
         chamberEntry.group.scale.setScalar(1.59);
-        // 큰 창고 메시도 그림자 맵에 중복 렌더링하지 않는다. 내부 조명과
-        // 발광 볼륨만으로 충분히 형태가 드러난다.
+        // 큰 창고 메시도 그림자 맵에 중복 렌더링하지 않는다. PointLight 대신
+        // 재질 자체의 약한 청색 emissive와 발광 볼륨으로 내부 조명을 표현한다.
+        // 원본 재질은 모델 캐시에 공유되므로 복제본에만 emissive를 적용한다.
+        const chamberEmissiveMaterials = new Map<THREE.Material, THREE.Material>();
+        const makeChamberEmissive = (source: THREE.Material) => {
+          const cached = chamberEmissiveMaterials.get(source);
+          if (cached) return cached;
+          const material = source.clone();
+          if (material instanceof THREE.MeshStandardMaterial) {
+            material.emissive.setHex(0x1d6d91);
+            material.emissiveIntensity = 0.68;
+            chamberEmissiveInstances.push(material);
+          }
+          chamberEmissiveMaterials.set(source, material);
+          return material;
+        };
         chamberEntry.group.traverse((object) => {
           if (!(object instanceof THREE.Mesh)) return;
           object.castShadow = false;
           object.receiveShadow = false;
+          object.material = Array.isArray(object.material)
+            ? object.material.map(makeChamberEmissive)
+            : makeChamberEmissive(object.material);
         });
 
-        // 단일 광원과 저비용 발광 볼륨으로 내부의 청색광을 표현한다.
-        // 중앙 항아리 가이드와 광원 중심이 겹쳐 윤곽이 날아가지 않도록
-        // 광원을 왼쪽 위로 비키고 밝기를 조금 낮춘다.
-        const chamberLight = new THREE.PointLight(0x78d7ff, 0.88, 0.48, 1.7);
-        chamberLight.position.set(-0.045, 0.125, 0.010);
-        chamberEntry.group.add(chamberLight);
-
+        coldVolumeMaterial = new THREE.MeshBasicMaterial({
+          color: 0x56c8ff,
+          transparent: true,
+          opacity: 0.062,
+          depthWrite: false,
+          side: THREE.BackSide,
+          blending: THREE.NormalBlending,
+          toneMapped: false,
+        });
         const coldVolume = new THREE.Mesh(
           new THREE.BoxGeometry(0.115, 0.105, 0.075),
-          new THREE.MeshBasicMaterial({
-            color: 0x67cfff,
-            transparent: true,
-            opacity: 0.028,
-            depthWrite: false,
-            side: THREE.BackSide,
-            blending: THREE.NormalBlending,
-            toneMapped: false,
-          }),
+          coldVolumeMaterial,
         );
         coldVolume.position.set(0, 0.065, 0.002);
         chamberEntry.group.add(coldVolume);
@@ -1974,6 +2614,26 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         });
       };
       syncChamberVisualColliders();
+
+      // 움직이는 숙성 항아리는 몸통과 뚜껑을 두 타원체로 근사한다.
+      // 실제 grab 좌표와는 분리되어 손 모델의 관통만 시각적으로 막는다.
+      const agingJarVisualColliders = agingJarNode
+        ? [
+            createVisualHandEllipsoid([0, 0.115, 0], [0.092, 0.12, 0.092], 0.009),
+            createVisualHandEllipsoid([0, 0.225, 0], [0.1, 0.038, 0.1], 0.009),
+          ]
+        : [];
+      agingJarVisualColliders.forEach((collider) => {
+        collider.enabled = false;
+        visualHandColliders.push(collider);
+      });
+      const syncAgingJarVisualColliders = () => {
+        agingJar.updateMatrix();
+        agingJarVisualColliders.forEach((collider) => {
+          setVisualHandBoxMatrix(collider, agingJar.matrix);
+        });
+      };
+      syncAgingJarVisualColliders();
 
       // 냉장고와 함께 회전하는 바닥 목표 영역. 별도 충돌 GLB 대신 이 그룹의
       // 로컬 좌표를 보이지 않는 박스 영역으로 사용한다.
@@ -2016,27 +2676,44 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 항아리가 놓인 뒤에는 직사각형 목표 대신 원형 링과 방사형 눈금으로
       // 안정적으로 안착했음을 보여준다.
       const placedIndicator = new THREE.Group();
-      placedIndicator.position.y = 0.0022;
+      placedIndicator.position.y = 0.0145;
       const placedRing = new THREE.Mesh(
-        new THREE.RingGeometry(0.036, 0.039, 64),
+        new THREE.RingGeometry(0.06, 0.064, 64),
         new THREE.MeshBasicMaterial({
-          color: 0x9be7ff,
+          color: 0x56c8ee,
           transparent: true,
-          opacity: 0.9,
+          opacity: 0.78,
+          depthWrite: false,
+          blending: THREE.NormalBlending,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        }),
+      );
+      placedRing.rotation.x = -Math.PI / 2;
+      placedRing.renderOrder = 14;
+      placedIndicator.add(placedRing);
+
+      const placedInnerRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.053, 0.0555, 64),
+        new THREE.MeshBasicMaterial({
+          color: 0x6fd6ff,
+          transparent: true,
+          opacity: 0.42,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
           side: THREE.DoubleSide,
           toneMapped: false,
         }),
       );
-      placedRing.rotation.x = -Math.PI / 2;
-      placedIndicator.add(placedRing);
+      placedInnerRing.rotation.x = -Math.PI / 2;
+      placedInnerRing.renderOrder = 14;
+      placedIndicator.add(placedInnerRing);
 
       const tickPoints: THREE.Vector3[] = [];
       for (let i = 0; i < 16; i += 1) {
         const angle = i / 16 * Math.PI * 2;
-        const inner = 0.044;
-        const outer = i % 4 === 0 ? 0.054 : 0.05;
+        const inner = 0.069;
+        const outer = i % 4 === 0 ? 0.079 : 0.075;
         tickPoints.push(
           new THREE.Vector3(Math.cos(angle) * inner, 0, Math.sin(angle) * inner),
           new THREE.Vector3(Math.cos(angle) * outer, 0, Math.sin(angle) * outer),
@@ -2053,12 +2730,48 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           toneMapped: false,
         }),
       );
+      placedTicks.renderOrder = 14;
       placedIndicator.add(placedTicks);
+
+      // 실시간 shadow map을 추가하지 않고도 항아리가 바닥에 붙어 보이게 하는
+      // 저비용 접지 그림자. 모바일에서 추가 광원/그림자 패스가 생기지 않는다.
+      const contactShadowCanvas = document.createElement("canvas");
+      contactShadowCanvas.width = contactShadowCanvas.height = 128;
+      const contactShadowContext = contactShadowCanvas.getContext("2d");
+      if (contactShadowContext) {
+        const gradient = contactShadowContext.createRadialGradient(64, 64, 4, 64, 64, 62);
+        gradient.addColorStop(0, "rgba(0,8,18,0.72)");
+        gradient.addColorStop(0.48, "rgba(0,8,18,0.42)");
+        gradient.addColorStop(1, "rgba(0,8,18,0)");
+        contactShadowContext.fillStyle = gradient;
+        contactShadowContext.fillRect(0, 0, 128, 128);
+      }
+      const contactShadowTexture = new THREE.CanvasTexture(contactShadowCanvas);
+      const agingContactShadow = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.22, 0.17),
+        new THREE.MeshBasicMaterial({
+          map: contactShadowTexture,
+          transparent: true,
+          opacity: 0.8,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      );
+      agingContactShadow.rotation.x = -Math.PI / 2;
+      agingContactShadow.position.y = 0.013;
+      agingContactShadow.renderOrder = 13;
+      agingContactShadow.visible = false;
+      coldZoneAnchor.add(agingContactShadow);
       placedIndicator.visible = false;
       coldZoneAnchor.add(placedIndicator);
 
-      // 시각 타깃 확대에 맞춰 실제 놓기 판정 영역도 함께 넓힌다.
-      const coldZoneHalfSize = new THREE.Vector3(0.1, 0.09, 0.062);
+      // 바닥 UI 전체를 덮는 보이지 않는 3D 충돌 박스. 항아리 중심이 들어오는 즉시
+      // 손의 펼침 여부와 관계없이 안착시킨다.
+      const coldZoneHalfSize = new THREE.Vector3(0.12, 0.22, 0.17);
+      const coldZoneBounds = new THREE.Box3(
+        coldZoneHalfSize.clone().multiplyScalar(-1),
+        coldZoneHalfSize.clone(),
+      );
       const syncJarTargetToColdZone = () => {
         coldZoneAnchor.getWorldPosition(coldZoneWorld);
         stageGroup.worldToLocal(coldZoneWorld);
@@ -2068,9 +2781,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       chamberEntry?.group.updateMatrixWorld(true);
       syncJarTargetToColdZone();
 
-      // 안착 지점의 강조광은 실제 PointLight를 추가하지 않고 바닥 Plane의
-      // additive 발광으로 표현한다. 이렇게 하면 창고 내부 chamberLight 하나만
-      // PBR 조명 계산에 참여하고, 펄스 연출은 저비용 opacity/scale 변경으로 끝난다.
+      // 안착 지점의 강조광도 실제 조명 없이 바닥 Plane의 additive 발광으로
+      // 표현한다. 따라서 저온숙성 장면에는 추가 PointLight 계산이 전혀 없다.
       const coldFloorGlowMaterial = new THREE.MeshBasicMaterial({
         color: 0x73cfff,
         transparent: true,
@@ -2096,10 +2808,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       let agingHapticSent = false;
       let agingCompleted = false;
       let heldJarDepth = 1;
+      const agingGrabGesture = new CurledGrabGesture();
       const agingGrabTarget = new THREE.Vector3();
+      const agingGrabOffset = new THREE.Vector3();
+      const agingPalmStage = new THREE.Vector3();
+      const agingCameraWorld = new THREE.Vector3();
       const jarWorld = new THREE.Vector3();
+      const jarGripWorld = new THREE.Vector3();
       const targetWorld = new THREE.Vector3();
       const jarScreen = { x: 0.5, y: 0.5 };
+      const jarGripScreen = { x: 0.5, y: 0.5 };
       const targetScreen = { x: 0.5, y: 0.5 };
 
       const setAgingCopy = (caption: string, hint = "") => {
@@ -2109,6 +2827,44 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (hintNode) hintNode.textContent = hint;
       };
 
+      const setAgingHandDebug = (text: string) => {
+        const node = $("#aging-hand-debug");
+        if (node) node.textContent = text;
+      };
+
+      const agingCompleteScreen = $(".aging-complete-screen") as HTMLElement | null;
+      const advanceFromAgingComplete = (event: PointerEvent) => {
+        if (agingPhase !== "complete" || S.press !== agingIndex) return;
+        event.preventDefault();
+        uiRoot!.classList.remove("aging-complete");
+        S.press = Math.min(S.press + 1, PRESS_STEPS.length - 1);
+        syncPress();
+      };
+      agingCompleteScreen?.addEventListener("pointerup", advanceFromAgingComplete);
+      live.cleanup.push(() => {
+        agingCompleteScreen?.removeEventListener("pointerup", advanceFromAgingComplete);
+      });
+
+      const beginAgingSnap = () => {
+        agingGrabGesture.reset();
+        agingPhase = "snapping";
+        agingT = 0;
+        // 목표 영역에 안착한 뒤에는 손 판정이 더 필요하지 않다. 완료 연출과
+        // 출고 전환 동안 카메라 readback/MediaPipe 추론을 즉시 멈춘다.
+        handTracker?.setPaused(true);
+        handVisual.hide();
+        coldTarget.visible = false;
+        placedIndicator.visible = true;
+        agingContactShadow.visible = true;
+        chamberEmissiveInstances.forEach((material) => {
+          material.emissiveIntensity = 1.05;
+        });
+        if (coldVolumeMaterial) coldVolumeMaterial.opacity = 0.115;
+        setHandHud("dropped", "항아리가 빛나는 자리에 놓였습니다");
+        setAgingCopy("항아리가 냉장고 안에 자리 잡고 있어요", "낮은 온도에서 천천히 숙성합니다");
+        navigator.vibrate?.(28);
+      };
+
       const resetAgingInteraction = () => {
         arDetectMs = IDLE_AGING_DETECT_MS;
         uiRoot!.classList.remove("aging-focus", "aging-complete");
@@ -2116,17 +2872,24 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         agingT = 0;
         agingHapticSent = false;
         agingCompleted = false;
+        agingGrabGesture.reset();
         agingJar.position.copy(jarHome);
         agingJar.scale.setScalar(1);
+        syncAgingJarVisualColliders();
         agingJar.visible = Boolean(agingJarNode);
         coldTarget.visible = true;
         coldTarget.scale.setScalar(1);
         placedIndicator.visible = false;
+        agingContactShadow.visible = false;
+        chamberEmissiveInstances.forEach((material) => {
+          material.emissiveIntensity = 0.68;
+        });
+        if (coldVolumeMaterial) coldVolumeMaterial.opacity = 0.062;
         coldFloorGlow.visible = true;
         coldFloorGlow.scale.setScalar(1);
         coldFloorGlowMaterial.opacity = 0.14;
         (coldTarget.material as THREE.MeshBasicMaterial).opacity = 0.82;
-        setAgingCopy("숙성 항아리를 손으로 감싸 안쪽에 넣어주세요", "엄지와 검지를 모아 항아리를 집고 · 빛나는 자리에서 펴세요");
+        setAgingCopy("숙성 항아리를 손으로 감싸 안쪽에 넣어주세요", "손가락 전체를 구부려 항아리를 감싸고 · 빛나는 자리에서 펴세요");
       };
 
       live.onHand = (frame, hand, interactionCamera) => {
@@ -2137,6 +2900,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
         if (S.press !== agingIndex) {
           arDetectMs = ACTIVE_AR_DETECT_MS;
+          setAgingHandDebug("AGING HAND · 대기 중");
           return;
         }
         if (agingPhase === "aging" || agingPhase === "snapping" || agingPhase === "complete") {
@@ -2144,54 +2908,97 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           return;
         }
         if (!frame.present) {
-          arDetectMs = IDLE_AGING_DETECT_MS;
-          if (agingPhase === "holding") agingPhase = "ready";
+          arDetectMs = agingPhase === "holding" ? ACTIVE_AR_DETECT_MS : IDLE_AGING_DETECT_MS;
+          if (agingPhase === "holding") {
+            const missingGrab = agingGrabGesture.update(frame, true);
+            if (missingGrab.justReleased) agingPhase = "ready";
+          }
           setHandHud("idle", "손을 카메라에 비춰 항아리를 감싸 주세요");
+          setAgingHandDebug(`AGING HAND · 손 없음\nphase ${agingPhase}`);
           return;
         }
 
-        const pinch = hand.pinchScreen;
+        const palm = hand.palmScreen;
         agingJar.getWorldPosition(jarWorld);
+        // 항아리 몸통 하단의 인터랙션 전용 영역. 시각 충돌체와 분리해
+        // 새끼손가락이 아래쪽을 감싼 경우에만 grab을 시작한다.
+        jarGripWorld.set(0, 0.035, 0);
+        agingJar.localToWorld(jarGripWorld);
         coldZoneAnchor.getWorldPosition(targetWorld);
         worldToScreen(jarWorld, interactionCamera, jarScreen);
+        worldToScreen(jarGripWorld, interactionCamera, jarGripScreen);
         worldToScreen(targetWorld, interactionCamera, targetScreen);
+        // 항아리가 화면에서 크게 보이므로 중심점만 재면 가장자리에 댄 손을 놓친다.
+        const nearJar = screenDist(palm, jarScreen) < 0.28;
+        const pinky = hand.jointScreen[20];
+        const pinkyDx = (pinky.x - jarGripScreen.x) / 0.18;
+        const pinkyDy = (pinky.y - jarGripScreen.y) / 0.14;
+        const pinkyInGrabZone = pinkyDx * pinkyDx + pinkyDy * pinkyDy <= 1;
+        const grab = agingGrabGesture.update(
+          frame,
+          agingPhase === "holding" || (nearJar && pinkyInGrabZone),
+        );
 
         if (agingPhase === "holding") {
           arDetectMs = ACTIVE_AR_DETECT_MS;
-          screenToWorld(pinch.x, pinch.y, heldJarDepth, interactionCamera, agingGrabTarget);
+          screenToWorld(palm.x, palm.y, heldJarDepth, interactionCamera, agingGrabTarget);
           stageGroup.worldToLocal(agingGrabTarget);
-          agingJar.position.lerp(agingGrabTarget, 0.46);
+          agingGrabTarget.add(agingGrabOffset);
+          // 손 검출 자체가 72ms 간격이므로 여기서 다시 보간하면 항아리가 계속 뒤처진다.
+          // 손 모델과 항아리를 같은 검출 표본의 위치에 즉시 맞춘다.
+          agingJar.position.copy(agingGrabTarget);
+          syncAgingJarVisualColliders();
           agingJar.getWorldPosition(jarInColdZone);
           coldZoneAnchor.worldToLocal(jarInColdZone);
-          const overTarget =
-            Math.abs(jarInColdZone.x) <= coldZoneHalfSize.x &&
-            Math.abs(jarInColdZone.y) <= coldZoneHalfSize.y &&
-            Math.abs(jarInColdZone.z) <= coldZoneHalfSize.z;
+          const overTarget = coldZoneBounds.containsPoint(jarInColdZone);
+          setAgingHandDebug(
+            `AGING HAND · ${grab.active ? "GRABBED" : "OPEN"}\n` +
+            `curl ${grab.score.toFixed(2)} · target ${overTarget ? "IN" : "OUT"}\n` +
+            `box x ${jarInColdZone.x.toFixed(3)} · y ${jarInColdZone.y.toFixed(3)} · z ${jarInColdZone.z.toFixed(3)}`,
+          );
           setHandHud("holding", overTarget ? "여기에서 손을 펴 놓아주세요" : "빛나는 자리까지 항아리를 옮겨주세요");
-          if (frame.justReleased) {
-            if (overTarget) {
-              agingPhase = "snapping";
-              agingT = 0;
-              coldTarget.visible = false;
-              placedIndicator.visible = true;
-              setAgingCopy("항아리가 냉장고 안에 자리 잡고 있어요", "낮은 온도에서 천천히 숙성합니다");
-              navigator.vibrate?.(28);
-            } else {
-              agingPhase = "ready";
-              arDetectMs = IDLE_AGING_DETECT_MS;
-              setHandHud("tracking", "조금 더 안쪽의 빛나는 자리에 놓아주세요");
-            }
+          if (overTarget) {
+            beginAgingSnap();
+            return;
+          }
+          if (grab.justReleased) {
+            agingPhase = "ready";
+            arDetectMs = IDLE_AGING_DETECT_MS;
+            setHandHud("tracking", "조금 더 안쪽의 빛나는 자리에 놓아주세요");
           }
           return;
         }
 
-        arDetectMs = IDLE_AGING_DETECT_MS;
-        const nearJar = screenDist(pinch, jarScreen) < 0.15;
-        setHandHud(nearJar ? "hover" : "tracking", nearJar ? "엄지와 검지를 모아 항아리를 집으세요" : "항아리 가까이 손을 가져가세요");
-        if (nearJar && frame.justPinched) {
+        arDetectMs = nearJar ? ACTIVE_AR_DETECT_MS : IDLE_AGING_DETECT_MS;
+        setAgingHandDebug(
+          `AGING HAND · ${nearJar ? "NEAR" : "FAR"}\n` +
+          `curl ${grab.score.toFixed(2)} · pinky ${pinkyInGrabZone ? "IN" : "OUT"}\n` +
+          `distance ${screenDist(palm, jarScreen).toFixed(3)} / 0.280`,
+        );
+        setHandHud(
+          nearJar ? "hover" : "tracking",
+          nearJar
+            ? pinkyInGrabZone
+              ? "새끼손가락을 댄 채 손가락 전체로 감싸세요"
+              : "새끼손가락을 항아리 아래쪽에 대주세요"
+            : "항아리 가까이 손을 가져가세요",
+        );
+        if (nearJar && pinkyInGrabZone && grab.justGrabbed) {
           agingPhase = "holding";
           arDetectMs = ACTIVE_AR_DETECT_MS;
-          heldJarDepth = Math.max(0.45, interactionCamera.position.distanceTo(jarWorld));
+          interactionCamera.getWorldPosition(agingCameraWorld);
+          heldJarDepth = Math.max(0.45, agingCameraWorld.distanceTo(jarWorld));
+          screenToWorld(palm.x, palm.y, heldJarDepth, interactionCamera, agingPalmStage);
+          stageGroup.worldToLocal(agingPalmStage);
+          agingGrabOffset.copy(agingJar.position).sub(agingPalmStage);
+          // 검출 시 손바닥이 이미 항아리 안에 겹쳐 있어도 그 관통 위치를
+          // 그대로 보존하지 않는다. 항아리 반지름 바깥의 접촉 거리로 맞춰
+          // 손바닥/손가락 외곽에 항아리가 붙은 상태로 이동시킨다.
+          if (agingGrabOffset.lengthSq() < 1e-6) {
+            agingGrabOffset.set(0.14, 0, 0);
+          } else {
+            agingGrabOffset.normalize().multiplyScalar(0.14);
+          }
           navigator.vibrate?.(16);
         }
       };
@@ -2235,8 +3042,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           node.traverse((obj) => {
             if (!(obj instanceof THREE.Mesh)) return;
 
-            obj.castShadow = true;
-            obj.receiveShadow = true;
+            // 출고 전환 순간 고용량 병 GLB를 shadow map에 다시 그리지 않는다.
+            // 바닥 발광 링이 접지감을 담당하므로 모바일 전환 프레임을 우선한다.
+            obj.castShadow = false;
+            obj.receiveShadow = false;
 
             const source = Array.isArray(obj.material) ? obj.material : [obj.material];
             const cloned = source.map((mat) => {
@@ -2381,21 +3190,35 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         });
 
         const inAging = S.press === agingIndex;
+        agingJarVisualColliders.forEach((collider) => {
+          collider.enabled = inAging;
+        });
         chamberVisualColliders.forEach((collider) => {
           collider.enabled = inAging;
         });
         const inPress = S.press === pressIndex;
-        // 압착·여과에서는 공정 항아리 아래의 low_wooden_bench를 반드시
-        // 노출한다. 다른 공정 모델의 visible 토글과 분리해 유지한다.
-        pressBench.visible = inPress && Boolean(pressBenchNode);
-        if (inPress) {
-          if (pressBenchNode && finishBench) finishBench.visible = false;
-          else forceShowFinishBench();
-        } else if (finishBench) finishBench.visible = true;
+        const pressModelReady = Boolean(pressEntry && LOADED[pressEntry.def.id]);
+        if (inPress && pressModelReady && !pressIntroPlayed) {
+          // 압착 단계에 들어오자마자 짧은 시범 흐름을 보여줘 이펙트와
+          // 조작 방향을 인지시킨다. 이후에는 손/드래그 입력이 수위를 이어 올린다.
+          pressIntroPlayed = true;
+          pressIntroRemaining = 1.8;
+          addPressFill(10);
+        }
+        // 압착·여과도 다른 완성 공정과 동일한 테이블 인스턴스와 위치를 쓴다.
+        // 별도 복제본을 만들면 단계 진입 시 테이블이 다른 위치로 튀어 보인다.
+        forceShowFinishBench();
         if (!inPress) {
+          pressIntroPlayed = false;
+          pressIntroRemaining = 0;
           pressDragging = false;
           pressLastHandY = null;
           pressStream.visible = false;
+          pressDropletStates.forEach((droplet) => { droplet.alive = false; });
+          pressDroplets.visible = false;
+          if (pressSplashRing) {
+            (pressSplashRing.material as THREE.MeshBasicMaterial).opacity = 0;
+          }
         }
         if (inAging && agingPhase === "idle") {
           chamberFacingLocked = false;
@@ -2423,7 +3246,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             shipUiDoneSent = false;
             setShipSequence("settling");
 
-            // 0.4초 뒤, 조금 작고 위쪽에서 나타난다.
+            // 한두 프레임만 안정화한 뒤, 조금 작고 위쪽에서 빠르게 나타난다.
             shipModel.scale.setScalar(0.86);
             shipModel.position.y = shipRestY + 0.045;
             shipMaterials.forEach((material) => {
@@ -2471,13 +3294,68 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       
       live.tick = (_t, dt) => {
         if (S.press === pressIndex && pressSurface && pressEntry?.group.visible) {
+          if (pressIntroRemaining > 0) {
+            pressIntroRemaining = Math.max(0, pressIntroRemaining - dt);
+            pressFillTarget = THREE.MathUtils.clamp(pressFillTarget + dt * 0.09, 0, 1);
+            pressStream.visible = true;
+            pressStreamHold = 0.24;
+            pressStreamUniforms.uOpacity.value = 0.88;
+          }
           pressFill += (pressFillTarget - pressFill) * Math.min(1, dt * 7.5);
-          pressSurface.position.y = THREE.MathUtils.lerp(pressSurfaceEmptyY, pressSurfaceFullY, pressFill);
+          const liquidHeight = THREE.MathUtils.lerp(
+            0.001,
+            pressSurfaceFullY - PRESS_LIQUID_BOTTOM_Y,
+            pressFill,
+          );
+          const surfaceY = THREE.MathUtils.lerp(pressSurfaceEmptyY, pressSurfaceFullY, pressFill);
+          pressSurface.position.y = surfaceY;
+          // 수위가 오르는 동안 반경까지 맥동하면 항아리 자체가 흔들리는 것처럼
+          // 보이므로 수면 크기는 고정하고 Y축 이동만 적용한다.
+          pressSurface.scale.set(1, 1, 1);
+          if (pressLiquidVolume) {
+            pressLiquidVolume.visible = pressFill > 0.003;
+            pressLiquidVolume.scale.y = liquidHeight;
+            pressLiquidVolume.position.y = PRESS_LIQUID_BOTTOM_Y + liquidHeight * 0.5;
+          }
+          if (pressSplashRing) {
+            pressSplashRing.position.y = surfaceY + 0.0015;
+            pressSplashRing.scale.x += (1.7 - pressSplashRing.scale.x) * Math.min(1, dt * 5.5);
+            pressSplashRing.scale.z = pressSplashRing.scale.x;
+            const splashMaterial = pressSplashRing.material as THREE.MeshBasicMaterial;
+            splashMaterial.opacity = Math.max(0, splashMaterial.opacity - dt * 1.9);
+          }
           if (pressStream.visible) {
-            const material = pressStream.material as THREE.MeshPhysicalMaterial;
-            material.opacity = Math.max(0, material.opacity - dt * 1.7);
-            pressStream.scale.x = pressStream.scale.z = 0.82 + Math.sin(_t * 18) * 0.12;
-            if (material.opacity <= 0.02) pressStream.visible = false;
+            pressStreamUniforms.uTime.value = _t;
+            pressStreamUniforms.uReveal.value = Math.min(
+              1,
+              pressStreamUniforms.uReveal.value + dt * 4.2,
+            );
+            pressStreamHold = Math.max(0, pressStreamHold - dt);
+            if (pressStreamHold <= 0) {
+              pressStreamUniforms.uDrain.value = Math.min(
+                1,
+                pressStreamUniforms.uDrain.value + dt * 2.1,
+              );
+            }
+            pressStream.scale.x = 0.88 + Math.sin(_t * 15) * 0.08;
+            pressStream.scale.z = 0.84 + Math.sin(_t * 17 + 0.8) * 0.07;
+            pressStream.position.x = Math.sin(_t * 7.5) * 0.0018;
+            if (pressStreamUniforms.uDrain.value >= 1) pressStream.visible = false;
+          }
+          if (pressDroplets.visible) {
+            pressDropletMaterial.opacity = Math.max(0, pressDropletMaterial.opacity - dt * 1.55);
+            let anyDropletAlive = false;
+            pressDropletStates.forEach((droplet) => {
+              if (!droplet.alive) return;
+              droplet.position.y -= dt * droplet.speed;
+              if (droplet.position.y <= platformTop + 0.285 || pressDropletMaterial.opacity <= 0.02) {
+                droplet.alive = false;
+              } else {
+                anyDropletAlive = true;
+              }
+            });
+            if (anyDropletAlive) syncPressDropletInstances();
+            else pressDroplets.visible = false;
           }
         }
         if (chamberEntry?.group.visible && !chamberFacingLocked) {
@@ -2497,23 +3375,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
         if (S.press === agingIndex && agingPhase !== "idle") {
           if (placedIndicator.visible) {
-            const placedPulse = 0.82 + Math.sin(_t * 3.4) * 0.14;
-            (placedRing.material as THREE.MeshBasicMaterial).opacity = placedPulse;
-            (placedTicks.material as THREE.LineBasicMaterial).opacity = 0.56 + placedPulse * 0.32;
+            const placedPulse = 0.62 + Math.sin(_t * 3.4) * 0.1;
+            (placedRing.material as THREE.MeshBasicMaterial).opacity = 0.48 + placedPulse * 0.28;
+            (placedInnerRing.material as THREE.MeshBasicMaterial).opacity = 0.3 + placedPulse * 0.22;
+            (placedTicks.material as THREE.LineBasicMaterial).opacity = 0.36 + placedPulse * 0.3;
             placedIndicator.scale.setScalar(1 + Math.sin(_t * 3.4) * 0.035);
+            (agingContactShadow.material as THREE.MeshBasicMaterial).opacity = 0.72 + placedPulse * 0.12;
           }
 
           if (agingPhase === "ready") {
             agingJar.position.lerp(jarHome, 0.1);
+            syncAgingJarVisualColliders();
           } else if (agingPhase === "snapping") {
             agingT += dt;
             agingJar.position.lerp(jarTarget, Math.min(1, dt * 8.5));
             agingJar.scale.lerp(new THREE.Vector3(0.94, 0.94, 0.94), Math.min(1, dt * 7));
+            syncAgingJarVisualColliders();
             coldFloorGlowMaterial.opacity += (0.72 - coldFloorGlowMaterial.opacity) * Math.min(1, dt * 8);
             coldFloorGlow.scale.setScalar(1.02 + Math.sin(_t * 5.2) * 0.035);
             if (agingJar.position.distanceTo(jarTarget) < 0.008 || agingT > 0.75) {
               agingJar.position.copy(jarTarget);
               agingJar.scale.setScalar(0.94);
+              syncAgingJarVisualColliders();
               agingPhase = "aging";
               agingT = 0;
               uiRoot!.classList.add("aging-focus");
@@ -2522,9 +3405,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           } else if (agingPhase === "aging") {
             agingT += dt;
             const progress = THREE.MathUtils.clamp(agingT / 3.2, 0, 1);
+            chamberEmissiveInstances.forEach((material) => {
+              material.emissiveIntensity = 1.05 + Math.sin(_t * 2.2) * 0.12;
+            });
+            if (coldVolumeMaterial) coldVolumeMaterial.opacity = 0.105 + Math.sin(_t * 2.2) * 0.018;
             coldFloorGlowMaterial.opacity = 0.5 + Math.sin(_t * 2.6) * 0.1;
             coldFloorGlow.scale.setScalar(1.04 + Math.sin(_t * 2.6) * 0.025);
             agingJar.position.y = jarTarget.y + Math.sin(_t * 1.8) * 0.002;
+            syncAgingJarVisualColliders();
             if (progress >= 1 && !agingCompleted) {
               agingCompleted = true;
               agingPhase = "complete";
@@ -2532,17 +3420,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               coldFloorGlow.scale.setScalar(1.08);
               uiRoot!.classList.remove("aging-focus");
               uiRoot!.classList.add("aging-complete");
+              // 검은 완료 화면에서는 손 입력이 필요 없다. 출고 단계의 첫 프레임까지
+              // 카메라 readback/MediaPipe 추론을 즉시 멈춰 전환 여유를 확보한다.
+              handTracker?.setPaused(true);
+              handVisual.hide();
               setAgingCopy("");
               if (!agingHapticSent) {
                 agingHapticSent = true;
                 navigator.vibrate?.([32, 45, 42]);
               }
-              window.setTimeout(() => {
-                if (S.press !== agingIndex) return;
-                uiRoot!.classList.remove("aging-complete");
-                S.press = Math.min(S.press + 1, PRESS_STEPS.length - 1);
-                syncPress();
-              }, 1800);
             }
           }
         }
@@ -2598,7 +3484,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
 
           // 병 등장과 겹쳐 warm glow, 발바닥, sparkle을 시작한다.
-          const fx = THREE.MathUtils.clamp((t - 0.82) / 0.68, 0, 1);
+          const fx = THREE.MathUtils.clamp((t - 0.48) / 0.5, 0, 1);
           if (fx > 0) {
             glowRings.forEach((ring) => { ring.visible = true; });
             sparkles.forEach((sparkle) => { sparkle.visible = true; });
@@ -2620,7 +3506,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
 
           // 최초 축하 파동이 끝난 뒤에도 결과 UI가 뜰 때까지 잔광을 끊지 않는다.
-          if (t >= 1.5) {
+          if (t >= 0.92) {
             shipGlow.intensity = 0.18 + Math.max(0, Math.sin(t * 1.45)) * 0.08;
             updateGlowWaves(t, false);
             sparkles.forEach((sparkle, i) => {
@@ -3281,6 +4167,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         // 발효는 '혼합'부터 탭으로 진행 — 항아리·자동 발효는 후발효에서만 켜진다.
         S.fstage = 0;
         S.ferment = 0;
+        S.mashTrayDone.clear();
         setStep("ferment");
         onFermentTick();
         syncFermentPhase();
@@ -3302,6 +4189,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         b.onclick = () => {
           if (i !== S.fstage) return;   // 지금 켜진 단계만 누를 수 있다
           if (i >= F_LAST) return;       // 후발효는 클릭이 아니라 발효로 완료된다
+          if (S.hand && st.id.startsWith("mash") && !S.mashTrayDone.has(st.id)) {
+            showNotice("채반 앞쪽을 잡고 몸 쪽으로 당겨 먼저 꺼내 주세요.");
+            return;
+          }
           S.fstage = i + 1;
           syncFermentPhase();
         };
@@ -3315,12 +4206,21 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         (p as HTMLElement).dataset.state = i < S.fstage ? "done" : i === S.fstage ? "now" : "todo";
       });
       const active = S.fstage >= F_LAST; // 후발효 진행 중
-      $("#ferment-game")?.classList.toggle("hidden", !active);
+      const current = FERMENT_STEPS[Math.min(S.fstage, F_LAST)];
+      $("#mash2-skip")?.classList.toggle("hidden", active || current?.id !== "mash2");
+      const mashActive = current?.id.startsWith("mash") === true;
+      $("#ferment-game")?.classList.toggle("hidden", !active && !mashActive);
       $("#btn-ferment")?.classList.toggle("hidden", !active);
       if (active) onFermentTick();       // 후발효: 일차·원형 게이지·버튼 갱신
       else {
         const cap = $("#cap-ferment");
-        if (cap) cap.textContent = FERMENT_STEPS[S.fstage].caption; // 혼합/1차발효/덧술 설명
+        if (cap) {
+          cap.textContent = current.id === "mash2"
+            ? "술덧을 한 차례 더 넣어주세요"
+            : current.id.startsWith("mash") && !S.mashTrayDone.has(current.id)
+              ? `${current.name} · 채반을 잡고 몸 쪽으로 당겨 꺼내세요`
+              : current.caption;
+        }
       }
     }
     function onFermentTick() {
@@ -3388,9 +4288,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const done = S.press >= PRESS_STEPS.length;
       const shipping = S.press === PRESS_STEPS.length - 1;
       const cur = PRESS_STEPS[Math.min(S.press, PRESS_STEPS.length - 1)];
-      // 완성 공정 중 손이 필요한 것은 저온숙성뿐이다. 해당 단계에서만
-      // MediaPipe를 깨우고, 출고 연출에서는 다시 멈춰 렌더링 여유를 확보한다.
-      handTracker?.setPaused(cur?.id !== "aging");
+      // 압착·여과의 짜기 동작과 저온숙성의 항아리 옮기기에서 손 입력을 사용한다.
+      // 출고 연출에서는 다시 멈춰 렌더링 여유를 확보한다.
+      handTracker?.setPaused(cur?.id !== "press" && cur?.id !== "aging");
       const cap = $("#cap-finishing");
       if (cap) {
         cap.textContent = done
@@ -3724,6 +4624,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         S.temp = OPTIMAL_C;
         S.ferment = 0;
         S.fstage = 0;
+        S.mashTrayDone.clear();
         S.press = 0;
         S.tempLog = [];
         uiRoot!.classList.remove("shipped");
@@ -3740,22 +4641,33 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     /* =========================================================
-     * TEMP DEBUG — 저온숙성 직전 이동 버튼 연결
+     * TEMP DEBUG — 압착·여과 직전 이동 버튼 연결
      * 나중에 삭제
      * ======================================================= */
   
-    const debugSkipBtn = $("#debug-skip-before-aging");
+    const debugSkipBtn = $("#debug-skip-before-press");
 
     if (debugSkipBtn) {
       (debugSkipBtn as HTMLButtonElement).onclick =
-        debugSkipToBeforeAging;
+        debugSkipToBeforePress;
     }
 
-    const debugSkipBeforePostFermentationBtn = $("#debug-skip-before-post-fermentation");
+    const debugSkipBeforeFirstMashBtn = $("#debug-skip-before-first-mash");
 
-    if (debugSkipBeforePostFermentationBtn) {
-      (debugSkipBeforePostFermentationBtn as HTMLButtonElement).onclick =
-        debugSkipToBeforePostFermentation;
+    if (debugSkipBeforeFirstMashBtn) {
+      (debugSkipBeforeFirstMashBtn as HTMLButtonElement).onclick =
+        debugSkipToBeforeFirstMash;
+    }
+
+    const mash2SkipBtn = $("#btn-skip-mash2");
+    if (mash2SkipBtn) {
+      (mash2SkipBtn as HTMLButtonElement).onclick = () => {
+        if (FERMENT_STEPS[S.fstage]?.id !== "mash2") return;
+        S.mashTrayDone.add("mash2");
+        S.fstage = Math.min(F_LAST, S.fstage + 1);
+        setHandHud("dropped", "덧술2 과정을 건너뛰었어요");
+        syncFermentPhase();
+      };
     }
 
     /* --- 뒤로 --- */
@@ -3815,13 +4727,21 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     <div ref={rootRef} className="ar-ui" data-step="place">
       <canvas ref={canvasRef} id="gl" />
 
+      <div id="mash2-skip" className="mash2-skip hidden">
+        <button id="btn-skip-mash2" type="button">
+          <span>같은 과정 건너뛰기</span>
+          <strong aria-hidden="true">»</strong>
+        </button>
+        <p>덧술 1과 같은 과정이에요</p>
+      </div>
+
       {/* TEMP DEBUG — 개발 완료 후 삭제 */}
       <button
-        id="debug-skip-before-aging"
+        id="debug-skip-before-press"
         type="button"
         style={{
           position: "absolute",
-          top: 80,
+          top: 174,
           right: 12,
           zIndex: 9999,
           padding: "8px 12px",
@@ -3833,15 +4753,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           fontWeight: 700,
         }}
       >
-        DEV · 저온숙성 직전
+        DEV · 압착·여과 직전
       </button>
 
       <button
-        id="debug-skip-before-post-fermentation"
+        id="debug-skip-before-first-mash"
         type="button"
         style={{
           position: "absolute",
-          top: 124,
+          top: 218,
           right: 12,
           zIndex: 9999,
           padding: "8px 12px",
@@ -3853,8 +4773,33 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           fontWeight: 700,
         }}
       >
-        DEV · 후발효 직전
+        DEV · 덧술1 직전
       </button>
+
+      <pre
+        id="aging-hand-debug"
+        aria-live="polite"
+        style={{
+          position: "absolute",
+          top: 262,
+          right: 12,
+          zIndex: 9999,
+          minWidth: 190,
+          margin: 0,
+          padding: "8px 10px",
+          borderRadius: 8,
+          border: "1px solid rgba(141,225,255,0.5)",
+          background: "rgba(0,12,20,0.78)",
+          color: "#b9efff",
+          fontSize: 10,
+          lineHeight: 1.45,
+          fontFamily: "monospace",
+          pointerEvents: "none",
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        AGING HAND · 대기 중
+      </pre>
 
 
       {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
@@ -3864,6 +4809,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       <div className="aging-complete-screen" role="status" aria-live="polite">
         <span>1개월 후</span>
         <strong>저온숙성이<br />완료되었습니다</strong>
+        <small>화면을 터치해 계속하기</small>
       </div>
 
       {/* 11 · AR 시작 */}
@@ -3948,12 +4894,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           <div className="caption" id="cap-ferment">{recipe.fermentSteps[0]?.caption}</div>
         </div>
         <div className="dock">
+          <div id="mash-tray-place-guide" className="mash-tray-place-guide hidden" aria-live="polite">
+            <img src="/ar/ui/mash-tray-place-card.jpg" alt="채반을 바닥 가이드 위에 내려놓는 모습" />
+            <div>
+              <strong>바닥 가이드 위에<br />채반을 놓아주세요</strong>
+              <span>모서리가 초록색이 되면 배치 완료</span>
+            </div>
+          </div>
+          <div className="hand-hud" data-state="idle">
+            <span className="lamp" />
+            <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+          </div>
           <div id="ferment-game" className="hidden">
             <div className="coach" id="coach-ferment">
               <div className="avatar" />
               <div>
                 <div className="who">술도가 장인</div>
-                <div className="msg" id="msg-ferment">밀봉된 항아리 안에서 천천히 익어가요</div>
+                <div className="msg" id="msg-ferment" aria-live="polite">밀봉된 항아리 안에서 천천히 익어가요</div>
               </div>
             </div>
           </div>

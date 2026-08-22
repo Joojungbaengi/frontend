@@ -27,6 +27,10 @@ export class HandTracker {
   private paused = false;
   /** 손을 잠깐 놓쳐도 바로 사라지지 않게 버티는 프레임 수 */
   private missStreak = 0;
+  /** 좌우 라벨은 확실한 결과가 연속될 때만 잠그며, 손을 잃기 전에는 바꾸지 않는다. */
+  private handednessCandidate: "left" | "right" | null = null;
+  private handednessEvidence = 0;
+  private lockedHandedness: "left" | "right" | null = null;
 
   /** 지금까지 본 것 중 가장 최신 손 상태. 렌더 루프가 매 프레임 읽어간다. */
   get latest(): HandFrame {
@@ -71,6 +75,7 @@ export class HandTracker {
     // 멈춘 사이의 손 상태를 그대로 들고 있다가 재개하면 엉뚱한 집기가 발생한다
     if (paused) {
       this.gesture.reset();
+      this.resetHandedness();
       this.frame = emptyHandFrame();
     }
   }
@@ -79,7 +84,7 @@ export class HandTracker {
   private ingest(res: {
     landmarks: Landmark[][];
     worldLandmarks: Landmark[][];
-    handedness?: { categoryName?: string }[][];
+    handedness?: { categoryName?: string; score?: number }[][];
   }) {
     const raw = res.landmarks?.[0];
     const world = res.worldLandmarks?.[0];
@@ -89,6 +94,7 @@ export class HandTracker {
       if (++this.missStreak >= 4 && this.frame.present) {
         this.gesture.reset();
         this.worldEma = null;
+        this.resetHandedness();
         this.frame = emptyHandFrame();
       }
       return;
@@ -108,6 +114,12 @@ export class HandTracker {
     const pendingPinch = justPinched || (this.frame.justPinched && !justReleased);
     const pendingRelease = justReleased || (this.frame.justReleased && !justPinched);
 
+    const handednessCategory = res.handedness?.[0]?.[0];
+    const handedness = this.updateHandedness(
+      handednessCategory?.categoryName,
+      handednessCategory?.score ?? 0,
+    );
+
     this.frame = {
       present: true,
       landmarks,
@@ -118,8 +130,30 @@ export class HandTracker {
       justPinched: pendingPinch,
       justReleased: pendingRelease,
       screenSpan: screenSpan(landmarks),
-      handedness: readHandedness(res.handedness?.[0]?.[0]?.categoryName),
+      handedness,
+      handednessScore: handednessCategory?.score ?? 0,
     };
+  }
+
+  private updateHandedness(name: string | undefined, score: number): "left" | "right" {
+    const corrected = readHandedness(name);
+    if (corrected && score >= 0.75) {
+      if (this.handednessCandidate === corrected) this.handednessEvidence += 1;
+      else {
+        this.handednessCandidate = corrected;
+        this.handednessEvidence = 1;
+      }
+      if (!this.lockedHandedness && this.handednessEvidence >= 3) {
+        this.lockedHandedness = corrected;
+      }
+    }
+    return this.lockedHandedness ?? "right";
+  }
+
+  private resetHandedness() {
+    this.handednessCandidate = null;
+    this.handednessEvidence = 0;
+    this.lockedHandedness = null;
   }
 
   /**
@@ -157,6 +191,7 @@ export class HandTracker {
     this.landmarker = null;
     this.frame = emptyHandFrame();
     this.gesture.reset();
+    this.resetHandedness();
   }
 }
 
@@ -169,8 +204,9 @@ export class HandTracker {
  * 손과 어긋나지 않게 하려는 것이다. 이 값은 미터 좌표가 없을 때의 예비용이다.
  */
 function readHandedness(name?: string): "left" | "right" | null {
-  // 현재 XR 카메라 입력에서는 Tasks Vision이 실제 사용자 손 기준의 값을 준다.
-  // 모델 슬롯도 파일명 기준으로 고정했으므로 여기서 추가 반전하지 않는다.
+  // 이 프로젝트의 XR camera-access 프레임은 MediaPipe에 전달되는 시점에 이미
+  // 좌우 방향이 보정되어 있다. 여기서 다시 교환하면 실제 오른손이 왼손으로
+  // 잠기므로 Tasks Vision 라벨을 그대로 사용한다.
   if (name === "Left") return "left";
   if (name === "Right") return "right";
   return null;

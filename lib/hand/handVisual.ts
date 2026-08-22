@@ -106,6 +106,10 @@ export class HandVisual {
    * 화면 좌표는 사용자가 보는 것("손가락이 쌀 위에 있다")과 항상 일치한다.
    */
   readonly pinchScreen = { x: 0.5, y: 0.5 };
+  /** 손목과 네 MCP의 평균점. 감싸 쥐는 인터랙션의 안정적인 화면 기준점이다. */
+  readonly palmScreen = { x: 0.5, y: 0.5 };
+  /** cover 보정까지 적용된 21개 관절 화면 좌표. 가벼운 접촉 판정에 사용한다. */
+  readonly jointScreen = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
   /** 손까지의 거리 추정(m). 집어 든 물건을 얼마나 멀리 둘지 정하는 데 쓴다. */
   depth = 1;
 
@@ -222,25 +226,35 @@ export class HandVisual {
 
     // 손 자체는 고정 거리에 그린다. 화면 좌표에서 역산하므로 거리를 바꿔도
     // 화면에 비치는 크기·모양은 똑같고, 에셋 위에 오는 건 그리는 순서가 보장한다.
+    let palmX = 0;
+    let palmY = 0;
+    let palmSamples = 0;
     for (let i = 0; i < 21; i++) {
       const s = toScreen(frame.landmarks[i], fit);
+      this.jointScreen[i].x = s.x;
+      this.jointScreen[i].y = s.y;
       screenToWorld(s.x, s.y, HAND_DRAW_DEPTH, camera, this.joints[i]);
+      if (i === 0 || i === 5 || i === 9 || i === 13 || i === 17) {
+        palmX += s.x;
+        palmY += s.y;
+        palmSamples += 1;
+      }
     }
+    this.palmScreen.x = palmX / Math.max(1, palmSamples);
+    this.palmScreen.y = palmY / Math.max(1, palmSamples);
 
     const ps = toScreen(frame.pinchPoint, fit);
     this.pinchScreen.x = ps.x;
     this.pinchScreen.y = ps.y;
     screenToWorld(ps.x, ps.y, HAND_DRAW_DEPTH, camera, this.pinchWorld);
 
-    // 상호작용은 원래 MediaPipe 좌표를 그대로 사용하고, 렌더링용 관절만
-    // 별도 충돌 계층으로 보정한다. 충돌 중에는 즉시 밀어내고 해제 시에만
-    // 잔여 오프셋을 짧게 감쇠해 표면에서 떨리는 현상을 줄인다.
+    // 상호작용과 뼈대 계산은 원래 MediaPipe 좌표를 그대로 사용한다.
+    // 충돌 보정값을 관절에 더하면 frame.world와 화면 관절이 서로 다른 좌표계가
+    // 되어 항아리 근처에서 손가락이 뒤집힌다. 따라서 완성된 손 모델 그룹만
+    // 표면 밖으로 평행 이동한다.
     resolveVisualHandPenetration(this.joints, visualCollision, this.collisionTarget);
     if (this.collisionTarget.lengthSq() > 1e-8) this.collisionOffset.copy(this.collisionTarget);
     else this.collisionOffset.multiplyScalar(0.72);
-    if (this.collisionOffset.lengthSq() > 1e-10) {
-      this.joints.forEach((joint) => joint.add(this.collisionOffset));
-    }
 
     // 손 크기 — 집는 고리를 얼마나 키울지의 기준
     const worldSpan = this.joints[LM.WRIST].distanceTo(this.joints[LM.MIDDLE_MCP]);
@@ -249,10 +263,12 @@ export class HandVisual {
     if (this.rigged.loaded) {
       // 왼손·오른손 모델이 따로 있어 프레임의 좌우 정보만 넘기면 된다
       this.rigged.update(this.joints, frame, camera);
+      this.rigged.group.position.copy(this.collisionOffset);
       this.rigged.group.visible = true;
       this.glove.group.visible = false;
     } else {
       this.glove.update(this.joints, worldSpan);
+      this.glove.group.position.copy(this.collisionOffset);
       this.glove.group.visible = true;
       this.glove.group.traverse((object) => {
         const mesh = object as THREE.Mesh;
@@ -283,6 +299,8 @@ export class HandVisual {
     // 다시 잡혔을 때 사라진 자리에서 화면을 가로질러 쓸고 오지 않게 비운다
     this.rigged.reset();
     this.collisionOffset.set(0, 0, 0);
+    this.rigged.group.position.set(0, 0, 0);
+    this.glove.group.position.set(0, 0, 0);
   }
 
   dispose() {

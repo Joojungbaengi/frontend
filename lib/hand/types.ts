@@ -67,6 +67,8 @@ export interface HandFrame {
   screenSpan: number;
   /** 왼손인가 오른손인가 — 3D 손 모델을 어느 쪽으로 세울지 정한다 */
   handedness: "left" | "right" | null;
+  /** 후면 카메라 보정 전 MediaPipe 좌우 분류의 신뢰도 */
+  handednessScore: number;
 }
 
 /** 아직 손이 없을 때 쓰는 빈 프레임 */
@@ -82,5 +84,6 @@ export function emptyHandFrame(): HandFrame {
     justReleased: false,
     screenSpan: 0.2,
     handedness: null,
+    handednessScore: 0,
   };
 }

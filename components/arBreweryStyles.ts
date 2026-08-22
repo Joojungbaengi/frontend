@@ -15,16 +15,21 @@ export const styles = `
   background:radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,.55) 100%)}
 .ar-ui.cooling .vignette{opacity:1}
 .ar-ui.aging-focus .vignette{opacity:1;
-  background:radial-gradient(ellipse 43% 49% at 50% 53%, rgba(0,15,32,.02) 0%, rgba(0,12,28,.08) 38%, rgba(0,5,15,.68) 72%, rgba(0,0,0,.94) 100%)}
+  background:radial-gradient(ellipse 78% 42% at 50% 52%, rgba(21,119,179,.025) 0%, rgba(7,68,111,.1) 30%, rgba(2,34,65,.28) 56%, rgba(0,12,31,.68) 80%, rgba(0,2,10,.94) 100%)}
 .ar-ui .aging-complete-screen{position:absolute; inset:0; z-index:10000; display:flex; flex-direction:column;
   align-items:center; justify-content:center; gap:14px; pointer-events:none; visibility:hidden; opacity:0;
-  color:#fff0d4; text-align:center; background:#02060c; transition:opacity .42s ease}
+  color:#fff0d4; text-align:center;
+  background:radial-gradient(ellipse 72% 58% at 50% 48%, #0a3154 0%, #041b34 38%, #010a18 72%, #00040b 100%);
+  box-shadow:inset 0 0 120px rgba(0,55,105,.42); transition:opacity .42s ease}
 .ar-ui .aging-complete-screen span{font-size:clamp(18px,5vw,26px); line-height:1.2; font-weight:500;
   letter-spacing:.06em; text-shadow:0 0 18px rgba(244,202,135,.25)}
 .ar-ui .aging-complete-screen strong{font-family:var(--display); font-size:clamp(34px,9vw,54px); line-height:1.18;
   font-weight:600; letter-spacing:-.02em; text-shadow:0 0 24px rgba(244,202,135,.22)}
+.ar-ui .aging-complete-screen small{margin-top:20px; font-size:clamp(14px,3.8vw,19px); font-weight:400;
+  letter-spacing:.04em; color:rgba(230,239,249,.78); text-shadow:0 0 16px rgba(94,174,235,.3)}
 .ar-ui.aging-complete > :not(.aging-complete-screen){visibility:hidden!important}
-.ar-ui.aging-complete .aging-complete-screen{visibility:visible; opacity:1}
+.ar-ui.aging-complete .aging-complete-screen{visibility:visible; opacity:1; pointer-events:auto; cursor:pointer;
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent}
 .ar-ui > *{position:relative; z-index:1}
 
 .ar-ui.ar-mode{background:transparent}
@@ -111,6 +116,56 @@ export const styles = `
 .ar-ui .pill[data-state="now"]::before{background:var(--clay); border-color:#dd8a72;
   animation:ar-pulse 1.8s ease-in-out infinite}
 
+/* 덧술 1·2: 출고/숙성 단계와 같은 보상형 타임라인 UI를 사용한다.
+   단계별 아이콘만 CSS 변수로 나누고 크기·색·진입·맥동 로직은 공유한다. */
+.ar-ui #ferment-pills .pill[data-step-id="mash1"]{
+  --mash-step-icon:url("/ar/ui/mash1-pour-icon.png");
+}
+.ar-ui #ferment-pills .pill[data-step-id="mash2"]{
+  --mash-step-icon:url("/ar/ui/mash2-pour-icon.png");
+}
+
+.ar-ui #ferment-pills .pill:is([data-step-id="mash1"],[data-step-id="mash2"])[data-state="todo"]::before{
+  content:"";
+  width:22px;
+  height:22px;
+  margin-top:0;
+  border-width:1px;
+  background:
+    var(--mash-step-icon) center / 15px 15px no-repeat,
+    var(--panel-2);
+}
+
+.ar-ui #ferment-pills .pill:is([data-step-id="mash1"],[data-step-id="mash2"])[data-state="now"]{
+  color:#f4bd72;
+  font-weight:700;
+  text-shadow:
+    0 1px 5px rgba(0,0,0,.75),
+    0 0 8px rgba(240,155,66,.34);
+}
+
+.ar-ui #ferment-pills .pill:is([data-step-id="mash1"],[data-step-id="mash2"])[data-state="now"]::before{
+  content:"";
+  width:34px;
+  height:34px;
+  margin-top:-6px;
+  border-radius:50%;
+  background:
+    var(--mash-step-icon) center / 24px 24px no-repeat,
+    radial-gradient(circle at 40% 34%,#b64e2d 0%,#963720 58%,#742419 100%);
+  border:2px solid #f2aa50;
+  box-shadow:
+    0 0 0 2px rgba(255,180,74,.22),
+    0 0 7px 2px rgba(255,166,55,.72),
+    0 0 18px 5px rgba(224,93,25,.42),
+    inset 0 1px 5px rgba(255,198,111,.24),
+    0 2px 5px rgba(0,0,0,.22);
+  transform-origin:center;
+  animation:
+    ar-ship-step-enter .46s cubic-bezier(.18,.82,.24,1.18) both,
+    ar-ship-step-glow 1.8s .46s ease-in-out infinite;
+}
+
 /* 후발효 단계: 저온숙성·출고와 같은 방식으로 항아리 아이콘을 표시한다. */
 .ar-ui #ferment-pills .pill[data-step-id="post"][data-state="todo"]::before{
   content:"";
@@ -153,19 +208,30 @@ export const styles = `
     ar-ship-step-glow 1.8s .46s ease-in-out infinite;
 }
 
-/* 저온숙성 진행 중: 출고와 같은 보상형 상태 UI에 숙성 용기 아이콘을 쓴다. */
-.ar-ui #press-pills .pill[data-step-id="aging"][data-state="todo"]::before{
+/* 압착·여과와 저온숙성: 같은 보상형 상태 UI를 공유한다.
+   상태 전환과 크기·글로우는 같고 단계별 이미지만 CSS 변수로 나눈다. */
+.ar-ui #press-pills .pill[data-step-id="press"]{
+  --finish-step-icon:url("/ar/ui/press-filter-icon.png");
+  --finish-step-icon-todo-size:13.5px 13.5px;
+  --finish-step-icon-now-size:21.6px 21.6px;
+}
+.ar-ui #press-pills .pill[data-step-id="aging"]{
+  --finish-step-icon:url("/ar/ui/aging-cold-jar-icon.png");
+  --finish-step-icon-todo-size:15px 15px;
+  --finish-step-icon-now-size:24px 24px;
+}
+.ar-ui #press-pills .pill:is([data-step-id="press"],[data-step-id="aging"])[data-state="todo"]::before{
   content:"";
   width:22px;
   height:22px;
   margin-top:0;
   border-width:1px;
   background:
-    url("/ar/ui/aging-cold-jar-icon.png") center / 15px 15px no-repeat,
+    var(--finish-step-icon) center / var(--finish-step-icon-todo-size) no-repeat,
     var(--panel-2);
 }
 
-.ar-ui #press-pills .pill[data-step-id="aging"][data-state="now"]{
+.ar-ui #press-pills .pill:is([data-step-id="press"],[data-step-id="aging"])[data-state="now"]{
   color:#f4bd72;
   font-weight:700;
   text-shadow:
@@ -173,14 +239,14 @@ export const styles = `
     0 0 8px rgba(240,155,66,.34);
 }
 
-.ar-ui #press-pills .pill[data-step-id="aging"][data-state="now"]::before{
+.ar-ui #press-pills .pill:is([data-step-id="press"],[data-step-id="aging"])[data-state="now"]::before{
   content:"";
   width:34px;
   height:34px;
   margin-top:-6px;
   border-radius:50%;
   background:
-    url("/ar/ui/aging-cold-jar-icon.png") center / 24px 24px no-repeat,
+    var(--finish-step-icon) center / var(--finish-step-icon-now-size) no-repeat,
     radial-gradient(circle at 40% 34%,#b64e2d 0%,#963720 58%,#742419 100%);
   border:2px solid #f2aa50;
   box-shadow:
@@ -315,6 +381,32 @@ export const styles = `
   text-shadow:0 1px 6px rgba(0,0,0,.75)}
 
 .ar-ui .caption{position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:12px; color:var(--cream-dim)}
+
+/* 덧술 채반을 선반에서 꺼낸 뒤, 바닥 배치 방법을 설명하는 카드. */
+.ar-ui .mash-tray-place-guide{display:flex; align-items:center; gap:14px; box-sizing:border-box;
+  width:100%; padding:13px 15px; border:1px solid rgba(198,165,104,.4); border-radius:18px;
+  color:var(--ink-strong); background:rgba(249,241,225,.96);
+  box-shadow:0 8px 24px rgba(38,24,12,.22); pointer-events:none}
+.ar-ui .mash-tray-place-guide img{display:block; flex:0 0 80px; width:80px; height:80px;
+  object-fit:cover; border-radius:12px; mix-blend-mode:multiply}
+.ar-ui .mash-tray-place-guide div{display:flex; flex-direction:column; min-width:0; gap:6px}
+.ar-ui .mash-tray-place-guide strong{font-size:14px; line-height:1.55; letter-spacing:-.02em;
+  color:var(--ink-strong); word-break:keep-all}
+.ar-ui .mash-tray-place-guide span{font-size:11px; line-height:1.45; color:var(--ink-faint); word-break:keep-all}
+
+/* 덧술2는 덧술1과 같은 흐름이라 상단 우측에서 선택적으로 건너뛸 수 있다. */
+.ar-ui .mash2-skip{position:absolute; top:80px; right:12px; z-index:9998;
+  display:flex; flex-direction:column; align-items:flex-end; gap:7px; pointer-events:auto}
+.ar-ui .mash2-skip button{display:flex; align-items:center; justify-content:center; gap:11px;
+  min-height:46px; padding:0 18px; border-radius:999px;
+  border:1px solid rgba(243,230,204,.68); background:rgba(42,27,17,.76);
+  box-shadow:0 5px 18px rgba(0,0,0,.28); color:#f3e6cc;
+  font:inherit; font-size:13px; font-weight:700; text-shadow:0 1px 6px rgba(0,0,0,.65);
+  backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px)}
+.ar-ui .mash2-skip button:active{transform:scale(.97); background:rgba(76,43,24,.86)}
+.ar-ui .mash2-skip button strong{font-size:25px; line-height:1; font-weight:400; transform:translateY(-1px)}
+.ar-ui .mash2-skip p{margin:0 8px 0 0; color:#f3e6cc; font-size:11px;
+  text-shadow:0 1px 7px rgba(0,0,0,.9)}
 
 .ar-ui .meter{background:var(--cream); color:var(--ink-strong); border:1px solid rgba(198,165,104,.4);
   border-radius:var(--r-md); padding:14px 15px}
