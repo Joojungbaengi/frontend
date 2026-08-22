@@ -13,7 +13,7 @@ export const KNEAD = {
   COUNT_COOLDOWN_MS: 250,
   HAND_LOST_TIMEOUT: 350,
   TARGET_PADDING: 1.08,
-  TARGET_KNEAD_COUNT: 6,
+  TARGET_KNEAD_COUNT: 3,
 } as const;
 
 export type KneadPose = "OPEN" | "CLOSED" | "TRANSITION";

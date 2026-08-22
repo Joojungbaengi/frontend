@@ -1209,7 +1209,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (ud.grabbed) {
             // 위치는 onHand 가 정한다. 손에 들었다고 크게 부풀리지는 않는다 —
             // 갑자기 커지면 그릇이 아니라 다른 물건처럼 보인다.
-            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.005, 0.22);
+            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1, 0.22);
             n.scale.setScalar(ud.vis * (1 - ud.fade));
             return;
           }
@@ -1245,12 +1245,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           const ud = pouringNode.userData as any;
           pouringNode.getWorldPosition(pourWorld);
           stageGroup.worldToLocal(pourWorld);
-          const spoutY = pourWorld.y + (ud.prop?.height ?? 0.1) * 0.45;
+          // 내용물은 기울어진 그릇의 **주둥이**에서 나온다. 그릇 밑바닥에서
+          // 새는 것처럼 보이지 않도록, 기운 방향으로 반 통만큼 나간 자리를 쓴다.
+          const propH = ud.prop?.height ?? 0.1;
+          const lip = tiltDir.lengthSq() > 1e-6 ? tiltDir : tiltAxis.set(0, 0, 1);
+          const spoutY = pourWorld.y + propH * (0.18 + 0.3 * ud.tilt);
           const surfaceY = basinFloorY + h;
-          // 그릇 바깥에 쏟아지는 것처럼 보이지 않도록, 떨어지는 자리는 그릇 한가운데다.
-          // 손에 든 그릇 쪽으로 조금만 치우쳐 어디서 나오는 건지는 알 수 있게 둔다.
-          const pourX = 0;
-          const pourZ = 0;
+          const pourX = pourWorld.x + lip.x * propH * 0.5 * ud.tilt;
+          const pourZ = pourWorld.z + lip.z * propH * 0.5 * ud.tilt;
           pour.position.set(pourX, spoutY, pourZ);
           opt.height = Math.min(-0.03, surfaceY - spoutY);
           (pour.material as THREE.PointsMaterial).color.setHex(ud.prop?.flowColor ?? 0xf4ece0);
@@ -1295,7 +1297,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        * 뒤쪽에 놓인 재료를 집어 그릇 위로 가져가면 그릇에 가려 안 보이는데,
        * 그러면 부어지고 있는지를 알 수가 없다. 손에 든 것은 언제나 그릇 앞에 온다.
        */
-      const HELD_FRONT_MARGIN = 0.24;
+      const HELD_FRONT_MARGIN = 0.12;
 
       let hovered: THREE.Group | null = null;
 
@@ -1344,7 +1346,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           const ud = held.userData as any;
           // 그릇보다 뒤에 놓이지 않도록 거리를 잘라 준다
           const basinDepth = interactionCamera.getWorldPosition(handOrigin).distanceTo(basinWorld);
-          const showDepth = Math.max(0.3, Math.min(heldDepth, basinDepth - HELD_FRONT_MARGIN));
+          // 당기는 양을 거리에 비례시킨다 — 가까운 무대에서 물건이 갑자기 커지지 않게.
+          const showDepth = Math.max(0.3, Math.min(heldDepth, basinDepth * (1 - HELD_FRONT_MARGIN)));
           screenToWorld(grab.x, grab.y, showDepth, interactionCamera, grabTarget);
           stageGroup.worldToLocal(grabTarget);
           held.position.lerp(grabTarget, 0.5);
@@ -3145,7 +3148,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
 
       live.tick = (_t, dt) => {
-        kneadPulse = Math.max(0, kneadPulse - dt * 4.5);
+        kneadPulse = Math.max(0, kneadPulse - dt * 2.6);
         applyMashVisual();
         const feedback = $("#knead-debug-feedback");
         if (feedback && performance.now() >= feedbackUntil && feedback.textContent === "KNEAD!") {
@@ -3564,9 +3567,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const kneadProgress = phase === "COMPLETE" ? 1 : phase === "KNEAD" ? kneadSnapshot.progress : 0;
         const fermentationProgress = S.mitsulFermentProgress;
         const height = THREE.MathUtils.lerp(mashStartHeight, mashFinalHeight, kneadProgress);
-        const spread = riceAmountScale * THREE.MathUtils.lerp(0.94, 1.04, kneadProgress) + kneadPulse * 0.025;
-        mash.scale.set(spread, height / mashStartHeight, spread);
-        mash.position.y = mashBottomY + height * 0.5 + kneadPulse * 0.002;
+        // 한 번 치댈 때마다 옆으로 퍼지면서 살짝 눌린다. 반응이 작으면
+        // 손을 쥐었다 폈는데 아무 일도 안 일어난 것처럼 보인다.
+        const spread = riceAmountScale * THREE.MathUtils.lerp(0.94, 1.04, kneadProgress) + kneadPulse * 0.085;
+        mash.scale.set(spread, (height / mashStartHeight) * (1 - kneadPulse * 0.16), spread);
+        mash.position.y = mashBottomY + height * 0.5 + kneadPulse * 0.006;
         liquid.position.y = mashBottomY + height + 0.004 + waterAmount * 0.008;
         targetOutline.position.y = liquid.position.y + 0.006;
         mixedMashColor.copy(riceMashColor)
@@ -3852,7 +3857,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (lidHeld) {
             // 뚜껑이 항아리에 파묻히지 않도록 언제나 항아리보다 앞에 둔다.
             const jarDepth = camera.getWorldPosition(handOrigin).distanceTo(jarOpeningWorld);
-            const showDepth = Math.max(0.3, Math.min(lidHeldDepth, jarDepth - 0.24));
+            const showDepth = Math.max(0.3, Math.min(lidHeldDepth, jarDepth * 0.88));
             screenToWorld(pinch.x, pinch.y, showDepth, camera, followTarget);
             stageGroup.worldToLocal(followTarget);
             followTarget.x = THREE.MathUtils.clamp(followTarget.x, -0.46, 0.46);
@@ -4034,7 +4039,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 항아리보다 뒤에 놓이면 그릇이 항아리에 파묻혀 붓는 게 안 보인다.
           // 재료 고르기와 같은 방식으로, 든 것은 언제나 항아리 앞에 온다.
           const jarDepth = camera.getWorldPosition(handOrigin).distanceTo(jarOpeningWorld);
-          const showDepth = Math.max(0.3, Math.min(heldDepth, jarDepth - 0.24));
+          const showDepth = Math.max(0.3, Math.min(heldDepth, jarDepth * 0.88));
           screenToWorld(pinch.x, pinch.y, showDepth, camera, followTarget);
           stageGroup.worldToLocal(followTarget);
           held.node.position.lerp(followTarget, 0.48);
@@ -4089,7 +4094,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
 
       live.tick = (time, dt) => {
-        kneadPulse = Math.max(0, kneadPulse - dt * 4.5);
+        kneadPulse = Math.max(0, kneadPulse - dt * 2.6);
         if (lidReturning) {
           lidRig.position.lerp(lidHome, Math.min(1, dt * 7));
           lidRig.rotation.x = THREE.MathUtils.lerp(lidRig.rotation.x, 0, Math.min(1, dt * 7));
