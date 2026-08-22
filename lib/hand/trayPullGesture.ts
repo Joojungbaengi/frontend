@@ -3,12 +3,19 @@
 import type { HandFrame } from "@/lib/hand/types";
 
 export const TRAY_PULL = {
+  /** grab target과 pinch point 사이의 최대 화면 정규화 거리 */
   GRAB_RADIUS: 0.12,
+  /** 이 비율 전까지는 손 크기 흔들림으로 보고 트레이를 움직이지 않는다 */
   PULL_START_RATIO: 1.06,
+  /** grab 시작 때보다 손이 이만큼 커지면 완전히 꺼낸 것으로 본다 */
   PULL_COMPLETE_RATIO: 1.18,
+  /** 손이 잠깐 가려져도 grab을 유지하는 시간 */
   HAND_LOST_TIMEOUT: 350,
+  /** raw progress를 트레이 이동에 반영하는 EMA 비율 */
   PULL_SMOOTHING: 0.28,
+  /** 한 프레임 landmark spike로 완료되지 않게 complete 비율을 유지할 프레임 수 */
   COMPLETE_STABLE_FRAMES: 2,
+  /** 레일을 따라 트레이가 빠져나오는 거리(m) */
   TRAY_PULL_DISTANCE: 0.32,
 } as const;
 
@@ -25,7 +32,11 @@ export interface TrayPullSnapshot {
 
 const MIN_VALID_SPAN = 1e-4;
 
-/** 손을 카메라 쪽으로 당길 때 커지는 screenSpan으로 채반 당기기를 판정한다. */
+/**
+ * 손을 카메라 쪽으로 당길 때 커지는 screenSpan 만으로 채반 당기기를 판정한다.
+ * Three.js 와 screen projection 은 호출부가 맡는다.
+ * COMPLETE 는 명시적으로 reset 하기 전까지 유지된다.
+ */
 export class TrayPullGesture {
   private stateValue: TrayPullState = "IDLE";
   private startSpanValue: number | null = null;
@@ -67,6 +78,7 @@ export class TrayPullGesture {
 
     const start = this.startSpanValue ?? frame.screenSpan;
     this.spanRatioValue = start > MIN_VALID_SPAN ? frame.screenSpan / start : 1;
+
     const rawProgress = Math.min(
       1,
       Math.max(
@@ -86,6 +98,7 @@ export class TrayPullGesture {
     } else {
       this.stateValue = rawProgress > 0 ? "PULLING" : "GRABBED";
     }
+
     return this.snapshot();
   }
 

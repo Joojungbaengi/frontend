@@ -22,12 +22,19 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
 import type { Recipe, ModelDef, ArStep, Ingredient } from "@/lib/brewery/types";
 import { HandTracker } from "@/lib/hand/handTracker";
-import { HandVisual, coverFit, screenDist, screenToWorld, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
+import { HandVisual, coverFit, screenDist, screenToWorld, toScreen, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
 import type { HandFrame } from "@/lib/hand/types";
 import { FanGesture } from "@/lib/hand/fanGesture";
 import { StirGesture } from "@/lib/hand/stirGesture";
 import { TRAY_PULL, TrayPullGesture, type TrayPullSnapshot } from "@/lib/hand/trayPullGesture";
 import { ShakeGesture } from "@/lib/hand/shakeGesture";
+import {
+  RICE_SPREAD,
+  RiceSpreadGesture,
+  palmCenter,
+  type RiceSpreadSnapshot,
+} from "@/lib/hand/riceSpreadGesture";
+import { KNEAD, KneadGesture, kneadHandMetric, type KneadSnapshot } from "@/lib/hand/kneadGesture";
 import { markObtained } from "@/lib/dex";
 import { XrCameraFeed } from "@/lib/hand/xrCameraFeed";
 import { styles } from "@/components/arBreweryStyles";
@@ -58,6 +65,25 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const $ = <T extends Element = HTMLElement>(s: string) =>
       uiRoot.querySelector(s) as T | null;
     const $$ = (s: string) => Array.from(uiRoot.querySelectorAll(s));
+    const query = new URLSearchParams(window.location.search);
+    const trayDebug = query.get("trayDebug") === "1";
+    const riceSpreadDebug = query.get("riceSpreadDebug") === "1";
+    const kneadDebug = query.get("kneadDebug") === "1";
+    const mitsulMixDebug = query.get("mitsulMixDebug") === "1";
+    const mitsulFermentDebug = query.get("mitsulFermentDebug") === "1";
+    const skipToCooling = trayDebug && query.get("skipTo") === "cooling";
+    const skipToRiceSpread = riceSpreadDebug && query.get("skipTo") === "riceSpread";
+    const skipToKnead = kneadDebug && query.get("skipTo") === "knead";
+    const skipToMitsulMix = mitsulMixDebug && query.get("skipTo") === "mitsulMix";
+    const skipToMitsulFerment = mitsulFermentDebug && query.get("skipTo") === "mitsulFerment";
+    /** debug query가 없을 때는 검증된 냉각①~④를 실제 공정으로 사용한다. */
+    const productionCooling = !trayDebug && !riceSpreadDebug;
+    const productionMitsulMix = mitsulMixDebug || (!trayDebug && !riceSpreadDebug && !kneadDebug);
+    uiRoot.classList.toggle("tray-debug", trayDebug);
+    uiRoot.classList.toggle("rice-spread-debug", riceSpreadDebug);
+    uiRoot.classList.toggle("knead-debug", kneadDebug);
+    uiRoot.classList.toggle("mitsul-mix-debug", mitsulMixDebug);
+    uiRoot.classList.toggle("mitsul-ferment-debug", mitsulFermentDebug);
 
     /* =====================================================================
      * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
@@ -124,6 +150,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       rinsePartial: 0,
       soakAt: 0,
       coolFans: 0,
+      coolingPhase: "TRAY_PULL" as "TRAY_PULL" | "RICE_SPREAD" | "QUIZ" | "FAN" | "COMPLETE",
+      coolTrayProgress: 0,
+      coolRiceProgress: 0,
+      /** 냉각④ 부채질까지 끝나 고두밥 냉각이 완료됐는가 */
       coolDone: false,
       /** 세미를 다 끝낸 시각 — 여기서 잠깐 쉬었다가 침수로 넘어간다 */
       rinseDoneAt: 0,
@@ -138,6 +168,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       ferment: 0,
       fstage: 0,
       mashTrayDone: new Set<string>(),
+      mitsulPhase: "RICE" as "RICE" | "NURUK" | "WATER" | "KNEAD" | "COMPLETE",
+      mitsulPourProgress: 0,
+      mitsulRiceScoops: 0,
+      mitsulKneadCount: 0,
+      mitsulDone: false,
+      mitsulFermentPhase: "LID" as "LID" | "TEMPERATURE" | "FERMENTING" | "COMPLETE",
+      mitsulLidSnapped: false,
+      mitsulFermentProgress: 0,
+      mitsulFermentDay: 0,
+      mitsulFermentDone: false,
       press: 0,
       tempLog: [] as number[],
       xr: false,
@@ -152,6 +192,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
     // 고두밥 하위 단계가 바뀔 때 무대 모델을 갈아 끼우는 함수(buildGodubap 이 채운다)
     let godubapShowStage: (() => void) | null = null;
+    let resetCoolingInteraction: (() => void) | null = null;
+    let startCoolingFan: (() => void) | null = null;
+    let resetKneadInteraction: (() => void) | null = null;
+    let resetMitsulMixInteraction: (() => void) | null = null;
+    let resetMitsulFermentInteraction: (() => void) | null = null;
+    let startMitsulFermentation: (() => void) | null = null;
     // 완성 공정 단계가 바뀔 때 출고 제품(Nyangi)을 보이는 함수(buildFinish 가 채운다)
     let finishShowShip: (() => void) | null = null;
     // 발효 하위 단계가 바뀔 때 채반고두밥/항아리를 갈아 끼우는 함수(buildFerment 가 채운다)
@@ -203,7 +249,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     function coolingActive() {
-      return S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone;
+      return S.hand && S.godubap === GB_LAST && S.coolingPhase === "FAN" && S.quizDone && !S.coolDone;
     }
 
     function resetIngredientSelection() {
@@ -213,8 +259,19 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     }
 
     /** 손으로 조작하는 단계 — 원료(집기)와 고두밥(부채질) */
+    const HAND_STEPS = new Set<typeof S.step>([
+      "ingredient",
+      "godubap",
+      ...((kneadDebug || productionMitsulMix) ? (["ferment"] as const) : []),
+    ]);
 
     function setStep(next: typeof S.step) {
+      if (productionCooling && S.step === "godubap" && next !== "godubap") {
+        resetCoolingInteraction?.();
+      }
+      if (productionMitsulMix && S.step === "ferment" && next !== "ferment") {
+        resetMitsulMixInteraction?.();
+      }
       S.step = next;
       uiRoot!.dataset.step = next;
       // 손을 쓰는 단계에서만 검출을 돌린다. 나머지 단계까지 MediaPipe 를 계속 굴리면
@@ -451,6 +508,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const LOADED: Record<string, any> = {};
     const LOADING: Partial<Record<string, Promise<void>>> = {};
     const gltfLoader = new GLTFLoader();
+    const DEBUG_TRAY_ID = "__tray_pull_debug";
+    const DEBUG_TRAY_FILE = "/ar/3d-assets/metal_tray.glb";
+    const MITSUL_JAR_ID = "__mitsul_jar_body";
+    const MITSUL_JAR_FILE = "/ar/3d-assets/jar_body_optimized.glb";
+    const MITSUL_LID_ID = "__mitsul_jar_lid";
+    const MITSUL_LID_FILE = "/ar/3d-assets/jar_lid_optimized.glb";
 
     // 3D 에셋은 Draco 로 압축해 두었다 (원료~증자 기준 6.6MB → 0.6MB).
     // 디코더는 scripts/copy-draco.mjs 가 dev·build 때 public/draco/ 에 넣어 둔다.
@@ -480,6 +543,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         ...PROP_MODELS,
       ];
       await Promise.all(initial.map(loadModel));
+    }
+
+    /**
+     * 레시피에 없는 별도 에셋 — 냉각 채반과 밑술 항아리.
+     * 해당 단계를 켰을 때만 받는다.
+     */
+    async function preloadExtraModels() {
+      const extras: Promise<unknown>[] = [];
+      const load = (id: string, file: string, what: string) =>
+        gltfLoader.loadAsync(file)
+          .then((gltf) => { LOADED[id] = gltf; })
+          .catch((e: unknown) => console.warn(
+            `${what} 로드 실패:`, file, e instanceof Error ? e.message : e
+          ));
+      if (trayDebug || riceSpreadDebug || productionCooling) {
+        extras.push(load(DEBUG_TRAY_ID, DEBUG_TRAY_FILE, "냉각 채반"));
+      }
+      if (productionMitsulMix) {
+        extras.push(load(MITSUL_JAR_ID, MITSUL_JAR_FILE, "밑술 항아리"));
+        extras.push(load(MITSUL_LID_ID, MITSUL_LID_FILE, "밑술 항아리 뚜껑"));
+      }
+      await Promise.all(extras);
     }
 
     async function preloadRemainingModels() {
@@ -713,11 +798,19 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       live.tick = null;
       live.onHand = null;
       godubapShowStage = null;
+      resetCoolingInteraction = null;
+      startCoolingFan = null;
+      resetKneadInteraction = null;
+      resetMitsulMixInteraction = null;
+      resetMitsulFermentInteraction = null;
+      startMitsulFermentation = null;
       finishShowShip = null;
       fermentShowStage = null;
       fermentUpdateGauge = null;
       // 단계 전환 뒤 이전 장면의 화면 효과가 남지 않도록 모두 초기화한다.
       uiRoot!.classList.remove("cooling", "aging-focus", "aging-complete");
+      uiRoot!.classList.remove("cooling"); // 냉각 비네트는 무대가 바뀌면 끈다
+      uiRoot!.classList.remove("mitsul-no-hands");
     }
 
     
@@ -1598,6 +1691,474 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         ? (basketGroup as THREE.Group).position.clone()
         : new THREE.Vector3(0, platformTop + 0.03, 0);
       const lidHome = lidGroup ? (lidGroup as THREE.Group).position.clone() : new THREE.Vector3();
+      /* ── 냉각① tray pull 기술 검증 (?trayDebug=1 전용) ───────────────
+       * 실제 metal_tray.glb scene 전체를 하나의 물체로 취급한다. 임시 레일은
+       * 방향과 이동량을 읽기 위한 debug geometry이며 production 에셋이 아니다.
+      */
+      const trayGesture = trayDebug || productionCooling ? new TrayPullGesture() : null;
+      const emptyTraySnapshot = (): TrayPullSnapshot => ({
+        state: "IDLE", grabbed: false, startSpan: null,
+        currentSpan: 0, spanRatio: 1, progress: 0,
+      });
+      let traySnapshot = emptyTraySnapshot();
+      let trayRig: THREE.Group | null = null;
+      let trayMover: THREE.Group | null = null;
+      let trayModel: THREE.Object3D | null = null;
+      let trayTarget: THREE.Object3D | null = null;
+      let trayVisualProgress = 0;
+
+      const setDebugText = (id: string, value: string) => {
+        const el = $(id);
+        if (el) el.textContent = value;
+      };
+
+      function updateTrayDebugPanel(frame: HandFrame | null, hovering: boolean) {
+        if (!trayDebug) return;
+        setDebugText("#tray-debug-hand", frame?.present ? "FOUND" : "LOST");
+        setDebugText("#tray-debug-pinch", frame?.pinching ? "CLOSED" : "OPEN");
+        setDebugText("#tray-debug-target", hovering ? "HOVER" : "NONE");
+        setDebugText("#tray-debug-grab", traySnapshot.grabbed ? "YES" : "NO");
+        setDebugText("#tray-debug-start", traySnapshot.startSpan?.toFixed(4) ?? "—");
+        setDebugText("#tray-debug-current", traySnapshot.currentSpan.toFixed(4));
+        setDebugText("#tray-debug-ratio", traySnapshot.spanRatio.toFixed(3));
+        setDebugText("#tray-debug-progress", `${Math.round(traySnapshot.progress * 100)}%`);
+        setDebugText("#tray-debug-state", traySnapshot.state);
+        $("#tray-debug-ok")?.classList.toggle("visible", traySnapshot.state === "COMPLETE");
+      }
+
+      function resetTrayPull() {
+        trayGesture?.reset();
+        traySnapshot = emptyTraySnapshot();
+        trayVisualProgress = 0;
+        if (trayMover) trayMover.position.z = 0;
+        updateTrayHighlight(false);
+        updateTrayDebugPanel(null, false);
+        setHandHud("tracking", "노란 표시에 손을 가까이 대세요");
+      }
+
+      // metal tray는 냉각①/②가 공유한다. riceSpreadDebug 단독 진입에서도 반드시 꺼낸다.
+      const debugGltf = trayDebug || riceSpreadDebug || productionCooling ? LOADED[DEBUG_TRAY_ID] : null;
+      if ((trayDebug || productionCooling) && debugGltf?.scene) {
+        trayRig = new THREE.Group();
+        trayRig.position.set(0, platformTop + 0.12, 0);
+        stageGroup.add(trayRig);
+
+        trayMover = new THREE.Group();
+        trayMover.position.y = 0.02; // 레일 상단에 트레이 바닥이 얹히도록 띄운다.
+        trayRig.add(trayMover);
+
+        // mesh 이름이나 중간 wrapper 구조에 의존하지 않고 scene 전체를 복제한다.
+        trayModel = skinnedClone(debugGltf.scene) as THREE.Object3D;
+        trayModel.traverse((o: THREE.Object3D) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((m) => m.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          materials.forEach((m) => {
+            if (!(m instanceof THREE.MeshStandardMaterial)) return;
+            m.userData.trayBaseEmissive = m.emissive.getHex();
+            m.userData.trayBaseEmissiveIntensity = m.emissiveIntensity;
+          });
+        });
+        const rawTrayBox = new THREE.Box3().setFromObject(trayModel);
+        const rawTrayCenter = rawTrayBox.getCenter(new THREE.Vector3());
+        trayModel.position.set(-rawTrayCenter.x, -rawTrayBox.min.y, -rawTrayCenter.z);
+        trayMover.add(trayModel);
+
+        const trayBox = new THREE.Box3().setFromObject(trayModel);
+        const traySize = trayBox.getSize(new THREE.Vector3());
+
+        // 카메라 쪽(+Z)이 실제로 손을 대는 앞 테두리다.
+        const targetMarker = new THREE.Mesh(
+          new THREE.SphereGeometry(0.012, 16, 12),
+          new THREE.MeshBasicMaterial({ color: 0xffd45c, depthTest: false })
+        );
+        targetMarker.position.set(0, traySize.y + 0.018, traySize.z * 0.5 - 0.025);
+        targetMarker.renderOrder = 8;
+        targetMarker.visible = trayDebug;
+        trayMover.add(targetMarker);
+        trayTarget = targetMarker;
+
+        // 최종 선반 에셋이 오기 전까지만 쓰는 얇은 레일/프레임.
+        const railMat = new THREE.MeshStandardMaterial({
+          color: 0x4b6470, metalness: 0.72, roughness: 0.38,
+          transparent: true, opacity: 0.72,
+        });
+        const addRail = (size: THREE.Vector3, position: THREE.Vector3) => {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), railMat);
+          rail.position.copy(position);
+          rail.castShadow = rail.receiveShadow = true;
+          trayRig!.add(rail);
+        };
+        const railX = traySize.x * 0.5 + 0.017;
+        addRail(new THREE.Vector3(0.018, 0.025, traySize.z + 0.06), new THREE.Vector3(-railX, 0.006, 0));
+        addRail(new THREE.Vector3(0.018, 0.025, traySize.z + 0.06), new THREE.Vector3(railX, 0.006, 0));
+        addRail(new THREE.Vector3(traySize.x + 0.052, 0.025, 0.018), new THREE.Vector3(0, 0.006, -traySize.z * 0.5 - 0.021));
+        addRail(new THREE.Vector3(0.018, 0.12, 0.018), new THREE.Vector3(-railX, -0.047, -traySize.z * 0.5));
+        addRail(new THREE.Vector3(0.018, 0.12, 0.018), new THREE.Vector3(railX, -0.047, -traySize.z * 0.5));
+
+        // 레일 방향(+Z)과 완료 위치를 폰 화면에서 바로 확인한다.
+        if (trayDebug) {
+          const arrow = new THREE.ArrowHelper(
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, traySize.y + 0.045, traySize.z * 0.5),
+            TRAY_PULL.TRAY_PULL_DISTANCE,
+            0x52d8ff,
+            0.045,
+            0.024
+          );
+          trayRig.add(arrow);
+          const endMarker = new THREE.Mesh(
+            new THREE.RingGeometry(0.018, 0.026, 24).rotateX(-Math.PI / 2),
+            new THREE.MeshBasicMaterial({ color: 0x52d8ff, side: THREE.DoubleSide })
+          );
+          endMarker.position.set(0, traySize.y + 0.006, TRAY_PULL.TRAY_PULL_DISTANCE);
+          trayRig.add(endMarker);
+        }
+        trayRig.visible = false;
+      } else if (trayDebug) {
+        console.warn("[trayDebug] metal_tray.glb를 불러오지 못해 tray pull 검증을 비활성화합니다.");
+      }
+      const trayResetButton = $("#tray-debug-reset") as HTMLButtonElement | null;
+      if (trayResetButton) trayResetButton.onclick = resetTrayPull;
+
+      /* ── 냉각② rice spread 기술 검증 (?riceSpreadDebug=1 전용) ───── */
+      const riceGesture = riceSpreadDebug || productionCooling ? new RiceSpreadGesture() : null;
+      const emptyRiceSnapshot = (): RiceSpreadSnapshot => ({
+        state: "IDLE", palm: { x: 0.5, y: 0.5 }, onRice: false,
+        moveDistance: 0, currentZone: null, zoneCoverage: [0, 0, 0, 0, 0, 0],
+        totalCoverage: 0, progress: 0, justSpread: false,
+      });
+      let riceSnapshot = emptyRiceSnapshot();
+      let riceRig: THREE.Group | null = null;
+      let riceSurfaceGroup: THREE.Group | null = null;
+      let riceTrayObject: THREE.Object3D | null = null;
+      let riceMesh: THREE.Mesh | null = null;
+      let riceGeometry: THREE.BufferGeometry | null = null;
+      let riceTexture: THREE.Texture | null = null;
+      let riceVisualProgress = 0;
+      let riceTargetWidth = 0;
+      let riceTargetDepth = 0;
+      let riceTrayWidth = 0;
+      let riceTrayDepth = 0;
+      let riceTrayTop = 0;
+      let riceSpreadPulseUntil = -Infinity;
+      let riceSceneLogged = false;
+      const riceZoneMaterials: THREE.MeshBasicMaterial[] = [];
+      const riceZoneMeshes: THREE.Mesh[] = [];
+
+      const RICE_VISUAL = {
+        startAreaRatio: 0.36,
+        finalAreaRatio: 0.95,
+        startThickness: 0.042,
+        middleThickness: 0.023,
+        finalThickness: 0.009,
+        startExponent: 2,
+        finalExponent: 10,
+        textureTileMeters: 0.09,
+        segments: 64,
+        rings: 10,
+      } as const;
+
+      type RiceVertex = { radial: number; angle: number; top: boolean };
+      const riceVertices: RiceVertex[] = [];
+
+      function createRiceGeometry() {
+        const positions: number[] = [];
+        const uvs: number[] = [];
+        const indices: number[] = [];
+        const addVertex = (radial: number, angle: number, top: boolean) => {
+          const index = riceVertices.length;
+          riceVertices.push({ radial, angle, top });
+          positions.push(0, 0, 0);
+          uvs.push(0.5, 0.5);
+          return index;
+        };
+
+        const topCenter = addVertex(0, 0, true);
+        const ringStarts: number[] = [];
+        for (let ring = 1; ring <= RICE_VISUAL.rings; ring++) {
+          ringStarts.push(riceVertices.length);
+          const radial = ring / RICE_VISUAL.rings;
+          for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+            addVertex(radial, segment / RICE_VISUAL.segments * Math.PI * 2, true);
+          }
+        }
+
+        const firstRing = ringStarts[0];
+        for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+          const next = (segment + 1) % RICE_VISUAL.segments;
+          indices.push(topCenter, firstRing + next, firstRing + segment);
+        }
+        for (let ring = 0; ring < ringStarts.length - 1; ring++) {
+          const inner = ringStarts[ring];
+          const outer = ringStarts[ring + 1];
+          for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+            const next = (segment + 1) % RICE_VISUAL.segments;
+            indices.push(inner + segment, inner + next, outer + segment);
+            indices.push(inner + next, outer + next, outer + segment);
+          }
+        }
+
+        const outerTop = ringStarts[ringStarts.length - 1];
+        const bottomRing = riceVertices.length;
+        for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+          addVertex(1, segment / RICE_VISUAL.segments * Math.PI * 2, false);
+        }
+        const bottomCenter = addVertex(0, 0, false);
+        for (let segment = 0; segment < RICE_VISUAL.segments; segment++) {
+          const next = (segment + 1) % RICE_VISUAL.segments;
+          indices.push(outerTop + segment, outerTop + next, bottomRing + segment);
+          indices.push(outerTop + next, bottomRing + next, bottomRing + segment);
+          indices.push(bottomCenter, bottomRing + segment, bottomRing + next);
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+        geometry.setIndex(indices);
+        return geometry;
+      }
+
+      function applyRiceVisual(progress: number) {
+        if (!riceMesh || !riceGeometry) return;
+        const p = THREE.MathUtils.clamp(progress, 0, 1);
+        const shapeT = THREE.MathUtils.smoothstep(p, 0, 1);
+        const startLinear = Math.sqrt(RICE_VISUAL.startAreaRatio);
+        const finalLinear = Math.sqrt(RICE_VISUAL.finalAreaRatio);
+        const linear = THREE.MathUtils.lerp(startLinear, finalLinear, shapeT);
+        const width = riceTrayWidth * linear;
+        const depth = riceTrayDepth * linear;
+        const exponent = THREE.MathUtils.lerp(
+          RICE_VISUAL.startExponent,
+          RICE_VISUAL.finalExponent,
+          shapeT
+        );
+        const thickness = p <= 0.5
+          ? THREE.MathUtils.lerp(RICE_VISUAL.startThickness, RICE_VISUAL.middleThickness, p * 2)
+          : THREE.MathUtils.lerp(RICE_VISUAL.middleThickness, RICE_VISUAL.finalThickness, (p - 0.5) * 2);
+        const edgeRatio = THREE.MathUtils.lerp(0.52, 0.88, shapeT);
+        const edgeHeight = thickness * edgeRatio;
+
+        const position = riceGeometry.getAttribute("position") as THREE.BufferAttribute;
+        const uv = riceGeometry.getAttribute("uv") as THREE.BufferAttribute;
+        riceVertices.forEach((vertex, index) => {
+          const cos = Math.cos(vertex.angle);
+          const sin = Math.sin(vertex.angle);
+          const boundaryX = Math.sign(cos) * Math.pow(Math.abs(cos), 2 / exponent) * width * 0.5;
+          const boundaryZ = Math.sign(sin) * Math.pow(Math.abs(sin), 2 / exponent) * depth * 0.5;
+          const x = boundaryX * vertex.radial;
+          const z = boundaryZ * vertex.radial;
+          const mound = Math.pow(Math.max(0, 1 - vertex.radial * vertex.radial), 1.35);
+          const y = vertex.top ? edgeHeight + (thickness - edgeHeight) * mound : 0;
+          position.setXYZ(index, x, y, z);
+          // 미터 기준 UV로 새로 드러난 면에 texture가 반복되어 밥알 크기가 늘어나지 않는다.
+          uv.setXY(
+            index,
+            0.5 + x / RICE_VISUAL.textureTileMeters,
+            0.5 + z / RICE_VISUAL.textureTileMeters
+          );
+        });
+        position.needsUpdate = true;
+        uv.needsUpdate = true;
+        riceGeometry.computeVertexNormals();
+        riceGeometry.computeBoundingBox();
+        riceMesh.position.y = riceTrayTop + 0.004;
+        riceZoneMeshes.forEach((zone) => {
+          zone.position.y = riceTrayTop + 0.004 + thickness + 0.006;
+        });
+      }
+
+      function updateRiceZones() {
+        riceZoneMaterials.forEach((material, zone) => {
+          const coverage = riceSnapshot.zoneCoverage[zone] ?? 0;
+          material.color.setHex(coverage === 2 ? 0x69d98a : coverage === 1 ? 0xffc857 : 0x52d8ff);
+          material.opacity = coverage === 2 ? 0.34 : coverage === 1 ? 0.22 : 0.08;
+        });
+      }
+
+      function updateRiceDebugPanel(frame: HandFrame | null) {
+        if (!riceSpreadDebug) return;
+        setDebugText("#rice-debug-hand", frame?.present ? "FOUND" : "LOST");
+        setDebugText("#rice-debug-on", riceSnapshot.onRice ? "YES" : "NO");
+        setDebugText("#rice-debug-palm-x", riceSnapshot.palm.x.toFixed(3));
+        setDebugText("#rice-debug-palm-y", riceSnapshot.palm.y.toFixed(3));
+        setDebugText("#rice-debug-move", riceSnapshot.moveDistance.toFixed(3));
+        setDebugText("#rice-debug-zone", riceSnapshot.currentZone === null ? "—" : String(riceSnapshot.currentZone + 1));
+        const requiredCoverage =
+          RICE_SPREAD.ZONE_COLUMNS * RICE_SPREAD.ZONE_ROWS * RICE_SPREAD.COVERAGE_PER_ZONE;
+        const firstRow = riceSnapshot.zoneCoverage.slice(0, RICE_SPREAD.ZONE_COLUMNS).join(",");
+        const secondRow = riceSnapshot.zoneCoverage.slice(RICE_SPREAD.ZONE_COLUMNS).join(",");
+        setDebugText("#rice-debug-coverage", `${riceSnapshot.totalCoverage} / ${requiredCoverage}`);
+        setDebugText("#rice-debug-zone-coverage", `${firstRow} / ${secondRow}`);
+        setDebugText("#rice-debug-progress", `${Math.round(riceSnapshot.progress * 100)}%`);
+        setDebugText("#rice-debug-state", riceSnapshot.state);
+        $("#rice-debug-ok")?.classList.toggle("visible", riceSnapshot.state === "COMPLETE");
+        const marker = $("#rice-debug-palm-marker") as HTMLElement | null;
+        if (marker) {
+          marker.style.left = `${riceSnapshot.palm.x * 100}%`;
+          marker.style.top = `${riceSnapshot.palm.y * 100}%`;
+          marker.classList.toggle("visible", frame?.present === true);
+        }
+        updateRiceSceneDebug();
+      }
+
+      function updateRiceSceneDebug() {
+        if (!riceSpreadDebug) return;
+        const trayReady = riceTrayObject !== null;
+        const riceReady = riceMesh !== null;
+        const gridReady = riceZoneMaterials.length === RICE_SPREAD.ZONE_COLUMNS * RICE_SPREAD.ZONE_ROWS;
+        setDebugText("#rice-debug-tray-model", debugGltf?.scene ? "READY" : "MISSING");
+        setDebugText("#rice-debug-tray-visible", trayReady && riceRig?.visible ? "YES" : "NO");
+        setDebugText("#rice-debug-rice-ready", riceReady ? "READY" : "MISSING");
+        setDebugText("#rice-debug-grid-ready", gridReady ? "READY" : "MISSING");
+
+        if (!riceSurfaceGroup || !riceRig) {
+          setDebugText("#rice-debug-tray-pos", "—");
+          return;
+        }
+        riceRig.updateWorldMatrix(true, true);
+        const trayPosition = riceSurfaceGroup.getWorldPosition(new THREE.Vector3());
+        setDebugText(
+          "#rice-debug-tray-pos",
+          `${trayPosition.x.toFixed(2)}, ${trayPosition.y.toFixed(2)}, ${trayPosition.z.toFixed(2)}`
+        );
+
+        if (!riceSceneLogged && trayReady && riceReady && gridReady && riceRig.visible) {
+          riceSceneLogged = true;
+          const trayBounds = new THREE.Box3().setFromObject(riceTrayObject!);
+          const ricePosition = riceMesh!.getWorldPosition(new THREE.Vector3());
+          console.info("[riceSpreadDebug] scene ready", {
+            trayPosition: trayPosition.toArray(),
+            trayBounds: {
+              min: trayBounds.min.toArray(),
+              max: trayBounds.max.toArray(),
+            },
+            ricePosition: ricePosition.toArray(),
+            platformTop,
+            cameraPosition: camera.getWorldPosition(new THREE.Vector3()).toArray(),
+          });
+        }
+      }
+
+      function resetRiceSpread() {
+        riceGesture?.reset();
+        riceSnapshot = emptyRiceSnapshot();
+        riceVisualProgress = 0;
+        riceSpreadPulseUntil = -Infinity;
+        applyRiceVisual(0);
+        updateRiceZones();
+        updateRiceDebugPanel(null);
+        $("#rice-debug-spread")?.classList.remove("visible");
+        setHandHud("tracking", "채반 위 여러 영역을 손바닥으로 쓸어주세요");
+      }
+
+      if ((riceSpreadDebug || productionCooling) && debugGltf?.scene) {
+        riceRig = new THREE.Group();
+        // Galaxy에서 검증된 Tray Pull rack 높이와 완료 거리 그대로 재사용한다.
+        riceRig.position.set(0, platformTop + 0.12, 0);
+        stageGroup.add(riceRig);
+
+        // 사용자가 작업하기 편하도록 tray의 앞(+Z)이 카메라를 향하고 조금 꺼내진 위치에 둔다.
+        const cameraLocal = camera.getWorldPosition(new THREE.Vector3());
+        stageGroup.worldToLocal(cameraLocal);
+        const towardCamera = cameraLocal.sub(riceRig.position).setY(0).normalize();
+        if (towardCamera.lengthSq() > 1e-6) {
+          riceRig.rotation.y = Math.atan2(towardCamera.x, towardCamera.z);
+        }
+
+        riceSurfaceGroup = new THREE.Group();
+        riceSurfaceGroup.position.set(0, 0.02, TRAY_PULL.TRAY_PULL_DISTANCE);
+        riceRig.add(riceSurfaceGroup);
+
+        const riceTray = skinnedClone(debugGltf.scene) as THREE.Object3D;
+        riceTray.traverse((o: THREE.Object3D) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((m) => m.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+        });
+        const rawBox = new THREE.Box3().setFromObject(riceTray);
+        const rawCenter = rawBox.getCenter(new THREE.Vector3());
+        const traySize = rawBox.getSize(new THREE.Vector3());
+        riceTray.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
+        riceSurfaceGroup.add(riceTray);
+        riceTrayObject = riceTray;
+
+        riceTrayTop = traySize.y;
+        riceTrayWidth = traySize.x;
+        riceTrayDepth = traySize.z;
+        riceTargetWidth = traySize.x * RICE_SPREAD.TARGET_SURFACE_RATIO;
+        riceTargetDepth = traySize.z * RICE_SPREAD.TARGET_SURFACE_RATIO;
+
+        const riceTexturePath = recipe.godubapRicePlane?.texture;
+        riceTexture = riceTexturePath
+          ? new THREE.TextureLoader().load(
+              riceTexturePath,
+              undefined,
+              undefined,
+              (error) => console.warn("rice spread texture 로드 실패:", riceTexturePath, error)
+            )
+          : null;
+        if (riceTexture) {
+          riceTexture.colorSpace = THREE.SRGBColorSpace;
+          riceTexture.wrapS = THREE.MirroredRepeatWrapping;
+          riceTexture.wrapT = THREE.MirroredRepeatWrapping;
+          riceTexture.needsUpdate = true;
+        }
+        riceGeometry = createRiceGeometry();
+        riceMesh = new THREE.Mesh(
+          riceGeometry,
+          new THREE.MeshStandardMaterial({
+            color: 0xf1ead7,
+            map: riceTexture,
+            roughness: 0.96,
+          })
+        );
+        riceMesh.castShadow = riceMesh.receiveShadow = true;
+        riceMesh.frustumCulled = false;
+        riceSurfaceGroup.add(riceMesh);
+        applyRiceVisual(0);
+
+        // 2×3 target grid. 방문한 zone은 청록색에서 녹색으로 바뀐다.
+        const cellW = riceTargetWidth / RICE_SPREAD.ZONE_COLUMNS;
+        const cellD = riceTargetDepth / RICE_SPREAD.ZONE_ROWS;
+        for (let row = 0; row < RICE_SPREAD.ZONE_ROWS; row++) {
+          for (let col = 0; col < RICE_SPREAD.ZONE_COLUMNS; col++) {
+            const material = new THREE.MeshBasicMaterial({
+              color: 0x52d8ff, transparent: true, opacity: 0.08,
+              depthTest: false, side: THREE.DoubleSide,
+            });
+            const zone = new THREE.Mesh(
+              new THREE.PlaneGeometry(cellW * 0.94, cellD * 0.94).rotateX(-Math.PI / 2),
+              material
+            );
+            zone.position.set(
+              -riceTargetWidth * 0.5 + cellW * (col + 0.5),
+              riceTrayTop + 0.06,
+              -riceTargetDepth * 0.5 + cellD * (row + 0.5)
+            );
+            zone.renderOrder = 9;
+            zone.visible = riceSpreadDebug;
+            riceSurfaceGroup.add(zone);
+            riceZoneMaterials.push(material);
+            riceZoneMeshes.push(zone);
+          }
+        }
+        riceRig.visible = false;
+        updateRiceSceneDebug();
+      } else if (riceSpreadDebug) {
+        console.warn("[riceSpreadDebug] metal_tray.glb를 불러오지 못해 rice spread 검증을 비활성화합니다.");
+        updateRiceSceneDebug();
+      }
+
+      const riceResetButton = $("#rice-debug-reset") as HTMLButtonElement | null;
+      if (riceResetButton) riceResetButton.onclick = resetRiceSpread;
 
       // 냉각 때 채반 위에 까는 고두밥(쌀) 텍스처 평면 — 채반 크기에 맞춰 덮는다.
       if (recipe.godubapRicePlane) {
@@ -1711,7 +2272,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
         const show = new Set(cur?.models ?? []);
         Object.entries(stage).forEach(([id, groups]) => {
-          const on = show.has(id);
+          // 검증된 냉각 interaction에서는 기존 metal_food_tray를 새 metal_tray로 교체한다.
+          const interactiveCooling =
+            (trayDebug || riceSpreadDebug || (productionCooling && S.godubap >= GB_LAST)) && cur?.dark;
+          const debugReplacement = interactiveCooling &&
+            (id === "metal_food_tray" || id === "rice_plane");
+          const on = show.has(id) && !debugReplacement;
           groups.forEach((g) => (g.visible = on));
         });
         // 탈수로 넘어오는 순간에는 그릇도 잠깐 남겨 두고 서서히 바꾼다.
@@ -1747,6 +2313,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           heldLid = false;
           heldBasket = false;
         }
+        if (trayRig) {
+          trayRig.visible =
+            (trayDebug && cur?.dark === true) ||
+            (productionCooling && S.godubap === GB_LAST && S.coolingPhase === "TRAY_PULL");
+        }
+        if (riceRig) {
+          // 손 상태나 model list가 아니라 debug mode + cooling index만으로 표시한다.
+          riceRig.visible =
+            (riceSpreadDebug && S.godubap === GB_LAST) ||
+            (productionCooling && S.godubap >= GB_LAST && S.coolingPhase !== "TRAY_PULL");
+          updateRiceSceneDebug();
+        }
+        steam.visible = skipToRiceSpread && S.godubap === GB_LAST
+          ? false
+          : productionCooling && S.godubap >= GB_LAST
+            ? S.coolingPhase === "FAN" || S.coolingPhase === "COMPLETE"
+            : true;
         const dark = cur?.dark === true;
         if (!dark) coolT = 0;
         uiRoot!.classList.toggle("cooling", dark); // 가장자리 비네트
@@ -1768,6 +2351,58 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             syncGodubap();
           }
         }
+        if (trayMover) {
+          trayVisualProgress += (traySnapshot.progress - trayVisualProgress) * 0.18;
+          trayMover.position.z = trayVisualProgress * TRAY_PULL.TRAY_PULL_DISTANCE;
+        }
+        if (riceMesh) {
+          riceVisualProgress +=
+            (riceSnapshot.progress - riceVisualProgress) * RICE_SPREAD.VISUAL_SMOOTHING;
+          applyRiceVisual(riceVisualProgress);
+          $("#rice-debug-spread")?.classList.toggle(
+            "visible",
+            performance.now() < riceSpreadPulseUntil
+          );
+        }
+
+        if (
+          productionCooling &&
+          S.godubap === GB_LAST &&
+          S.coolingPhase === "TRAY_PULL" &&
+          traySnapshot.state === "COMPLETE" &&
+          trayVisualProgress >= 0.985
+        ) {
+          S.coolTrayProgress = 1;
+          S.coolingPhase = "RICE_SPREAD";
+          if (trayRig && riceRig) {
+            riceRig.position.copy(trayRig.position);
+            riceRig.quaternion.copy(trayRig.quaternion);
+            riceRig.scale.copy(trayRig.scale);
+          }
+          riceGesture?.reset();
+          riceSnapshot = emptyRiceSnapshot();
+          riceVisualProgress = 0;
+          applyRiceVisual(0);
+          godubapShowStage?.();
+          syncGodubap();
+          setHandHud("tracking", "고두밥을 채반 위에 골고루 펼쳐주세요");
+        }
+
+        if (
+          productionCooling &&
+          S.godubap === GB_LAST &&
+          S.coolingPhase === "RICE_SPREAD" &&
+          riceSnapshot.state === "COMPLETE" &&
+          riceVisualProgress >= 0.985
+        ) {
+          S.coolRiceProgress = 1;
+          S.coolingPhase = "QUIZ";
+          godubapShowStage?.();
+          syncGodubap();
+          $("#quiz")?.classList.remove("hidden");
+          setHandHud("idle", "고두밥을 골고루 펼쳤어요 · 장인의 질문에 답해주세요");
+        }
+
         // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
         if (soakActive()) {
           if (!S.soakAt) S.soakAt = now;
@@ -1949,8 +2584,176 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const GRAB_R = 0.19;
       let heldDepth = 1;
 
+      resetCoolingInteraction = () => {
+        S.coolingPhase = "TRAY_PULL";
+        S.coolTrayProgress = 0;
+        S.coolRiceProgress = 0;
+        S.coolFans = 0;
+        S.coolDone = false;
+        S.quizDone = false;
+        resetTrayPull();
+        resetRiceSpread();
+        fan.reset();
+        $("#quiz")?.classList.add("hidden");
+        handTracker?.setPaused(false);
+        godubapShowStage?.();
+        setHandHud("tracking", "채반 앞쪽을 잡고 앞으로 당겨주세요");
+      };
+      startCoolingFan = () => {
+        S.coolingPhase = "FAN";
+        S.coolFans = 0;
+        fan.reset();
+        steam.visible = true;
+        steam.material.opacity = 0.55;
+        godubapShowStage?.();
+        syncGodubap();
+        setHandHud("tracking", "손을 좌우로 흔들어 고두밥을 식혀주세요");
+      };
+      const trayWorld = new THREE.Vector3();
+      const trayCameraLocal = new THREE.Vector3();
+      const trayScreen = { x: 0, y: 0 };
+      const riceCenterWorld = new THREE.Vector3();
+      const riceRightWorld = new THREE.Vector3();
+      const riceFrontWorld = new THREE.Vector3();
+      const riceCenterScreen = { x: 0, y: 0 };
+      const riceRightScreen = { x: 0, y: 0 };
+      const riceFrontScreen = { x: 0, y: 0 };
+
+      function updateTrayHighlight(hovering: boolean) {
+        trayModel?.traverse((o: THREE.Object3D) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          materials.forEach((m) => {
+            if (!(m instanceof THREE.MeshStandardMaterial)) return;
+            m.emissive.setHex(hovering ? 0x5a4210 : (m.userData.trayBaseEmissive ?? 0));
+            m.emissiveIntensity = hovering ? 0.75 : (m.userData.trayBaseEmissiveIntensity ?? 1);
+          });
+        });
+      }
+
+      function handleTrayPull(f: HandFrame, hand: HandVisual, debug = trayDebug) {
+        if (!trayGesture || !trayRig || !trayTarget) return;
+
+        // grab 전에는 임시 레일의 +Z가 현재 사용자/카메라를 향하게 한다.
+        // grab 순간부터는 방향을 잠가 손의 좌우·상하 움직임이 tray 경로를 바꾸지 못한다.
+        if (!traySnapshot.grabbed && traySnapshot.state !== "COMPLETE") {
+          camera.getWorldPosition(trayCameraLocal);
+          stageGroup.worldToLocal(trayCameraLocal);
+          trayCameraLocal.sub(trayRig.position).setY(0);
+          if (trayCameraLocal.lengthSq() > 1e-6) {
+            trayRig.rotation.y = Math.atan2(trayCameraLocal.x, trayCameraLocal.z);
+          }
+        }
+
+        trayRig.updateWorldMatrix(true, true);
+        trayTarget.getWorldPosition(trayWorld);
+        worldToScreen(trayWorld, camera, trayScreen);
+        const hovering = f.present && screenDist(hand.pinchScreen, trayScreen) <= TRAY_PULL.GRAB_RADIUS;
+        traySnapshot = trayGesture.update(f, hovering);
+        if (!debug) {
+          S.coolTrayProgress = traySnapshot.progress;
+          syncGodubapGame();
+        }
+
+        updateTrayHighlight(hovering || traySnapshot.grabbed);
+        updateTrayDebugPanel(f, hovering);
+
+        if (traySnapshot.state === "COMPLETE") {
+          setHandHud("dropped", debug ? "TRAY PULL OK" : "채반을 꺼냈어요");
+        }
+        else if (traySnapshot.grabbed) setHandHud("holding", "잡은 채 손을 몸 쪽으로 당겨 주세요");
+        else if (hovering) setHandHud("hover", "앞쪽 테두리에서 엄지와 검지를 붙이세요");
+        else if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+        else setHandHud("tracking", "노란 표시에 손을 가까이 대세요");
+      }
+
+      function handleRiceSpread(f: HandFrame, debug = riceSpreadDebug) {
+        if (!riceGesture || !riceRig || !riceSurfaceGroup) return;
+
+        const rawPalm = palmCenter(f);
+        const palm = rawPalm ? toScreen(rawPalm, handFit) : riceSnapshot.palm;
+        let onRice = false;
+        const targetPoint = { x: 0.5, y: 0.5 };
+
+        if (rawPalm && riceTargetWidth > 0 && riceTargetDepth > 0) {
+          riceSurfaceGroup.updateWorldMatrix(true, true);
+          riceSurfaceGroup.localToWorld(riceCenterWorld.set(0, riceTrayTop + 0.03, 0));
+          riceSurfaceGroup.localToWorld(riceRightWorld.set(riceTargetWidth * 0.5, riceTrayTop + 0.03, 0));
+          riceSurfaceGroup.localToWorld(riceFrontWorld.set(0, riceTrayTop + 0.03, riceTargetDepth * 0.5));
+          worldToScreen(riceCenterWorld, camera, riceCenterScreen);
+          worldToScreen(riceRightWorld, camera, riceRightScreen);
+          worldToScreen(riceFrontWorld, camera, riceFrontScreen);
+
+          // 회전·원근이 적용된 tray의 두 화면 basis를 풀어 target 내부 좌표를 구한다.
+          const ax = riceRightScreen.x - riceCenterScreen.x;
+          const ay = riceRightScreen.y - riceCenterScreen.y;
+          const bx = riceFrontScreen.x - riceCenterScreen.x;
+          const by = riceFrontScreen.y - riceCenterScreen.y;
+          const px = palm.x - riceCenterScreen.x;
+          const py = palm.y - riceCenterScreen.y;
+          const det = ax * by - ay * bx;
+          if (Math.abs(det) > 1e-6) {
+            const localX = (px * by - py * bx) / det;
+            const localZ = (ax * py - ay * px) / det;
+            onRice = Math.abs(localX) <= 1 && Math.abs(localZ) <= 1;
+            targetPoint.x = THREE.MathUtils.clamp((localX + 1) * 0.5, 0, 1);
+            targetPoint.y = THREE.MathUtils.clamp((localZ + 1) * 0.5, 0, 1);
+          }
+        }
+
+        riceSnapshot = riceGesture.update({
+          present: f.present && rawPalm !== null,
+          onRice,
+          palm,
+          targetPoint,
+        });
+        if (!debug) {
+          S.coolRiceProgress = riceSnapshot.progress;
+          syncGodubapGame();
+        }
+        if (riceSnapshot.justSpread) riceSpreadPulseUntil = performance.now() + 420;
+        updateRiceZones();
+        updateRiceDebugPanel(f);
+
+        if (riceSnapshot.state === "COMPLETE") {
+          setHandHud("dropped", debug ? "RICE SPREAD OK" : "고두밥을 골고루 펼쳤어요");
+        }
+        else if (riceSnapshot.state === "SPREADING") {
+          setHandHud("holding", debug ? "SPREAD! · 다른 영역도 넓게 쓸어주세요" : "다른 부분도 골고루 펼쳐주세요");
+        }
+        else if (riceSnapshot.onRice) setHandHud("hover", "손바닥으로 고두밥 표면을 넓게 쓸어주세요");
+        else if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+        else setHandHud("tracking", "채반 위 고두밥에 손바닥을 올려주세요");
+      }
+
       live.onHand = (f, hand, cam) => {
         const grab = hand.pinchScreen;
+        if (riceSpreadDebug && S.godubap === GB_LAST) {
+          handleRiceSpread(f);
+          return;
+        }
+        // 이 spike는 냉각 production progression과 분리한다. debug에서만 부채질 대신 실행된다.
+        if (trayDebug && S.godubap === GB_LAST) {
+          handleTrayPull(f, hand);
+          return;
+        }
+        if (productionCooling && S.godubap === GB_LAST) {
+          if (S.coolingPhase === "TRAY_PULL") {
+            handleTrayPull(f, hand, false);
+            return;
+          }
+          if (S.coolingPhase === "RICE_SPREAD") {
+            handleRiceSpread(f, false);
+            return;
+          }
+          if (S.coolingPhase === "QUIZ") {
+            setHandHud("idle", "장인의 질문에 답해주세요");
+            return;
+          }
+          if (S.coolingPhase === "COMPLETE") return;
+          // FAN만 아래 기존 FanGesture 경로로 보낸다.
+        }
 
         // ── 세미 — 그릇에 손을 넣고 둥글게 휘저어 쌀을 헹군다 ──────────────
         if (rinseActive()) {
@@ -2101,12 +2904,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           S.coolFans = Math.min(REQUIRED_FANS, S.coolFans + gained);
           fanPulse = 1;
           syncGodubapGame();
-          // 다 식히면 그때 장인이 질문을 던진다
+          // 냉각④ 완료 — tray와 펼쳐진 rice는 그대로 두고 손 추적만 쉰다.
           if (S.coolFans >= REQUIRED_FANS && !S.coolDone) {
             S.coolDone = true;
+            S.coolingPhase = "COMPLETE";
             fan.reset();
             S.godubap = GB_N; // 다 식었으니 고두밥 완성
+            handTracker?.setPaused(true);
             syncGodubap();
+            setHandHud("dropped", "고두밥이 충분히 식었어요!");
           }
           return;
         }
@@ -2116,7 +2922,1198 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
     }
 
+    /* --- 14 · 밑술 치대기 기술 검증 (?kneadDebug=1 전용) --- */
+    function buildKneadDebug() {
+      const platformTop = addPlatform();
+      frame3D(platformTop + 0.18, 0.7, 0.62);
+
+      const JAR_HEIGHT = 0.24;
+      const JAR_TOP_RADIUS = 0.125;
+      const MASH_RADIUS = 0.105;
+      const MASH_START_HEIGHT = 0.028;
+      const MASH_FINAL_HEIGHT = 0.014;
+      const MASH_BOTTOM_Y = JAR_HEIGHT - 0.052;
+
+      const jarRig = new THREE.Group();
+      jarRig.position.set(0, platformTop, 0);
+      stageGroup.add(jarRig);
+
+      // 대형 후보 GLB 대신 mobile spike용 open primitive 항아리를 사용한다.
+      const jarMaterial = new THREE.MeshStandardMaterial({
+        color: 0x50372a,
+        roughness: 0.78,
+        metalness: 0.04,
+        side: THREE.DoubleSide,
+      });
+      const jarBody = new THREE.Mesh(
+        new THREE.CylinderGeometry(JAR_TOP_RADIUS, 0.098, JAR_HEIGHT, 48, 1, true),
+        jarMaterial
+      );
+      jarBody.position.y = JAR_HEIGHT * 0.5;
+      jarBody.castShadow = jarBody.receiveShadow = true;
+      jarRig.add(jarBody);
+
+      const jarBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.098, 0.098, 0.018, 48),
+        jarMaterial
+      );
+      jarBase.position.y = 0.009;
+      jarBase.castShadow = jarBase.receiveShadow = true;
+      jarRig.add(jarBase);
+
+      const jarLip = new THREE.Mesh(
+        new THREE.TorusGeometry(JAR_TOP_RADIUS, 0.012, 12, 48).rotateX(Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0x34241d, roughness: 0.66 })
+      );
+      jarLip.position.y = JAR_HEIGHT;
+      jarLip.castShadow = true;
+      jarRig.add(jarLip);
+
+      const mashTexturePath = recipe.godubapRicePlane?.texture;
+      const mashTexture = mashTexturePath
+        ? new THREE.TextureLoader().load(
+            mashTexturePath,
+            undefined,
+            undefined,
+            (error) => console.warn("knead mash texture 로드 실패:", mashTexturePath, error)
+          )
+        : null;
+      if (mashTexture) {
+        mashTexture.colorSpace = THREE.SRGBColorSpace;
+        mashTexture.wrapS = THREE.MirroredRepeatWrapping;
+        mashTexture.wrapT = THREE.MirroredRepeatWrapping;
+        mashTexture.repeat.set(2.4, 2.4);
+      }
+      const mashMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(MASH_RADIUS, MASH_RADIUS * 0.98, MASH_START_HEIGHT, 48),
+        new THREE.MeshStandardMaterial({
+          color: 0xc8b894,
+          map: mashTexture,
+          roughness: 0.96,
+        })
+      );
+      mashMesh.castShadow = mashMesh.receiveShadow = true;
+      jarRig.add(mashMesh);
+
+      const targetMaterial = new THREE.MeshBasicMaterial({
+        color: 0x52d8ff,
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      });
+      const targetOutline = new THREE.Mesh(
+        new THREE.RingGeometry(MASH_RADIUS * 0.96, MASH_RADIUS * KNEAD.TARGET_PADDING, 48)
+          .rotateX(-Math.PI / 2),
+        targetMaterial
+      );
+      targetOutline.position.y = MASH_BOTTOM_Y + MASH_START_HEIGHT + 0.006;
+      targetOutline.renderOrder = 9;
+      jarRig.add(targetOutline);
+
+      const kneadGesture = new KneadGesture();
+      const emptyKneadSnapshot = (): KneadSnapshot => ({
+        state: "WAIT_OPEN",
+        pose: "TRANSITION",
+        onMash: false,
+        handRatio: 0,
+        fingertipMeanDistance: 0,
+        palmScale: 0,
+        count: 0,
+        progress: 0,
+        justKneaded: false,
+      });
+      let kneadSnapshot = emptyKneadSnapshot();
+      let kneadPulse = 0;
+      let feedbackUntil = -Infinity;
+
+      const mashCenterWorld = new THREE.Vector3();
+      const mashRightWorld = new THREE.Vector3();
+      const mashFrontWorld = new THREE.Vector3();
+      const mashCenterScreen = { x: 0.5, y: 0.5 };
+      const mashRightScreen = { x: 0.5, y: 0.5 };
+      const mashFrontScreen = { x: 0.5, y: 0.5 };
+
+      const setKneadText = (id: string, value: string) => {
+        const element = $(id);
+        if (element) element.textContent = value;
+      };
+
+      function applyMashVisual() {
+        const progress = kneadSnapshot.progress;
+        const height = THREE.MathUtils.lerp(MASH_START_HEIGHT, MASH_FINAL_HEIGHT, progress);
+        const spread = THREE.MathUtils.lerp(0.9, 1, progress) + kneadPulse * 0.035;
+        mashMesh.scale.set(spread, height / MASH_START_HEIGHT, spread);
+        mashMesh.position.y = MASH_BOTTOM_Y + height * 0.5 + kneadPulse * 0.002;
+        targetOutline.position.y = MASH_BOTTOM_Y + height + 0.006;
+      }
+
+      function updateKneadPanel(frame: HandFrame | null, palm: { x: number; y: number }) {
+        if (!kneadDebug) return;
+        setKneadText("#knead-debug-hand", frame?.present ? "FOUND" : "LOST");
+        setKneadText("#knead-debug-on", kneadSnapshot.onMash ? "YES" : "NO");
+        setKneadText("#knead-debug-palm-x", palm.x.toFixed(3));
+        setKneadText("#knead-debug-palm-y", palm.y.toFixed(3));
+        setKneadText("#knead-debug-ratio", kneadSnapshot.handRatio.toFixed(3));
+        setKneadText("#knead-debug-pose", kneadSnapshot.pose);
+        setKneadText("#knead-debug-state", kneadSnapshot.state);
+        setKneadText(
+          "#knead-debug-count",
+          `${kneadSnapshot.count} / ${KNEAD.TARGET_KNEAD_COUNT}`
+        );
+        setKneadText("#knead-debug-progress", `${Math.round(kneadSnapshot.progress * 100)}%`);
+        setKneadText("#knead-debug-tip-distance", kneadSnapshot.fingertipMeanDistance.toFixed(4));
+        setKneadText("#knead-debug-palm-scale", kneadSnapshot.palmScale.toFixed(4));
+        $("#knead-debug-ok")?.classList.toggle("visible", kneadSnapshot.state === "COMPLETE");
+
+        const feedback = $("#knead-debug-feedback");
+        if (feedback) {
+          feedback.textContent = performance.now() < feedbackUntil
+            ? "KNEAD!"
+            : kneadSnapshot.pose === "CLOSED"
+              ? "SQUEEZE"
+              : kneadSnapshot.pose === "OPEN"
+                ? "OPEN"
+                : "TRANSITION";
+        }
+
+        const marker = $("#knead-debug-palm-marker") as HTMLElement | null;
+        if (marker) {
+          marker.style.left = `${palm.x * 100}%`;
+          marker.style.top = `${palm.y * 100}%`;
+          marker.classList.toggle("visible", frame?.present === true);
+        }
+      }
+
+      resetKneadInteraction = () => {
+        kneadGesture.reset();
+        kneadSnapshot = emptyKneadSnapshot();
+        kneadPulse = 0;
+        feedbackUntil = -Infinity;
+        targetMaterial.color.setHex(0x52d8ff);
+        targetMaterial.opacity = 0.72;
+        applyMashVisual();
+        updateKneadPanel(null, { x: 0.5, y: 0.5 });
+        $("#knead-debug-palm-marker")?.classList.remove("visible");
+        setHandHud("tracking", "항아리 위에서 손을 펴고 오므린 뒤 다시 펴주세요");
+      };
+
+      const resetButton = $("#knead-debug-reset") as HTMLButtonElement | null;
+      if (resetButton) resetButton.onclick = resetKneadInteraction;
+      resetKneadInteraction();
+
+      live.onHand = (frame) => {
+        const rawPalm = palmCenter(frame);
+        const palm = rawPalm ? toScreen(rawPalm, handFit) : { x: 0.5, y: 0.5 };
+        let onMash = false;
+
+        if (rawPalm) {
+          const mashSurfaceY = targetOutline.position.y;
+          jarRig.updateWorldMatrix(true, true);
+          jarRig.localToWorld(mashCenterWorld.set(0, mashSurfaceY, 0));
+          jarRig.localToWorld(mashRightWorld.set(MASH_RADIUS, mashSurfaceY, 0));
+          jarRig.localToWorld(mashFrontWorld.set(0, mashSurfaceY, MASH_RADIUS));
+          worldToScreen(mashCenterWorld, camera, mashCenterScreen);
+          worldToScreen(mashRightWorld, camera, mashRightScreen);
+          worldToScreen(mashFrontWorld, camera, mashFrontScreen);
+
+          const ax = mashRightScreen.x - mashCenterScreen.x;
+          const ay = mashRightScreen.y - mashCenterScreen.y;
+          const bx = mashFrontScreen.x - mashCenterScreen.x;
+          const by = mashFrontScreen.y - mashCenterScreen.y;
+          const px = palm.x - mashCenterScreen.x;
+          const py = palm.y - mashCenterScreen.y;
+          const det = ax * by - ay * bx;
+          if (Math.abs(det) > 1e-6) {
+            const localX = (px * by - py * bx) / det;
+            const localZ = (ax * py - ay * px) / det;
+            onMash = localX * localX + localZ * localZ <= KNEAD.TARGET_PADDING ** 2;
+          }
+        }
+
+        kneadSnapshot = kneadGesture.update(frame, onMash);
+        targetMaterial.color.setHex(onMash ? 0x69d98a : 0x52d8ff);
+        targetMaterial.opacity = onMash ? 0.95 : 0.72;
+        if (kneadSnapshot.justKneaded) {
+          kneadPulse = 1;
+          feedbackUntil = performance.now() + 450;
+        }
+        applyMashVisual();
+        updateKneadPanel(frame, palm);
+
+        if (kneadSnapshot.state === "COMPLETE") setHandHud("dropped", "KNEAD OK");
+        else if (!frame.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+        else if (!onMash) setHandHud("tracking", "손바닥을 항아리 안 술덧 위로 옮겨주세요");
+        else if (kneadSnapshot.justKneaded) setHandHud("dropped", "KNEAD!");
+        else if (kneadSnapshot.pose === "CLOSED") setHandHud("holding", "SQUEEZE · 다시 손을 펴주세요");
+        else if (kneadSnapshot.pose === "OPEN") setHandHud("hover", "OPEN · 손을 오므려주세요");
+        else setHandHud("tracking", "손 자세를 안정적으로 유지해주세요");
+      };
+
+      live.tick = (_t, dt) => {
+        kneadPulse = Math.max(0, kneadPulse - dt * 4.5);
+        applyMashVisual();
+        const feedback = $("#knead-debug-feedback");
+        if (feedback && performance.now() >= feedbackUntil && feedback.textContent === "KNEAD!") {
+          feedback.textContent = kneadSnapshot.pose;
+        }
+      };
+    }
+
     /* --- 14 · 발효 --- */
+    function buildMitsulMix() {
+      const platformTop = addPlatform();
+      frame3D(platformTop + 0.2, 0.76, 0.64);
+
+      const JAR_SCALE = 0.17;
+      const PICK_RADIUS = 0.13;
+      const POUR_TARGET_RADIUS = 0.16;
+      const POUR_TILT_RAD = THREE.MathUtils.degToRad(38);
+      const POUR_DURATION_MS = 1200;
+      const REQUIRED_RICE_SCOOPS = 3;
+      const PHASES = ["RICE", "NURUK", "WATER", "KNEAD", "COMPLETE"] as const;
+      type MixPhase = (typeof PHASES)[number];
+      type PourPhase = "NURUK" | "WATER";
+      type PourActor = {
+        phase: PourPhase;
+        label: string;
+        node: THREE.Group;
+        home: THREE.Vector3;
+        radius: number;
+      };
+
+      const jarRig = new THREE.Group();
+      jarRig.position.set(0, platformTop, 0);
+      stageGroup.add(jarRig);
+
+      let jarReady = false;
+      let jarHeight = 0.28;
+      let jarWidth = 0.24;
+      const jarGltf = LOADED[MITSUL_JAR_ID];
+      if (jarGltf?.scene) {
+        const jarModel = skinnedClone(jarGltf.scene) as THREE.Object3D;
+        jarModel.scale.setScalar(JAR_SCALE);
+        jarModel.traverse((object: THREE.Object3D) => {
+          const mesh = object as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((material) => material.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+        });
+        const bounds = new THREE.Box3().setFromObject(jarModel);
+        const center = bounds.getCenter(new THREE.Vector3());
+        const size = bounds.getSize(new THREE.Vector3());
+        jarModel.position.set(-center.x, -bounds.min.y, -center.z);
+        jarRig.add(jarModel);
+        jarHeight = size.y;
+        jarWidth = Math.max(size.x, size.z);
+        jarReady = true;
+      } else {
+        const fallback = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.12, 0.095, jarHeight, 40, 1, true),
+          new THREE.MeshStandardMaterial({ color: 0x4b3024, roughness: 0.82, side: THREE.DoubleSide })
+        );
+        fallback.position.y = jarHeight * 0.5;
+        fallback.castShadow = fallback.receiveShadow = true;
+        jarRig.add(fallback);
+      }
+
+      const mashBottomY = Math.max(0.05, jarHeight - 0.058);
+      const mashRadius = Math.min(0.09, jarWidth * 0.31);
+      const mashStartHeight = 0.032;
+      const mashFinalHeight = 0.016;
+      const riceTexturePath = recipe.godubapRicePlane?.texture;
+      const riceTexture = riceTexturePath ? new THREE.TextureLoader().load(riceTexturePath) : null;
+      if (riceTexture) {
+        riceTexture.colorSpace = THREE.SRGBColorSpace;
+        riceTexture.wrapS = THREE.MirroredRepeatWrapping;
+        riceTexture.wrapT = THREE.MirroredRepeatWrapping;
+        riceTexture.repeat.set(2.2, 2.2);
+      }
+      const mashMaterial = new THREE.MeshStandardMaterial({ color: 0xeadfc4, map: riceTexture, roughness: 0.96 });
+      const mash = new THREE.Mesh(
+        new THREE.CylinderGeometry(mashRadius, mashRadius * 0.98, mashStartHeight, 48),
+        mashMaterial
+      );
+      mash.position.y = mashBottomY + mashStartHeight * 0.5;
+      mash.castShadow = mash.receiveShadow = true;
+      mash.visible = false;
+      jarRig.add(mash);
+
+      const liquidMaterial = new THREE.MeshPhysicalMaterial({
+        color: 0xb8d2cf, transparent: true, opacity: 0.42, roughness: 0.2,
+        transmission: 0.18, depthWrite: false,
+      });
+      const liquid = new THREE.Mesh(
+        new THREE.CircleGeometry(mashRadius * 0.98, 48).rotateX(-Math.PI / 2),
+        liquidMaterial
+      );
+      liquid.position.y = mashBottomY + mashStartHeight + 0.008;
+      liquid.visible = false;
+      jarRig.add(liquid);
+
+      const targetOutline = new THREE.Mesh(
+        new THREE.RingGeometry(mashRadius, mashRadius * KNEAD.TARGET_PADDING, 48).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0xe8c07a, transparent: true, opacity: 0.72,
+          side: THREE.DoubleSide, depthTest: false,
+        })
+      );
+      targetOutline.position.y = liquid.position.y + 0.006;
+      targetOutline.renderOrder = 9;
+      targetOutline.visible = false;
+      jarRig.add(targetOutline);
+
+      const lidRig = new THREE.Group();
+      const lidHome = new THREE.Vector3(0.27, platformTop, -0.1);
+      let lidReady = false;
+      let lidHeight = 0.07;
+      let lidRadius = 0.13;
+      const lidGltf = LOADED[MITSUL_LID_ID];
+      if (lidGltf?.scene) {
+        const lidModel = skinnedClone(lidGltf.scene) as THREE.Object3D;
+        lidModel.scale.setScalar(JAR_SCALE);
+        lidModel.traverse((object: THREE.Object3D) => {
+          const mesh = object as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((material) => material.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+        });
+        const bounds = new THREE.Box3().setFromObject(lidModel);
+        const center = bounds.getCenter(new THREE.Vector3());
+        const size = bounds.getSize(new THREE.Vector3());
+        lidModel.position.set(-center.x, -bounds.min.y, -center.z);
+        lidRig.add(lidModel);
+        lidHeight = size.y;
+        lidRadius = Math.max(size.x, size.z) * 0.5;
+        lidReady = true;
+      }
+      lidRig.position.copy(lidHome);
+      lidRig.visible = false;
+      stageGroup.add(lidRig);
+
+      const lidSnapY = platformTop + jarHeight - Math.min(0.025, lidHeight * 0.25);
+      const lidTargetMarker = new THREE.Mesh(
+        new THREE.RingGeometry(Math.max(0.03, mashRadius * 0.7), Math.max(0.04, mashRadius * 1.12), 40)
+          .rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0x52d8ff, transparent: true, opacity: 0.72,
+          side: THREE.DoubleSide, depthTest: false,
+        })
+      );
+      lidTargetMarker.position.set(0, jarHeight + 0.012, 0);
+      lidTargetMarker.renderOrder = 9;
+      lidTargetMarker.visible = false;
+      jarRig.add(lidTargetMarker);
+
+      const fermentBubbles = makeParticles(42, {
+        color: 0xf6dfae, size: 0.006, opacity: 0, speed: 0.16,
+        radius: Math.max(0.08, jarWidth * 0.42),
+        baseY: platformTop + jarHeight * 0.45,
+        height: Math.max(0.12, jarHeight * 0.7),
+        taper: 0.22,
+      });
+      fermentBubbles.visible = false;
+      fermentBubbles.geometry.setDrawRange(0, 10);
+      stageGroup.add(fermentBubbles);
+      live.particles.push(fermentBubbles);
+      const fermentGlow = new THREE.PointLight(0xe6a45f, 0, 0.75);
+      fermentGlow.position.set(0, platformTop + jarHeight * 0.55, 0);
+      stageGroup.add(fermentGlow);
+
+      const actors: PourActor[] = [];
+      const addActor = (phase: PourPhase, label: string, node: THREE.Group, home: THREE.Vector3) => {
+        node.position.copy(home);
+        node.userData.baseRotation = node.rotation.clone();
+        stageGroup.add(node);
+        const size = new THREE.Box3().setFromObject(node).getSize(new THREE.Vector3());
+        actors.push({
+          phase,
+          label,
+          node,
+          home,
+          radius: Math.max(size.x, size.z) * 0.5,
+        });
+      };
+
+      const trayActor = new THREE.Group();
+      const trayHome = new THREE.Vector3(-0.27, platformTop + 0.055, 0.08);
+      let trayWidth = 0.18;
+      let trayDepth = 0.3;
+      let traySurfaceY = 0.04;
+      const trayGltf = LOADED[DEBUG_TRAY_ID];
+      if (trayGltf?.scene) {
+        const trayModel = skinnedClone(trayGltf.scene) as THREE.Object3D;
+        trayModel.traverse((object: THREE.Object3D) => {
+          const mesh = object as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((material) => material.clone());
+          else if (mesh.material) mesh.material = mesh.material.clone();
+        });
+        const box = new THREE.Box3().setFromObject(trayModel);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        trayWidth = size.x * 0.94;
+        trayDepth = size.z * 0.94;
+        traySurfaceY = size.y + 0.016;
+        trayModel.position.set(-center.x, -box.min.y, -center.z);
+        trayActor.add(trayModel);
+        const riceSource = new THREE.Mesh(
+          new THREE.BoxGeometry(size.x * 0.94, 0.014, size.z * 0.94),
+          new THREE.MeshStandardMaterial({ color: 0xeee5cf, map: riceTexture, roughness: 0.96 })
+        );
+        riceSource.position.y = size.y + 0.009;
+        riceSource.castShadow = riceSource.receiveShadow = true;
+        riceSource.name = "mitsul-rice-source";
+        trayActor.add(riceSource);
+      }
+      trayActor.position.copy(trayHome);
+      stageGroup.add(trayActor);
+
+      // RICE에서는 tray가 아니라 손에 붙는 작은 한 움큼만 움직인다.
+      const riceClump = new THREE.Group();
+      const clumpMaterial = new THREE.MeshStandardMaterial({ color: 0xeee5cf, map: riceTexture, roughness: 0.98 });
+      const clumpParts = [
+        { p: [-0.018, 0, 0], s: [0.032, 0.02, 0.027] },
+        { p: [0.014, 0.002, 0.004], s: [0.03, 0.019, 0.026] },
+        { p: [0, 0.006, -0.015], s: [0.028, 0.018, 0.025] },
+      ];
+      clumpParts.forEach(({ p, s }) => {
+        const part = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), clumpMaterial);
+        part.position.set(p[0], p[1], p[2]);
+        part.scale.set(s[0], s[1], s[2]);
+        part.castShadow = part.receiveShadow = true;
+        riceClump.add(part);
+      });
+      riceClump.visible = false;
+      stageGroup.add(riceClump);
+
+      const nurukActor = new THREE.Group();
+      const bowl = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.072, 0.055, 0.045, 32, 1, true),
+        new THREE.MeshStandardMaterial({ color: 0x8c623d, roughness: 0.9, side: THREE.DoubleSide })
+      );
+      bowl.position.y = 0.0225;
+      bowl.castShadow = bowl.receiveShadow = true;
+      nurukActor.add(bowl);
+      const nurukTexturePath = INGREDIENTS.find((ingredient) => ingredient.id === "nuruk")?.texture;
+      const nurukTexture = nurukTexturePath ? new THREE.TextureLoader().load(nurukTexturePath) : null;
+      if (nurukTexture) nurukTexture.colorSpace = THREE.SRGBColorSpace;
+      const nurukTop = new THREE.Mesh(
+        new THREE.CircleGeometry(0.058, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0xc29b63, map: nurukTexture, roughness: 1 })
+      );
+      nurukTop.position.y = 0.046;
+      nurukActor.add(nurukTop);
+      addActor("NURUK", "누룩", nurukActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
+
+      const waterActor = new THREE.Group();
+      const waterDef = MODELS.find((model) => model.id === "water_jar");
+      const waterModel = waterDef ? spawnModel(waterDef) : null;
+      if (waterModel) waterActor.add(waterModel);
+      else {
+        const fallbackWater = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.045, 0.055, 0.13, 32),
+          new THREE.MeshStandardMaterial({ color: 0x7c6950, roughness: 0.86 })
+        );
+        fallbackWater.position.y = 0.065;
+        waterActor.add(fallbackWater);
+      }
+      addActor("WATER", "물 항아리", waterActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
+
+      const streamPositions = new Float32Array(30 * 3);
+      const streamGeometry = new THREE.BufferGeometry();
+      streamGeometry.setAttribute("position", new THREE.BufferAttribute(streamPositions, 3));
+      const streamMaterial = new THREE.PointsMaterial({
+        color: 0xeadfc4, size: 0.008, transparent: true, opacity: 0.92, depthWrite: false,
+      });
+      const stream = new THREE.Points(streamGeometry, streamMaterial);
+      stream.visible = false;
+      stageGroup.add(stream);
+
+      const kneadGesture = new KneadGesture();
+      const emptyKneadSnapshot = (): KneadSnapshot => ({
+        state: "WAIT_OPEN", pose: "TRANSITION", onMash: false, handRatio: 0,
+        fingertipMeanDistance: 0, palmScale: 0, count: 0, progress: 0, justKneaded: false,
+      });
+      let kneadSnapshot = emptyKneadSnapshot();
+      let held: PourActor | null = null;
+      let heldDepth = 1;
+      let pouring = false;
+      let lastPourAt = performance.now();
+      let streamTime = 0;
+      let kneadPulse = 0;
+      let hasRiceScoop = false;
+      let riceDropActive = false;
+      let riceDropProgress = 0;
+      let finishRiceAfterDrop = false;
+      let riceClumpDepth = 1;
+      let riceStablePose: "OPEN" | "CLOSED" | null = null;
+      let riceCandidatePose: "OPEN" | "CLOSED" | null = null;
+      let riceCandidateSince = 0;
+      let riceLastSeenAt = -Infinity;
+      let lidHeld = false;
+      let lidHeldDepth = 1;
+      let lidReturning = false;
+      let fermentElapsed = 0;
+      let lastFermentUiAt = -Infinity;
+      const actorWorld = new THREE.Vector3();
+      const actorScreen = { x: 0.5, y: 0.5 };
+      const followTarget = new THREE.Vector3();
+      const jarOpeningWorld = new THREE.Vector3();
+      const jarOpeningLocal = new THREE.Vector3();
+      const jarOpeningScreen = { x: 0.5, y: 0.5 };
+      const mashCenterWorld = new THREE.Vector3();
+      const mashCenterScreen = { x: 0.5, y: 0.5 };
+      const trayCenterWorld = new THREE.Vector3();
+      const trayRightWorld = new THREE.Vector3();
+      const trayFrontWorld = new THREE.Vector3();
+      const trayCenterScreen = { x: 0.5, y: 0.5 };
+      const trayRightScreen = { x: 0.5, y: 0.5 };
+      const trayFrontScreen = { x: 0.5, y: 0.5 };
+      const lidWorld = new THREE.Vector3();
+      const lidScreen = { x: 0.5, y: 0.5 };
+      const mashRightWorld = new THREE.Vector3();
+      const mashFrontWorld = new THREE.Vector3();
+      const mashRightScreen = { x: 0.5, y: 0.5 };
+      const mashFrontScreen = { x: 0.5, y: 0.5 };
+
+      const phaseIndex = (phase: MixPhase) => PHASES.indexOf(phase);
+      const activeActor = () => actors.find((actor) => actor.phase === S.mitsulPhase) ?? null;
+      const riceMashColor = new THREE.Color(0xeadfc4);
+      const nurukMashColor = new THREE.Color(0xc9ad78);
+      const wetMashColor = new THREE.Color(0xc2ae86);
+      const finalMashColor = new THREE.Color(0xbda274);
+      const fermentedMashColor = new THREE.Color(0x9f8157);
+      const mixedMashColor = new THREE.Color();
+      const setMixDebug = (id: string, value: string) => {
+        const element = $(id);
+        if (element) element.textContent = value;
+      };
+
+      function syncActorVisibility() {
+        trayActor.visible = S.mitsulPhase === "RICE";
+        actors.forEach((actor) => { actor.node.visible = actor.phase === S.mitsulPhase; });
+        lidRig.visible = S.mitsulDone;
+        lidTargetMarker.visible = mitsulFermentDebug
+          && S.mitsulDone
+          && S.mitsulFermentPhase === "LID"
+          && !S.mitsulLidSnapped;
+      }
+
+      function applyMixVisual() {
+        const phase = S.mitsulPhase as MixPhase;
+        const index = phaseIndex(phase);
+        const pour = S.mitsulPourProgress;
+        mash.visible = index > 0 || (phase === "RICE" && pour > 0);
+        liquid.visible = index > 2 || (phase === "WATER" && pour > 0);
+        const riceAmount = index > 0 ? 1 : phase === "RICE" ? pour : 0;
+        const nurukAmount = index > 1 ? 1 : phase === "NURUK" ? pour : 0;
+        const waterAmount = index > 2 ? 1 : phase === "WATER" ? pour : 0;
+        const riceAmountScale = THREE.MathUtils.lerp(0.72, 1, riceAmount);
+        liquid.scale.setScalar(THREE.MathUtils.lerp(0.55, 1, waterAmount));
+        liquidMaterial.opacity = THREE.MathUtils.lerp(0.12, 0.42, waterAmount);
+
+        const kneadProgress = phase === "COMPLETE" ? 1 : phase === "KNEAD" ? kneadSnapshot.progress : 0;
+        const fermentationProgress = S.mitsulFermentProgress;
+        const height = THREE.MathUtils.lerp(mashStartHeight, mashFinalHeight, kneadProgress);
+        const spread = riceAmountScale * THREE.MathUtils.lerp(0.94, 1.04, kneadProgress) + kneadPulse * 0.025;
+        mash.scale.set(spread, height / mashStartHeight, spread);
+        mash.position.y = mashBottomY + height * 0.5 + kneadPulse * 0.002;
+        liquid.position.y = mashBottomY + height + 0.004 + waterAmount * 0.008;
+        targetOutline.position.y = liquid.position.y + 0.006;
+        mixedMashColor.copy(riceMashColor)
+          .lerp(nurukMashColor, nurukAmount)
+          .lerp(wetMashColor, waterAmount * 0.58)
+          .lerp(finalMashColor, kneadProgress)
+          .lerp(fermentedMashColor, fermentationProgress * 0.72);
+        mashMaterial.color.copy(mixedMashColor);
+        mashMaterial.roughness = THREE.MathUtils.lerp(0.96, 0.88, waterAmount);
+        mash.scale.y *= 1 + fermentationProgress * 0.08;
+
+        const riceSource = trayActor.getObjectByName("mitsul-rice-source");
+        if (riceSource) {
+          const remaining = phase === "RICE" ? 1 - S.mitsulRiceScoops / REQUIRED_RICE_SCOOPS : index > 0 ? 0 : 1;
+          const footprint = Math.sqrt(Math.max(0.01, remaining));
+          riceSource.scale.set(footprint, Math.max(0.08, remaining), footprint);
+          riceSource.visible = remaining > 0.02;
+        }
+      }
+
+      function updateMixPanel(frame: HandFrame | null, nearJar = false, tilt = 0, onMash = false) {
+        if (!mitsulMixDebug) return;
+        const index = phaseIndex(S.mitsulPhase as MixPhase);
+        setMixDebug("#mitsul-debug-hand", frame?.present ? "FOUND" : "LOST");
+        setMixDebug("#mitsul-debug-phase", S.mitsulPhase);
+        setMixDebug("#mitsul-debug-grab", held || hasRiceScoop ? "YES" : "NO");
+        setMixDebug("#mitsul-debug-target", nearJar ? "IN" : "OUT");
+        setMixDebug("#mitsul-debug-tilt", `${THREE.MathUtils.radToDeg(tilt).toFixed(0)}°`);
+        setMixDebug("#mitsul-debug-pour", `${Math.round(S.mitsulPourProgress * 100)}%`);
+        setMixDebug("#mitsul-debug-has-scoop", hasRiceScoop ? "YES" : "NO");
+        setMixDebug("#mitsul-debug-scoops", `${S.mitsulRiceScoops} / ${REQUIRED_RICE_SCOOPS}`);
+        setMixDebug("#mitsul-debug-knead", `${S.mitsulKneadCount} / ${KNEAD.TARGET_KNEAD_COUNT}`);
+        setMixDebug("#mitsul-debug-on-mash", onMash ? "YES" : "NO");
+        setMixDebug("#mitsul-debug-jar", jarReady ? "READY" : "MISSING");
+        setMixDebug("#mitsul-debug-rice", index > 0 ? "DONE" : index === 0 && S.mitsulPourProgress > 0 ? "POURING" : "WAIT");
+        setMixDebug("#mitsul-debug-nuruk", index > 1 ? "DONE" : index === 1 && S.mitsulPourProgress > 0 ? "POURING" : "WAIT");
+        setMixDebug("#mitsul-debug-water", index > 2 ? "DONE" : index === 2 && S.mitsulPourProgress > 0 ? "POURING" : "WAIT");
+        $("#mitsul-debug-ok")?.classList.toggle("visible", S.mitsulDone);
+      }
+
+      function updateFermentPanel() {
+        if (!mitsulFermentDebug) return;
+        setMixDebug("#mitsul-ferment-debug-phase", S.mitsulFermentPhase);
+        setMixDebug(
+          "#mitsul-ferment-debug-lid",
+          S.mitsulLidSnapped ? "SNAPPED" : lidHeld ? "GRABBED" : "FREE"
+        );
+        setMixDebug("#mitsul-ferment-debug-temp", `${S.temp}℃`);
+        setMixDebug("#mitsul-ferment-debug-day", `${S.mitsulFermentDay} / 3`);
+        setMixDebug("#mitsul-ferment-debug-progress", `${Math.round(S.mitsulFermentProgress * 100)}%`);
+        const bubbleLevel = S.mitsulFermentPhase === "FERMENTING"
+          ? Math.max(1, Math.ceil(S.mitsulFermentProgress * 3))
+          : S.mitsulFermentDone ? 1 : 0;
+        setMixDebug("#mitsul-ferment-debug-bubbles", String(bubbleLevel));
+        $("#mitsul-ferment-debug-ok")?.classList.toggle("visible", S.mitsulFermentDone);
+      }
+
+      function inProjectedArea(
+        point: { x: number; y: number },
+        center: { x: number; y: number },
+        right: { x: number; y: number },
+        front: { x: number; y: number },
+        padding = 1
+      ) {
+        const ax = right.x - center.x;
+        const ay = right.y - center.y;
+        const bx = front.x - center.x;
+        const by = front.y - center.y;
+        const px = point.x - center.x;
+        const py = point.y - center.y;
+        const det = ax * by - ay * bx;
+        if (Math.abs(det) <= 1e-6) return false;
+        const localX = (px * by - py * bx) / det;
+        const localZ = (ax * py - ay * px) / det;
+        return localX * localX + localZ * localZ <= padding * padding;
+      }
+
+      function updateRicePose(frame: HandFrame, now: number) {
+        if (!frame.present || frame.landmarks.length < 21) {
+          if (now - riceLastSeenAt >= KNEAD.HAND_LOST_TIMEOUT) {
+            riceStablePose = null;
+            riceCandidatePose = null;
+            riceCandidateSince = 0;
+          }
+          return null;
+        }
+        riceLastSeenAt = now;
+        const ratio = kneadHandMetric(frame).handRatio;
+        const next = ratio >= KNEAD.OPEN_THRESHOLD
+          ? "OPEN"
+          : ratio <= KNEAD.CLOSED_THRESHOLD
+            ? "CLOSED"
+            : null;
+        if (!next || next === riceStablePose) {
+          riceCandidatePose = null;
+          riceCandidateSince = 0;
+          return null;
+        }
+        if (next !== riceCandidatePose) {
+          riceCandidatePose = next;
+          riceCandidateSince = now;
+          return null;
+        }
+        if (now - riceCandidateSince < KNEAD.POSE_HOLD_MS) return null;
+        riceStablePose = next;
+        riceCandidatePose = null;
+        riceCandidateSince = 0;
+        return next;
+      }
+
+      function clampHeldAboveMouth(actor: PourActor) {
+        jarOpeningLocal.copy(jarOpeningWorld);
+        stageGroup.worldToLocal(jarOpeningLocal);
+        let dx = actor.node.position.x - jarOpeningLocal.x;
+        let dz = actor.node.position.z - jarOpeningLocal.z;
+        let distance = Math.hypot(dx, dz);
+        if (distance < 1e-4) {
+          dx = actor.home.x - jarOpeningLocal.x || 1;
+          dz = actor.home.z - jarOpeningLocal.z;
+          distance = Math.hypot(dx, dz);
+        }
+        const standOff = mashRadius + actor.radius * 0.62;
+        actor.node.position.x = jarOpeningLocal.x + dx / distance * standOff;
+        actor.node.position.z = jarOpeningLocal.z + dz / distance * standOff;
+        const tiltedBottomClearance = actor.radius * Math.abs(Math.sin(actor.node.rotation.z)) + 0.025;
+        actor.node.position.y = Math.max(actor.node.position.y, jarOpeningLocal.y + tiltedBottomClearance);
+      }
+
+      function returnHeldHome() {
+        if (!held) return;
+        held.node.position.copy(held.home);
+        held.node.rotation.copy(held.node.userData.baseRotation as THREE.Euler);
+        held = null;
+        pouring = false;
+        stream.visible = false;
+      }
+
+      function advancePhase() {
+        const next = PHASES[Math.min(PHASES.length - 1, phaseIndex(S.mitsulPhase as MixPhase) + 1)];
+        returnHeldHome();
+        S.mitsulPhase = next;
+        S.mitsulPourProgress = 0;
+        if (next === "KNEAD") {
+          kneadGesture.reset();
+          kneadSnapshot = emptyKneadSnapshot();
+          targetOutline.visible = mitsulMixDebug;
+        }
+        syncActorVisibility();
+        applyMixVisual();
+        syncMitsulMixUi();
+        updateMixPanel(null);
+      }
+
+      function snapLid() {
+        lidHeld = false;
+        lidReturning = false;
+        lidRig.position.set(0, lidSnapY, 0);
+        lidRig.rotation.set(0, 0, 0);
+        S.mitsulLidSnapped = true;
+        S.mitsulFermentPhase = "TEMPERATURE";
+        S.temp = 20;
+        handTracker?.setPaused(true);
+        syncActorVisibility();
+        syncMitsulMixUi();
+        updateFermentPanel();
+        setHandHud("dropped", "발효를 위해 항아리 뚜껑을 닫았어요");
+      }
+
+      startMitsulFermentation = () => {
+        if (S.mitsulFermentPhase !== "TEMPERATURE" || !S.mitsulLidSnapped || S.temp !== 25) return;
+        S.mitsulFermentPhase = "FERMENTING";
+        S.mitsulFermentProgress = 0;
+        S.mitsulFermentDay = 1;
+        S.mitsulFermentDone = false;
+        fermentElapsed = 0;
+        fermentBubbles.visible = true;
+        syncMitsulMixUi();
+        updateFermentPanel();
+      };
+
+      resetMitsulFermentInteraction = () => {
+        lidHeld = false;
+        lidReturning = false;
+        fermentElapsed = 0;
+        lastFermentUiAt = -Infinity;
+        lidRig.position.copy(lidHome);
+        lidRig.rotation.set(0, 0, 0);
+        S.mitsulFermentPhase = "LID";
+        S.mitsulLidSnapped = false;
+        S.temp = 20;
+        S.mitsulFermentProgress = 0;
+        S.mitsulFermentDay = 0;
+        S.mitsulFermentDone = false;
+        S.ferment = 0;
+        fermentBubbles.visible = false;
+        fermentBubbles.material.opacity = 0;
+        fermentBubbles.geometry.setDrawRange(0, 10);
+        fermentGlow.intensity = 0;
+        if (S.step === "ferment") handTracker?.setPaused(false);
+        syncActorVisibility();
+        applyMixVisual();
+        syncMitsulMixUi();
+        updateFermentPanel();
+        setHandHud("tracking", "작업대의 항아리 뚜껑을 집어주세요");
+      };
+
+      resetMitsulMixInteraction = () => {
+        returnHeldHome();
+        kneadGesture.reset();
+        kneadSnapshot = emptyKneadSnapshot();
+        S.mitsulPhase = "RICE";
+        S.mitsulPourProgress = 0;
+        S.mitsulRiceScoops = 0;
+        S.mitsulKneadCount = 0;
+        S.mitsulDone = false;
+        S.mitsulFermentPhase = "LID";
+        S.mitsulLidSnapped = false;
+        S.mitsulFermentProgress = 0;
+        S.mitsulFermentDay = 0;
+        S.mitsulFermentDone = false;
+        S.temp = 20;
+        hasRiceScoop = false;
+        riceDropActive = false;
+        riceDropProgress = 0;
+        finishRiceAfterDrop = false;
+        riceStablePose = null;
+        riceCandidatePose = null;
+        riceCandidateSince = 0;
+        riceLastSeenAt = -Infinity;
+        riceClump.visible = false;
+        riceClump.scale.setScalar(1);
+        trayActor.position.copy(trayHome);
+        trayActor.rotation.set(0, 0, 0);
+        lidHeld = false;
+        lidReturning = false;
+        fermentElapsed = 0;
+        lastFermentUiAt = -Infinity;
+        lidRig.position.copy(lidHome);
+        lidRig.rotation.set(0, 0, 0);
+        fermentBubbles.visible = false;
+        fermentBubbles.material.opacity = 0;
+        fermentGlow.intensity = 0;
+        S.ferment = 0;
+        kneadPulse = 0;
+        targetOutline.visible = false;
+        handTracker?.setPaused(false);
+        syncActorVisibility();
+        applyMixVisual();
+        syncMitsulMixUi();
+        updateMixPanel(null);
+        setHandHud("tracking", "채반 위에서 고두밥을 한 움큼 집어주세요");
+      };
+
+      const resetButton = $("#mitsul-debug-reset") as HTMLButtonElement | null;
+      if (resetButton) resetButton.onclick = resetMitsulMixInteraction;
+      const resetFermentButton = $("#mitsul-ferment-debug-reset") as HTMLButtonElement | null;
+      if (resetFermentButton) resetFermentButton.onclick = resetMitsulFermentInteraction;
+      if (S.mitsulDone && S.mitsulPhase === "COMPLETE") resetMitsulFermentInteraction();
+      else resetMitsulMixInteraction();
+
+      live.onHand = (frame, hand) => {
+        const now = performance.now();
+        const phase = S.mitsulPhase as MixPhase;
+        jarRig.updateWorldMatrix(true, true);
+        jarRig.localToWorld(jarOpeningWorld.set(0, jarHeight + 0.008, 0));
+        worldToScreen(jarOpeningWorld, camera, jarOpeningScreen);
+
+        if (phase === "COMPLETE" && S.mitsulFermentPhase === "LID") {
+          if (!frame.present) {
+            if (lidHeld) {
+              lidHeld = false;
+              lidReturning = true;
+            }
+            setHandHud("idle", "손을 카메라에 비춰 주세요");
+            updateFermentPanel();
+            return;
+          }
+          const pinch = hand.pinchScreen;
+          if (lidHeld) {
+            screenToWorld(pinch.x, pinch.y, lidHeldDepth, camera, followTarget);
+            stageGroup.worldToLocal(followTarget);
+            followTarget.x = THREE.MathUtils.clamp(followTarget.x, -0.46, 0.46);
+            followTarget.z = THREE.MathUtils.clamp(followTarget.z, -0.4, 0.4);
+            followTarget.y = Math.max(platformTop + 0.015, followTarget.y);
+            lidRig.position.lerp(followTarget, 0.5);
+            const nearMouth = screenDist(pinch, jarOpeningScreen) <= 0.15;
+            if (nearMouth) {
+              lidRig.position.x = THREE.MathUtils.lerp(lidRig.position.x, 0, 0.55);
+              lidRig.position.z = THREE.MathUtils.lerp(lidRig.position.z, 0, 0.55);
+              lidRig.position.y = Math.max(lidRig.position.y, lidSnapY + 0.04);
+            }
+            if (frame.justReleased) {
+              const horizontalValid = Math.hypot(lidRig.position.x, lidRig.position.z)
+                <= Math.max(lidRadius * 1.05, mashRadius * 1.7);
+              const localYValid = lidRig.position.y >= lidSnapY - 0.025
+                && lidRig.position.y <= lidSnapY + 0.24;
+              if (nearMouth && horizontalValid && localYValid) snapLid();
+              else {
+                lidHeld = false;
+                lidReturning = true;
+                setHandHud("tracking", "항아리 입구 위에서 뚜껑을 놓아주세요");
+              }
+            } else {
+              setHandHud("holding", nearMouth
+                ? "손을 펴면 뚜껑이 정확히 닫혀요"
+                : "뚜껑을 항아리 입구 위로 옮겨주세요");
+            }
+            updateFermentPanel();
+            return;
+          }
+
+          lidRig.getWorldPosition(lidWorld);
+          lidWorld.y += lidHeight * 0.5;
+          worldToScreen(lidWorld, camera, lidScreen);
+          const hovering = lidReady && screenDist(pinch, lidScreen) <= 0.13;
+          if (hovering && frame.justPinched) {
+            lidHeld = true;
+            lidReturning = false;
+            lidHeldDepth = camera.getWorldPosition(handOrigin).distanceTo(lidWorld);
+            setHandHud("holding", "항아리 뚜껑을 집었어요");
+          } else {
+            setHandHud(hovering ? "hover" : "tracking", hovering
+              ? "엄지와 검지를 붙여 뚜껑을 집으세요"
+              : "작업대의 항아리 뚜껑으로 손을 옮겨주세요");
+          }
+          updateFermentPanel();
+          return;
+        }
+
+        if (phase === "RICE") {
+          const rawPalm = palmCenter(frame);
+          const palm = rawPalm ? toScreen(rawPalm, handFit) : { x: 0.5, y: 0.5 };
+          const poseChanged = updateRicePose(frame, now);
+          let onTray = false;
+          if (rawPalm) {
+            trayActor.updateWorldMatrix(true, true);
+            trayActor.localToWorld(trayCenterWorld.set(0, traySurfaceY, 0));
+            trayActor.localToWorld(trayRightWorld.set(trayWidth * 0.5, traySurfaceY, 0));
+            trayActor.localToWorld(trayFrontWorld.set(0, traySurfaceY, trayDepth * 0.5));
+            worldToScreen(trayCenterWorld, camera, trayCenterScreen);
+            worldToScreen(trayRightWorld, camera, trayRightScreen);
+            worldToScreen(trayFrontWorld, camera, trayFrontScreen);
+            onTray = inProjectedArea(palm, trayCenterScreen, trayRightScreen, trayFrontScreen, 1.04);
+          }
+          const overMouth = rawPalm !== null && screenDist(palm, jarOpeningScreen) <= POUR_TARGET_RADIUS;
+
+          if (!frame.present) {
+            if (hasRiceScoop && now - riceLastSeenAt >= KNEAD.HAND_LOST_TIMEOUT) {
+              hasRiceScoop = false;
+              riceClump.visible = false;
+            }
+            updateMixPanel(frame, false);
+            setHandHud("idle", "손을 카메라에 비춰 주세요");
+            return;
+          }
+
+          if (hasRiceScoop) {
+            screenToWorld(palm.x, palm.y, riceClumpDepth, camera, followTarget);
+            stageGroup.worldToLocal(followTarget);
+            riceClump.position.lerp(followTarget, 0.5);
+            if (overMouth) {
+              jarOpeningLocal.copy(jarOpeningWorld);
+              stageGroup.worldToLocal(jarOpeningLocal);
+              riceClump.position.x = THREE.MathUtils.lerp(riceClump.position.x, jarOpeningLocal.x, 0.5);
+              riceClump.position.z = THREE.MathUtils.lerp(riceClump.position.z, jarOpeningLocal.z, 0.5);
+              riceClump.position.y = Math.max(riceClump.position.y, jarOpeningLocal.y + 0.04);
+            }
+            if (poseChanged === "OPEN" && overMouth) {
+              hasRiceScoop = false;
+              riceDropActive = true;
+              riceDropProgress = 0;
+              S.mitsulRiceScoops = Math.min(REQUIRED_RICE_SCOOPS, S.mitsulRiceScoops + 1);
+              S.mitsulPourProgress = S.mitsulRiceScoops / REQUIRED_RICE_SCOOPS;
+              finishRiceAfterDrop = S.mitsulRiceScoops >= REQUIRED_RICE_SCOOPS;
+              applyMixVisual();
+              syncMitsulMixUi();
+              setHandHud("dropped", `고두밥 투입 ${S.mitsulRiceScoops}/${REQUIRED_RICE_SCOOPS}`);
+            } else if (!overMouth) {
+              setHandHud("holding", "고두밥 한 움큼을 항아리 입구 위로 옮겨주세요");
+            } else {
+              setHandHud("holding", "항아리 위에서 손을 펼쳐 고두밥을 놓아주세요");
+            }
+          } else if (!riceDropActive && poseChanged === "CLOSED" && onTray) {
+            hasRiceScoop = true;
+            riceClump.visible = true;
+            riceClump.scale.setScalar(1);
+            riceClump.position.copy(trayCenterWorld);
+            stageGroup.worldToLocal(riceClump.position);
+            riceClumpDepth = camera.getWorldPosition(handOrigin).distanceTo(trayCenterWorld);
+            setHandHud("holding", "고두밥 한 움큼을 집었어요");
+          } else if (riceDropActive) {
+            setHandHud("dropped", "고두밥이 항아리에 떨어지는 중이에요");
+          } else if (!onTray) {
+            setHandHud("tracking", "손바닥을 채반 위 고두밥으로 옮겨주세요");
+          } else {
+            setHandHud("hover", "채반 위에서 손을 오므려 한 움큼 집어주세요");
+          }
+          updateMixPanel(frame, overMouth);
+          return;
+        }
+
+        if (phase === "KNEAD" || phase === "COMPLETE") {
+          const rawPalm = palmCenter(frame);
+          const palm = rawPalm ? toScreen(rawPalm, handFit) : { x: 0.5, y: 0.5 };
+          let onMash = false;
+          if (rawPalm) {
+            jarRig.localToWorld(mashCenterWorld.set(0, liquid.position.y, 0));
+            jarRig.localToWorld(mashRightWorld.set(mashRadius, liquid.position.y, 0));
+            jarRig.localToWorld(mashFrontWorld.set(0, liquid.position.y, mashRadius));
+            worldToScreen(mashCenterWorld, camera, mashCenterScreen);
+            worldToScreen(mashRightWorld, camera, mashRightScreen);
+            worldToScreen(mashFrontWorld, camera, mashFrontScreen);
+            onMash = inProjectedArea(palm, mashCenterScreen, mashRightScreen, mashFrontScreen, KNEAD.TARGET_PADDING);
+          }
+          if (phase === "KNEAD") {
+            kneadSnapshot = kneadGesture.update(frame, onMash);
+            S.mitsulKneadCount = kneadSnapshot.count;
+            if (kneadSnapshot.justKneaded) kneadPulse = 1;
+            if (kneadSnapshot.state === "COMPLETE") {
+              S.mitsulPhase = "COMPLETE";
+              S.mitsulDone = true;
+              S.mitsulFermentPhase = "LID";
+              S.mitsulLidSnapped = false;
+              S.mitsulFermentProgress = 0;
+              S.mitsulFermentDay = 0;
+              S.mitsulFermentDone = false;
+              lidRig.position.copy(lidHome);
+              lidRig.rotation.set(0, 0, 0);
+              targetOutline.visible = false;
+              syncActorVisibility();
+            }
+            applyMixVisual();
+            syncMitsulMixUi();
+            updateMixPanel(frame, false, 0, onMash);
+            if (S.mitsulDone) setHandHud("dropped", "혼합 완료 · 항아리 뚜껑을 닫아주세요");
+            else if (!frame.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
+            else if (!onMash) setHandHud("tracking", "손바닥을 항아리 속 재료 위에 올려주세요");
+            else if (kneadSnapshot.justKneaded) setHandHud("dropped", `치대기 ${kneadSnapshot.count}/${KNEAD.TARGET_KNEAD_COUNT}`);
+            else if (kneadSnapshot.pose === "CLOSED") setHandHud("holding", "손을 다시 펼쳐 한 번을 완성하세요");
+            else setHandHud("hover", "손을 오므렸다 다시 펼쳐 치대주세요");
+          }
+          return;
+        }
+
+        const current = activeActor();
+        if (!current) return;
+        if (!frame.present) {
+          returnHeldHome();
+          updateMixPanel(frame);
+          setHandHud("idle", "손을 카메라에 비춰 주세요");
+          return;
+        }
+
+        const pinch = hand.pinchScreen;
+        const wrist = toScreen(frame.landmarks[0], handFit);
+        const middle = toScreen(frame.landmarks[9], handFit);
+        const signedTilt = Math.atan2(middle.x - wrist.x, -(middle.y - wrist.y));
+        const tilt = Math.min(Math.PI / 2, Math.abs(signedTilt));
+
+        if (held) {
+          screenToWorld(pinch.x, pinch.y, heldDepth, camera, followTarget);
+          stageGroup.worldToLocal(followTarget);
+          held.node.position.lerp(followTarget, 0.48);
+          const visualTilt = THREE.MathUtils.clamp(signedTilt, -Math.PI / 2, Math.PI / 2);
+          held.node.rotation.z = THREE.MathUtils.lerp(held.node.rotation.z, visualTilt, 0.24);
+          const nearJar = screenDist(pinch, jarOpeningScreen) <= POUR_TARGET_RADIUS;
+          if (nearJar) clampHeldAboveMouth(held);
+          pouring = frame.pinching && nearJar && tilt >= POUR_TILT_RAD;
+          if (pouring) {
+            const elapsed = Math.min(80, Math.max(0, now - lastPourAt));
+            S.mitsulPourProgress = Math.min(1, S.mitsulPourProgress + elapsed / POUR_DURATION_MS);
+            stream.visible = true;
+            streamMaterial.color.setHex(phase === "NURUK" ? 0xb88a4d : 0x7fc8dd);
+            if (S.mitsulPourProgress >= 1) {
+              advancePhase();
+              return;
+            }
+          } else stream.visible = false;
+          lastPourAt = now;
+          applyMixVisual();
+          syncMitsulMixUi();
+          updateMixPanel(frame, nearJar, tilt);
+          if (frame.justReleased) {
+            returnHeldHome();
+            setHandHud("tracking", `${current.label}을(를) 다시 집어주세요`);
+          } else if (!nearJar) setHandHud("holding", `${current.label}을(를) 항아리 입구로 옮겨주세요`);
+          else if (tilt < POUR_TILT_RAD) setHandHud("holding", "항아리 위에서 손을 기울여 부어주세요");
+          else setHandHud("dropped", `${current.label} 붓는 중… ${Math.round(S.mitsulPourProgress * 100)}%`);
+          return;
+        }
+
+        current.node.getWorldPosition(actorWorld);
+        worldToScreen(actorWorld, camera, actorScreen);
+        const hovering = screenDist(pinch, actorScreen) <= PICK_RADIUS;
+        if (hovering && frame.justPinched) {
+          held = current;
+          heldDepth = camera.getWorldPosition(handOrigin).distanceTo(actorWorld);
+          lastPourAt = now;
+          setHandHud("holding", `${current.label}을(를) 집었어요`);
+        } else {
+          setHandHud(hovering ? "hover" : "tracking", hovering
+            ? `${current.label} · 엄지와 검지를 붙여 집으세요`
+            : `${current.label} 위로 손을 옮겨주세요`);
+        }
+        updateMixPanel(frame, false, tilt);
+      };
+
+      live.tick = (time, dt) => {
+        kneadPulse = Math.max(0, kneadPulse - dt * 4.5);
+        if (lidReturning) {
+          lidRig.position.lerp(lidHome, Math.min(1, dt * 7));
+          lidRig.rotation.x = THREE.MathUtils.lerp(lidRig.rotation.x, 0, Math.min(1, dt * 7));
+          lidRig.rotation.y = THREE.MathUtils.lerp(lidRig.rotation.y, 0, Math.min(1, dt * 7));
+          lidRig.rotation.z = THREE.MathUtils.lerp(lidRig.rotation.z, 0, Math.min(1, dt * 7));
+          if (lidRig.position.distanceTo(lidHome) < 0.004) {
+            lidRig.position.copy(lidHome);
+            lidReturning = false;
+          }
+        }
+
+        if (S.mitsulFermentPhase === "FERMENTING") {
+          const TIMELAPSE_SECONDS = 7.5;
+          fermentElapsed = Math.min(TIMELAPSE_SECONDS, fermentElapsed + dt);
+          S.mitsulFermentProgress = fermentElapsed / TIMELAPSE_SECONDS;
+          S.mitsulFermentDay = Math.min(3, Math.floor(S.mitsulFermentProgress * 3) + 1);
+          S.ferment = S.mitsulFermentProgress * 100;
+          const activity = S.mitsulFermentProgress;
+          fermentBubbles.visible = true;
+          fermentBubbles.geometry.setDrawRange(0, Math.round(10 + activity * 32));
+          const bubbleOptions = fermentBubbles.userData.opt as { speed: number };
+          bubbleOptions.speed = 0.16 + activity * 0.38;
+          fermentBubbles.material.opacity += ((0.18 + activity * 0.34) - fermentBubbles.material.opacity) * 0.1;
+          fermentGlow.intensity += ((0.16 + activity * 0.34) - fermentGlow.intensity) * 0.08;
+          if (time - lastFermentUiAt >= 0.1) {
+            lastFermentUiAt = time;
+            syncMitsulMixUi();
+            updateFermentPanel();
+          }
+          if (S.mitsulFermentProgress >= 1) {
+            S.mitsulFermentPhase = "COMPLETE";
+            S.mitsulFermentDay = 3;
+            S.mitsulFermentDone = true;
+            S.fstage = Math.min(2, FERMENT_STEPS.length);
+            fermentBubbles.geometry.setDrawRange(0, 14);
+            syncMitsulMixUi();
+            updateFermentPanel();
+          }
+        } else if (S.mitsulFermentPhase === "COMPLETE") {
+          fermentBubbles.visible = true;
+          fermentBubbles.material.opacity += (0.12 - fermentBubbles.material.opacity) * 0.06;
+          fermentGlow.intensity += (0.12 - fermentGlow.intensity) * 0.06;
+        }
+        applyMixVisual();
+        if (riceDropActive) {
+          riceDropProgress = Math.min(1, riceDropProgress + dt / 0.34);
+          jarRig.localToWorld(jarOpeningWorld.set(0, liquid.position.y, 0));
+          stageGroup.worldToLocal(jarOpeningWorld);
+          riceClump.position.lerp(jarOpeningWorld, Math.min(1, dt * 10));
+          riceClump.scale.setScalar(1 - riceDropProgress * 0.72);
+          if (riceDropProgress >= 1) {
+            riceDropActive = false;
+            riceClump.visible = false;
+            riceClump.scale.setScalar(1);
+            if (finishRiceAfterDrop) {
+              finishRiceAfterDrop = false;
+              advancePhase();
+            }
+          }
+        }
+        if (!pouring || !held) {
+          stream.visible = false;
+          return;
+        }
+        streamTime += dt;
+        held.node.getWorldPosition(actorWorld);
+        stageGroup.worldToLocal(actorWorld);
+        jarRig.localToWorld(jarOpeningWorld.set(0, liquid.position.y, 0));
+        stageGroup.worldToLocal(jarOpeningWorld);
+        for (let i = 0; i < 30; i++) {
+          const p = (streamTime * 1.8 + i / 30) % 1;
+          const offset = i * 3;
+          streamPositions[offset] = THREE.MathUtils.lerp(actorWorld.x, jarOpeningWorld.x, p) + Math.sin(i * 9.1) * 0.006 * (1 - p);
+          streamPositions[offset + 1] = THREE.MathUtils.lerp(actorWorld.y, jarOpeningWorld.y, p) + Math.sin(Math.PI * p) * 0.045;
+          streamPositions[offset + 2] = THREE.MathUtils.lerp(actorWorld.z, jarOpeningWorld.z, p) + Math.cos(i * 7.3) * 0.006 * (1 - p);
+        }
+        (streamGeometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      };
+    }
+
     function buildFerment() {
       const platformTop = addPlatform();
       frame3D(platformTop, 0.64, 0.5);
@@ -4426,7 +6423,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (!S.placed) return;
       if (step === "ingredient") buildIngredients();
       else if (step === "godubap") buildGodubap();
-      else if (step === "ferment") buildFerment();
+      else if (step === "ferment") {
+        if (kneadDebug) buildKneadDebug();
+        else if (productionMitsulMix) buildMitsulMix();
+        else buildFerment();
+      }
       else if (step === "done") buildFinish();
       // 환경 occlusion은 three r185의 WebXRDepthSensing pass가 renderer.render()
       // 앞에서 자동으로 depth buffer에 기록한다. material별 shader patch는 필요 없다.
@@ -4502,6 +6503,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
 
       xrSession!.addEventListener("end", () => {
+        if (productionCooling) resetCoolingInteraction?.();
+        if (kneadDebug) resetKneadInteraction?.();
+        if (productionMitsulMix) resetMitsulMixInteraction?.();
         S.xr = false;
         S.hand = false;
         uiRoot!.classList.remove("hands-on");
@@ -4582,7 +6586,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       void handVisual.loadModel(); // 손 모델은 늦게 와도 되므로 기다리지 않는다
       S.hand = true;
       uiRoot!.classList.add("hands-on");
-      handTracker.setPaused(S.step !== "ingredient");
+      // 빠른 tray test가 이미 godubap으로 넘어간 뒤 로딩을 마쳐도 손 추적을 켠다.
+      handTracker.setPaused(!HAND_STEPS.has(S.step));
       setHandHud("idle", "손을 카메라에 비춰 주세요");
     }
 
@@ -4624,21 +6629,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         reticle.visible = false;
       }
 
-      // 지원 기기에서는 배치 순간 만든 WebXR Anchor의 보정 pose를 따라간다.
-      // ARCore의 작은 추적 노이즈가 그대로 보이지 않도록 위치만 부드럽게 반영하고,
-      // 양조장은 항상 수직을 유지하기 위해 기기별 anchor 회전은 적용하지 않는다.
-      if (frame && xrWorldAnchor && localSpace && S.placed) {
-        const anchorPose = frame.getPose(xrWorldAnchor.anchorSpace, localSpace);
-        if (anchorPose) {
-          const p = anchorPose.transform.position;
-          anchorTargetPosition.set(p.x, p.y, p.z);
-          anchor.position.lerp(anchorTargetPosition, 0.32);
-        }
-      }
-
-      if (S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
-        // 온도 조절 없이 약 17초 동안 일정한 속도로 후발효를 진행한다.
-        const rate = 6;
+      if (!productionMitsulMix && S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
+        const dist = Math.abs(S.temp - OPTIMAL_C);
+        // 25℃에서 약 17초에 완주. 너무 빨리 끝나면 온도를 조절해 본 효과를 느끼기 어렵다.
+        const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 6;
         S.ferment = Math.min(100, S.ferment + rate * dt);
         S.tempLog.push(S.temp);
         onFermentTick();
@@ -4792,7 +6786,70 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           });
         }
         if (!S.xr) controls.target.copy(anchor.position).add(new THREE.Vector3(0, 0.2, 0));
-        setStep("ingredient");
+        if (skipToMitsulFerment) {
+          // 혼합 결과는 보존한 채 뚜껑 닫기부터 반복 QA한다.
+          S.fstage = 0;
+          S.ferment = 0;
+          S.mitsulPhase = "COMPLETE";
+          S.mitsulPourProgress = 0;
+          S.mitsulRiceScoops = 3;
+          S.mitsulKneadCount = KNEAD.TARGET_KNEAD_COUNT;
+          S.mitsulDone = true;
+          S.mitsulFermentPhase = "LID";
+          S.mitsulLidSnapped = false;
+          S.mitsulFermentProgress = 0;
+          S.mitsulFermentDay = 0;
+          S.mitsulFermentDone = false;
+          S.temp = 20;
+          setStep("ferment");
+          syncMitsulMixUi();
+        } else if (skipToMitsulMix) {
+          // 공간 배치까지 정상 수행한 뒤 밑술 혼합의 첫 재료부터 시작한다.
+          S.fstage = 0;
+          S.ferment = 0;
+          S.mitsulPhase = "RICE";
+          S.mitsulPourProgress = 0;
+          S.mitsulRiceScoops = 0;
+          S.mitsulKneadCount = 0;
+          S.mitsulDone = false;
+          S.mitsulFermentPhase = "LID";
+          S.mitsulLidSnapped = false;
+          S.mitsulFermentProgress = 0;
+          S.mitsulFermentDay = 0;
+          S.mitsulFermentDone = false;
+          setStep("ferment");
+          syncMitsulMixUi();
+        } else if (skipToKnead) {
+          // 평면 배치와 anchor는 그대로 거친 뒤 knead spike만 독립 실행한다.
+          S.fstage = 0;
+          S.ferment = 0;
+          setStep("ferment");
+        } else if (skipToRiceSpread) {
+          S.godubap = GB_LAST;
+          S.rinseTurns = 0;
+          S.rinsePartial = 0;
+          S.soakAt = 0;
+          S.quizDone = true;
+          S.coolDone = false;
+          S.coolFans = 0;
+          setStep("godubap");
+          $("#quiz")?.classList.add("hidden");
+          syncGodubap();
+        } else if (skipToCooling) {
+          // 공간 배치까지만 정상 수행한 뒤 tray pull에 필요한 냉각 상태만 준비한다.
+          S.godubap = GB_LAST;
+          S.rinseTurns = 0;
+          S.rinsePartial = 0;
+          S.soakAt = 0;
+          S.quizDone = true;
+          S.coolDone = false;
+          S.coolFans = 0;
+          setStep("godubap");
+          $("#quiz")?.classList.add("hidden");
+          syncGodubap();
+        } else {
+          setStep("ingredient");
+        }
       };
     }
 
@@ -4852,11 +6909,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         b.onclick = () => {
           if (i !== S.godubap) return;
           if (i === GB_LAST) {
-            // 질문에 답하기 전이면 다시 띄워 주고, 답했으면 부채질이 남았다
-            if (!S.quizDone) $("#quiz")?.classList.remove("hidden");
+            if (productionCooling) {
+              if (S.coolingPhase === "QUIZ" && !S.quizDone) $("#quiz")?.classList.remove("hidden");
+            } else if (!S.quizDone) {
+              // 독립 debug flow는 기존 quiz 재표시 동작을 유지한다.
+              $("#quiz")?.classList.remove("hidden");
+            }
             return;
           }
           S.godubap = i + 1;
+          if (productionCooling && S.godubap === GB_LAST) resetCoolingInteraction?.();
           syncGodubap();
         };
         pills.appendChild(b);
@@ -4906,6 +6968,30 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           : done
             ? "고두밥이 다 쪄졌어요"
             : "김이 오르는 중 · 잠시 기다려요";
+      } else if ((skipToCooling || skipToRiceSpread) && S.godubap === GB_LAST) {
+        // 빠른 링크에서는 production fan UI/count를 tray test와 함께 노출하지 않는다.
+        $("#godubap-game")?.classList.add("hidden");
+        return;
+      } else if (productionCooling && S.godubap >= GB_LAST) {
+        if (S.coolingPhase === "TRAY_PULL") {
+          pct = Math.round(S.coolTrayProgress * 100);
+          text = "채반을 잡고 앞으로 당겨 꺼내세요";
+        } else if (S.coolingPhase === "RICE_SPREAD") {
+          pct = Math.round(S.coolRiceProgress * 100);
+          text = "고두밥을 채반 위에 골고루 펼쳐주세요";
+        } else if (S.coolingPhase === "FAN") {
+          pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
+          text = S.coolFans === 0
+            ? "손을 좌우로 흔들어 고두밥을 식혀주세요"
+            : `식히는 중 · ${S.coolFans}/${REQUIRED_FANS}번`;
+        } else if (S.coolingPhase === "COMPLETE") {
+          pct = 100;
+          done = true;
+          text = "고두밥이 충분히 식었어요!";
+        } else {
+          $("#godubap-game")?.classList.add("hidden");
+          return;
+        }
       } else if (S.hand && S.godubap === GB_LAST && S.quizDone && !S.coolDone) {
         pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
         text =
@@ -4938,8 +7024,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       });
       const hint = $("#godubap-hint");
       if (hint) {
-        hint.textContent =
-          S.godubap >= GB_N
+        if (productionCooling && S.godubap >= GB_LAST) {
+          hint.textContent = S.coolingPhase === "TRAY_PULL"
+            ? "채반을 잡고 앞으로 당겨 꺼내주세요"
+            : S.coolingPhase === "RICE_SPREAD"
+              ? "고두밥을 채반 위에 골고루 펼쳐주세요"
+              : S.coolingPhase === "QUIZ"
+                ? "장인의 질문에 답해주세요"
+                : S.coolingPhase === "FAN"
+                  ? "손을 좌우로 흔들어 고두밥을 식혀주세요"
+                  : "고두밥이 충분히 식었어요!";
+        } else {
+          hint.textContent = skipToRiceSpread && S.godubap === GB_LAST
+            ? "채반 위 여러 영역을 손바닥으로 넓게 쓸어주세요"
+            : skipToCooling && S.godubap === GB_LAST
+              ? "노란 표시를 pinch한 뒤 손을 몸 쪽으로 당겨주세요"
+            : S.godubap >= GB_N
             ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
             : S.godubap === GB_LAST
               ? !S.quizDone
@@ -4956,27 +7056,60 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
                         ? "김이 오르는 동안 잠시 기다려요"
                         : "옆에 놓인 뚜껑을 집어 솥 위로 가져가주세요"
                       : "";
+        }
       }
       const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
       const cap = $("#cap-godubap");
-      if (cap)
-        cap.textContent =
-          S.godubap >= GB_N
+      if (cap) {
+        if (productionCooling && S.godubap >= GB_LAST) {
+          cap.textContent = S.coolingPhase === "TRAY_PULL"
+            ? "냉각① · 채반 꺼내기"
+            : S.coolingPhase === "RICE_SPREAD"
+              ? "냉각② · 고두밥 펼치기"
+              : S.coolingPhase === "QUIZ"
+                ? "냉각③ · 장인의 질문"
+                : S.coolingPhase === "FAN"
+                  ? "냉각④ · 부채질로 식히기"
+                  : "고두밥 완성 · 채반에서 충분히 식었어요";
+        } else {
+          cap.textContent = skipToRiceSpread && S.godubap === GB_LAST
+            ? "냉각② Rice Spread Debug"
+            : skipToCooling && S.godubap === GB_LAST
+              ? "냉각① Metal Tray Pull Debug"
+            : S.godubap >= GB_N
             ? "고두밥 완성 · 채반에서 차게 식었어요"
             : S.godubap === GB_LAST && S.quizDone
               ? "아직 뜨거워요 · 손으로 부쳐 식혀 주세요"
               : cur.caption;
-      // 냉각에 들어오면 장인이 먼저 묻는다
-      if (S.godubap === GB_LAST && !S.quizDone) $("#quiz")?.classList.remove("hidden");
+        }
+      }
+      if (productionCooling && S.godubap >= GB_LAST) {
+        $("#quiz")?.classList.toggle("hidden", S.coolingPhase !== "QUIZ" || S.quizDone);
+      } else if (S.godubap === GB_LAST && !S.quizDone) {
+        // 독립 debug flow의 기존 quiz 동작은 유지한다.
+        $("#quiz")?.classList.remove("hidden");
+      }
       syncGodubapGame();
       const b = $("#btn-godubap") as HTMLButtonElement | null;
       if (b) {
         // 아직 이를 때도 눌리게 두고, 대신 눌렀을 때 무엇을 해야 하는지 알려준다
         const ready = S.godubap >= GB_N;
         b.classList.toggle("waiting", !ready);
-        b.textContent = ready
+        b.textContent = productionCooling && S.godubap >= GB_LAST && !ready
+          ? S.coolingPhase === "TRAY_PULL"
+            ? "채반을 꺼내는 중…"
+            : S.coolingPhase === "RICE_SPREAD"
+              ? "고두밥을 펼치는 중…"
+              : S.coolingPhase === "QUIZ"
+                ? "장인의 질문에 답해주세요"
+                : "고두밥을 식히는 중…"
+          : ready
           ? "누룩 섞고 항아리에 담기"
-          : S.godubap === GB_LAST && S.quizDone
+          : skipToRiceSpread && S.godubap === GB_LAST
+            ? "Rice spread 기술 검증 중"
+            : skipToCooling && S.godubap === GB_LAST
+              ? "Tray pull 기술 검증 중"
+            : S.godubap === GB_LAST && S.quizDone
             ? "손을 좌우로 흔들어 식혀 주세요"
             : drainActive()
               ? "소쿠리를 털어 물을 빼 주세요"
@@ -5001,9 +7134,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             S.quizDone = true;
             setTimeout(() => {
               $("#quiz")?.classList.add("hidden");
-              // 답을 했으니 이제 식힐 차례다. 손을 못 쓰는 기기에서는 바로 완성으로 넘긴다.
-              if (!S.hand) S.godubap = GB_N;
-              syncGodubap();
+              if (productionCooling && S.coolingPhase === "QUIZ") {
+                startCoolingFan?.();
+              } else {
+                // 독립 debug/기존 fallback 흐름을 보존한다.
+                if (!S.hand) S.godubap = GB_N;
+                syncGodubap();
+              }
             }, 900);
           } else {
             setTimeout(() => c.classList.remove("no"), 900);
@@ -5041,6 +7178,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
         // 발효는 '혼합'부터 탭으로 진행 — 항아리·자동 발효는 후발효에서만 켜진다.
         S.fstage = 0;
+        S.mitsulPhase = "RICE";
+        S.mitsulPourProgress = 0;
+        S.mitsulRiceScoops = 0;
+        S.mitsulKneadCount = 0;
+        S.mitsulDone = false;
+        S.mitsulFermentPhase = "LID";
+        S.mitsulLidSnapped = false;
+        S.mitsulFermentProgress = 0;
+        S.mitsulFermentDay = 0;
+        S.mitsulFermentDone = false;
         S.ferment = 0;
         S.mashTrayDone.clear();
         setStep("ferment");
@@ -5049,6 +7196,50 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
 
     /* --- 14 · 발효 --- */
+    const tempInput = $("#temp") as HTMLInputElement | null;
+    if (tempInput) {
+      tempInput.oninput = () => {
+        S.temp = +tempInput.value;
+        if (productionMitsulMix && S.mitsulDone && S.mitsulFermentPhase === "TEMPERATURE") {
+          syncMitsulMixUi();
+          const debugTemp = $("#mitsul-ferment-debug-temp");
+          if (debugTemp) debugTemp.textContent = `${S.temp}℃`;
+        } else syncTemp();
+      };
+    }
+    function tempLabel(v: number) {
+      // 최적 온도(OPTIMAL_C)를 기준으로 한 상대 구간. 원래 25℃ 기준(−4~+1 알맞음)을 일반화했다.
+      if (v < OPTIMAL_C - 4) return "조금 낮음";
+      if (v <= OPTIMAL_C + 1) return "알맞음";
+      if (v <= OPTIMAL_C + 4) return "조금 높음";
+      return "너무 높음";
+    }
+    /** 최적 온도에서 얼마나 벗어났는지 — 색과 속도 표시에 함께 쓴다 */
+    function tempState(): "ok" | "warn" | "bad" {
+      const off = Math.abs(S.temp - OPTIMAL_C);
+      return off <= 2 ? "ok" : off <= 4 ? "warn" : "bad";
+    }
+
+    function syncTemp() {
+      const state = tempState();
+      const tv = $("#temp-val");
+      if (tv) {
+        tv.textContent = `${S.temp}℃ · ${tempLabel(S.temp)}`;
+        (tv as HTMLElement).dataset.state = state;
+      }
+      // 지금 온도로 발효가 얼마나 잘 진행되는지 한 줄로 보여준다
+      const rateEl = $("#ferment-rate");
+      if (rateEl) {
+        rateEl.textContent =
+          state === "ok" ? "발효 속도 정상" : state === "warn" ? "발효가 더뎌지고 있어요" : "발효가 거의 멈췄어요";
+        (rateEl as HTMLElement).dataset.state = state;
+      }
+      const m = $("#msg-ferment");
+      if (!m) return;
+      if (S.temp > OPTIMAL_C + 1) m.textContent = "온도가 높아 발효가 너무 빠르네. 항아리 환경을 조금 낮춰보게.";
+      else if (S.temp < OPTIMAL_C - 4) m.textContent = "너무 서늘하면 효모가 잠들어 버린다네. 조금만 올려보게.";
+      else m.textContent = `${OPTIMAL_C - 1}~${OPTIMAL_C + 1}℃, 딱 좋구먼. 이대로 두면 곱게 익겠네.`;
+    }
     /* 담금·발효 타임라인 핀 — 탭을 눌러 혼합 → 1차발효 → 덧술 순으로 넘어간다.
        마지막 '후발효'에 이르면 항아리가 나타나고 시간에 따라 자동 발효된다. */
     const F_LAST = FERMENT_STEPS.length - 1; // 후발효 인덱스
@@ -5062,6 +7253,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         b.dataset.stepId = st.id;
         b.textContent = st.name;
         b.onclick = () => {
+          if (productionMitsulMix) return;
           if (i !== S.fstage) return;   // 지금 켜진 단계만 누를 수 있다
           if (i >= F_LAST) return;       // 후발효는 클릭이 아니라 발효로 완료된다
           if (S.hand && st.id.startsWith("mash") && !S.mashTrayDone.has(st.id)) {
@@ -5075,7 +7267,154 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       });
     }
     // 후발효(fstage 3)에서만 항아리 자동 발효가 돈다. 그 전엔 탭으로만 진행.
+    function syncMitsulMixUi() {
+      if (!productionMitsulMix) return;
+      uiRoot!.classList.toggle(
+        "mitsul-no-hands",
+        S.mitsulDone && S.mitsulFermentPhase !== "LID"
+      );
+      const phaseOrder = ["RICE", "NURUK", "WATER", "KNEAD", "COMPLETE"] as const;
+      const phase = S.mitsulPhase;
+      const phaseIndex = phaseOrder.indexOf(phase);
+      const currentProgress = phase === "KNEAD"
+        ? S.mitsulKneadCount / KNEAD.TARGET_KNEAD_COUNT
+        : phase === "COMPLETE"
+          ? 1
+          : S.mitsulPourProgress;
+      const overall = phase === "COMPLETE" ? 1 : (phaseIndex + currentProgress) / 4;
+      const labels = {
+        RICE: `고두밥을 한 움큼씩 항아리에 담아주세요 · ${S.mitsulRiceScoops}/3`,
+        NURUK: "누룩 그릇을 집어 항아리에 부어주세요",
+        WATER: "물 항아리를 집어 기울여 부어주세요",
+        KNEAD: `손으로 치대며 버무리기 · ${S.mitsulKneadCount}/${KNEAD.TARGET_KNEAD_COUNT}`,
+        COMPLETE: "재료가 골고루 섞였어요 · 혼합 완료",
+      } satisfies Record<typeof phase, string>;
+      const captions = {
+        RICE: "밑술 — 일양 · 넓게 식힌 고두밥을 항아리에 담아요",
+        NURUK: "밑술 — 일양 · 누룩을 넣어 발효의 씨앗을 더해요",
+        WATER: "밑술 — 일양 · 물을 부어 고두밥과 누룩을 적셔요",
+        KNEAD: "밑술 — 일양 · 손으로 치대며 재료를 고루 버무려요",
+        COMPLETE: "밑술 — 일양 · 혼합 완료",
+      } satisfies Record<typeof phase, string>;
+
+      if (S.mitsulDone) {
+        const fermentPhase = S.mitsulFermentPhase;
+        $$("#ferment-pills .pill").forEach((pill, index) => {
+          (pill as HTMLElement).dataset.state = index === 0
+            ? "done"
+            : index === 1
+              ? S.mitsulFermentDone ? "done" : "now"
+              : "todo";
+        });
+        const fermentCaptions = {
+          LID: "밑술 — 일양 · 발효를 위해 항아리 뚜껑을 닫아요",
+          TEMPERATURE: "밑술 — 일양 · 1차 발효 온도를 25℃로 맞춰요",
+          FERMENTING: `밑술 — 일양 · ${S.mitsulFermentDay}일차 발효 중`,
+          COMPLETE: "밑술이 완성되었어요!",
+        } satisfies Record<typeof fermentPhase, string>;
+        const caption = $("#cap-ferment");
+        if (caption) caption.textContent = fermentCaptions[fermentPhase];
+        const hint = $("#ferment-hint");
+        if (hint) hint.textContent = fermentPhase === "COMPLETE"
+          ? "고두밥과 누룩, 물이 3일 동안 발효되어 첫 술덧이 완성됐어요"
+          : fermentPhase === "FERMENTING"
+            ? "항아리 속에서 첫 술덧이 익어가고 있어요"
+            : "혼합한 재료를 3일 동안 발효해 밑술을 만들어요";
+
+        const mixGame = $("#mitsul-mix-game");
+        const temperatureGame = $("#ferment-game");
+        const timeGame = $("#mitsul-timelapse");
+        const fermentButton = $("#btn-ferment") as HTMLButtonElement | null;
+        mixGame?.classList.toggle("hidden", fermentPhase !== "LID");
+        temperatureGame?.classList.toggle("hidden", fermentPhase !== "TEMPERATURE");
+        timeGame?.classList.toggle("hidden", fermentPhase !== "FERMENTING" && fermentPhase !== "COMPLETE");
+
+        if (fermentPhase === "LID") {
+          const label = $("#mitsul-mix-label");
+          if (label) label.textContent = "작업대의 뚜껑을 집어 항아리 위에 놓아주세요";
+          const pct = $("#mitsul-mix-pct");
+          if (pct) pct.textContent = "혼합 완료";
+          const bar = $("#bar-mitsul-mix") as HTMLElement | null;
+          if (bar) bar.style.width = "100%";
+          const button = $("#btn-mitsul-mix") as HTMLButtonElement | null;
+          if (button) {
+            button.disabled = true;
+            button.textContent = "항아리 뚜껑을 닫아주세요";
+          }
+          fermentButton?.classList.add("hidden");
+        } else if (fermentPhase === "TEMPERATURE") {
+          if (tempInput) tempInput.value = String(S.temp);
+          const temperatureReady = S.temp === 25;
+          const rate = $("#ferment-rate") as HTMLElement | null;
+          if (rate) {
+            rate.textContent = temperatureReady ? "발효 온도 준비 완료" : "목표 온도 25℃";
+            rate.dataset.state = temperatureReady ? "ok" : "warn";
+          }
+          const pct = $("#ferment-pct");
+          if (pct) pct.textContent = `${S.temp}℃`;
+          const value = $("#temp-val");
+          if (value) value.textContent = `${S.temp}℃ · ${temperatureReady ? "알맞음" : "조절 중"}`;
+          const message = $("#msg-ferment");
+          if (message) message.textContent = temperatureReady
+            ? "좋아, 발효가 잘 이루어질 온도라네. 이제 사흘을 익혀보세."
+            : "발효가 잘 이루어지도록 온도를 25℃로 맞춰보게.";
+          const bar = $("#bar-ferment") as HTMLElement | null;
+          if (bar) bar.style.width = `${THREE.MathUtils.clamp((S.temp - 18) / 7, 0, 1) * 100}%`;
+          if (fermentButton) {
+            fermentButton.classList.remove("hidden");
+            fermentButton.disabled = !temperatureReady;
+            fermentButton.textContent = temperatureReady ? "25℃ 설정 완료 · 1차 발효 시작" : "25℃로 맞춰주세요";
+          }
+        } else {
+          const day = $("#mitsul-day");
+          if (day) day.textContent = fermentPhase === "COMPLETE" ? "3일 발효 완료" : `${S.mitsulFermentDay}일차 / 3일`;
+          const pct = $("#mitsul-ferment-pct");
+          if (pct) pct.textContent = `${Math.round(S.mitsulFermentProgress * 100)}%`;
+          const bar = $("#bar-mitsul-ferment") as HTMLElement | null;
+          if (bar) bar.style.width = `${S.mitsulFermentProgress * 100}%`;
+          const message = $("#mitsul-ferment-message");
+          if (message) message.textContent = fermentPhase === "COMPLETE"
+            ? "밑술이 완성되었어요!"
+            : `${S.mitsulFermentDay}일차 · 항아리 속 술덧이 발효되고 있어요`;
+          if (fermentButton) {
+            fermentButton.classList.toggle("hidden", fermentPhase !== "COMPLETE");
+            fermentButton.disabled = true;
+            fermentButton.textContent = "밑술 완성";
+          }
+        }
+        return;
+      }
+
+      $("#ferment-game")?.classList.add("hidden");
+      $("#mitsul-timelapse")?.classList.add("hidden");
+      $("#btn-ferment")?.classList.add("hidden");
+      $("#mitsul-mix-game")?.classList.remove("hidden");
+      $$("#ferment-pills .pill").forEach((pill, index) => {
+        (pill as HTMLElement).dataset.state = index === 0 ? (S.mitsulDone ? "done" : "now") : "todo";
+      });
+      const hint = $("#ferment-hint");
+      if (hint) hint.textContent = S.mitsulDone ? "혼합까지만 구현된 production 검증입니다" : "고두밥 → 누룩 → 물 → 치대기 순서로 진행해요";
+      const caption = $("#cap-ferment");
+      if (caption) caption.textContent = captions[phase];
+      const label = $("#mitsul-mix-label");
+      if (label) label.textContent = labels[phase];
+      const pct = $("#mitsul-mix-pct");
+      if (pct) pct.textContent = `${Math.round(overall * 100)}%`;
+      const bar = $("#bar-mitsul-mix") as HTMLElement | null;
+      if (bar) bar.style.width = `${overall * 100}%`;
+      const button = $("#btn-mitsul-mix") as HTMLButtonElement | null;
+      if (button) {
+        button.disabled = true;
+        button.classList.toggle("complete", S.mitsulDone);
+        button.textContent = S.mitsulDone ? "혼합 완료" : labels[phase];
+      }
+    }
+    // 후발효(fstage 3)에서만 온도 게임·항아리 자동 발효가 돈다. 그 전엔 탭으로만 진행.
     function syncFermentPhase() {
+      if (productionMitsulMix) {
+        syncMitsulMixUi();
+        return;
+      }
       fermentShowStage?.(); // 혼합=채반+고두밥 / 1차발효~=항아리
       $$("#ferment-pills .pill").forEach((p, i) => {
         (p as HTMLElement).dataset.state = i < S.fstage ? "done" : i === S.fstage ? "now" : "todo";
@@ -5122,6 +7461,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const btnFerment = $("#btn-ferment");
     if (btnFerment)
       (btnFerment as HTMLElement).onclick = () => {
+        if (productionMitsulMix) {
+          startMitsulFermentation?.();
+          return;
+        }
         // 완성 공정 walkthrough를 처음부터 보여주기 위해 상태를 초기화한다.
         S.press = 0;
         uiRoot!.classList.remove("shipped");
@@ -5495,11 +7838,24 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         S.soakAt = 0;
         S.coolFans = 0;
         S.coolDone = false;
+        S.coolingPhase = "TRAY_PULL";
+        S.coolTrayProgress = 0;
+        S.coolRiceProgress = 0;
         S.quizDone = false;
         S.temp = OPTIMAL_C;
         S.ferment = 0;
         S.fstage = 0;
         S.mashTrayDone.clear();
+        S.mitsulPhase = "RICE";
+        S.mitsulPourProgress = 0;
+        S.mitsulRiceScoops = 0;
+        S.mitsulKneadCount = 0;
+        S.mitsulDone = false;
+        S.mitsulFermentPhase = "LID";
+        S.mitsulLidSnapped = false;
+        S.mitsulFermentProgress = 0;
+        S.mitsulFermentDay = 0;
+        S.mitsulFermentDone = false;
         S.press = 0;
         S.tempLog = [];
         uiRoot!.classList.remove("shipped");
@@ -5713,6 +8069,99 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         <strong>저온숙성이<br />완료되었습니다</strong>
         <small>화면을 터치해 계속하기</small>
       </div>
+      {/* ?trayDebug=1 전용 — production flow에서는 CSS로 완전히 숨긴다 */}
+      <aside className="tray-debug-panel" aria-label="Tray pull debug values">
+        <div className="tray-debug-title">COOLING① · TRAY PULL</div>
+        <div>HAND <b id="tray-debug-hand">LOST</b></div>
+        <div>PINCH <b id="tray-debug-pinch">OPEN</b></div>
+        <div>TARGET <b id="tray-debug-target">NONE</b></div>
+        <div>GRAB <b id="tray-debug-grab">NO</b></div>
+        <div>START SPAN <b id="tray-debug-start">—</b></div>
+        <div>CURRENT SPAN <b id="tray-debug-current">0.0000</b></div>
+        <div>SPAN RATIO <b id="tray-debug-ratio">1.000</b></div>
+        <div>PULL PROGRESS <b id="tray-debug-progress">0%</b></div>
+        <div>STATE <b id="tray-debug-state">IDLE</b></div>
+        <strong id="tray-debug-ok">TRAY PULL OK</strong>
+        <button type="button" id="tray-debug-reset">RESET TRAY</button>
+      </aside>
+
+      {/* ?mitsulFermentDebug=1 전용 — 뚜껑/온도/3일 발효 QA */}
+      <aside className="mitsul-ferment-debug-panel" aria-label="Mitsul fermentation debug values">
+        <div className="mitsul-ferment-debug-title">MITSUL② · FIRST FERMENT</div>
+        <div>PHASE <b id="mitsul-ferment-debug-phase">LID</b></div>
+        <div>LID <b id="mitsul-ferment-debug-lid">FREE</b></div>
+        <div>TEMP <b id="mitsul-ferment-debug-temp">20℃</b></div>
+        <div>DAY <b id="mitsul-ferment-debug-day">0 / 3</b></div>
+        <div>FERMENT PROGRESS <b id="mitsul-ferment-debug-progress">0%</b></div>
+        <div>BUBBLE LEVEL <b id="mitsul-ferment-debug-bubbles">0</b></div>
+        <strong id="mitsul-ferment-debug-ok">MITSUL COMPLETE</strong>
+        <button type="button" id="mitsul-ferment-debug-reset">RESET FERMENT</button>
+      </aside>
+
+      {/* ?riceSpreadDebug=1 전용 */}
+      <aside className="rice-debug-panel" aria-label="Rice spread debug values">
+        <div className="rice-debug-title">COOLING② · RICE SPREAD</div>
+        <div>HAND <b id="rice-debug-hand">LOST</b></div>
+        <div>ON RICE <b id="rice-debug-on">NO</b></div>
+        <div>PALM X <b id="rice-debug-palm-x">0.500</b></div>
+        <div>PALM Y <b id="rice-debug-palm-y">0.500</b></div>
+        <div>MOVE DIST <b id="rice-debug-move">0.000</b></div>
+        <div>CURRENT ZONE <b id="rice-debug-zone">—</b></div>
+        <div>COVERAGE <b id="rice-debug-coverage">0 / 12</b></div>
+        <div>ZONE COVERAGE <b id="rice-debug-zone-coverage">0,0,0 / 0,0,0</b></div>
+        <div>SPREAD PROGRESS <b id="rice-debug-progress">0%</b></div>
+        <div>STATE <b id="rice-debug-state">IDLE</b></div>
+        <div>TRAY MODEL <b id="rice-debug-tray-model">LOADING</b></div>
+        <div>TRAY VISIBLE <b id="rice-debug-tray-visible">NO</b></div>
+        <div>RICE <b id="rice-debug-rice-ready">MISSING</b></div>
+        <div>GRID <b id="rice-debug-grid-ready">MISSING</b></div>
+        <div>TRAY POS <b id="rice-debug-tray-pos">—</b></div>
+        <em id="rice-debug-spread">SPREAD!</em>
+        <strong id="rice-debug-ok">RICE SPREAD OK</strong>
+        <button type="button" id="rice-debug-reset">RESET RICE</button>
+      </aside>
+      <i id="rice-debug-palm-marker" aria-hidden="true" />
+
+      {/* ?kneadDebug=1 전용 — production 밑술과 분리된 hand gesture spike */}
+      <aside className="knead-debug-panel" aria-label="Knead gesture debug values">
+        <div className="knead-debug-title">MITSUL② · KNEAD GESTURE</div>
+        <div>HAND <b id="knead-debug-hand">LOST</b></div>
+        <div>ON MASH <b id="knead-debug-on">NO</b></div>
+        <div>PALM X <b id="knead-debug-palm-x">0.500</b></div>
+        <div>PALM Y <b id="knead-debug-palm-y">0.500</b></div>
+        <div>HAND RATIO <b id="knead-debug-ratio">0.000</b></div>
+        <div>POSE <b id="knead-debug-pose">TRANSITION</b></div>
+        <div>GESTURE STATE <b id="knead-debug-state">WAIT_OPEN</b></div>
+        <div>KNEAD COUNT <b id="knead-debug-count">0 / 6</b></div>
+        <div>KNEAD PROGRESS <b id="knead-debug-progress">0%</b></div>
+        <div>TIP MEAN DIST <b id="knead-debug-tip-distance">0.0000</b></div>
+        <div>PALM SCALE <b id="knead-debug-palm-scale">0.0000</b></div>
+        <em id="knead-debug-feedback">TRANSITION</em>
+        <strong id="knead-debug-ok">KNEAD OK</strong>
+        <button type="button" id="knead-debug-reset">RESET KNEAD</button>
+      </aside>
+      <i id="knead-debug-palm-marker" aria-hidden="true" />
+
+      {/* ?mitsulMixDebug=1 전용 — production 혼합 장면의 순서/판정 확인 */}
+      <aside className="mitsul-debug-panel" aria-label="Mitsul mix debug values">
+        <div className="mitsul-debug-title">MITSUL② · PRODUCTION MIX</div>
+        <div>HAND <b id="mitsul-debug-hand">LOST</b></div>
+        <div>PHASE <b id="mitsul-debug-phase">RICE</b></div>
+        <div>JAR MODEL <b id="mitsul-debug-jar">LOADING</b></div>
+        <div>GRAB <b id="mitsul-debug-grab">NO</b></div>
+        <div>JAR TARGET <b id="mitsul-debug-target">OUT</b></div>
+        <div>ON MASH <b id="mitsul-debug-on-mash">NO</b></div>
+        <div>TILT <b id="mitsul-debug-tilt">0°</b></div>
+        <div>POUR <b id="mitsul-debug-pour">0%</b></div>
+        <div>HAS SCOOP <b id="mitsul-debug-has-scoop">NO</b></div>
+        <div>RICE SCOOPS <b id="mitsul-debug-scoops">0 / 3</b></div>
+        <div>RICE <b id="mitsul-debug-rice">WAIT</b></div>
+        <div>NURUK <b id="mitsul-debug-nuruk">WAIT</b></div>
+        <div>WATER <b id="mitsul-debug-water">WAIT</b></div>
+        <div>KNEAD <b id="mitsul-debug-knead">0 / 6</b></div>
+        <strong id="mitsul-debug-ok">MIX COMPLETE</strong>
+        <button type="button" id="mitsul-debug-reset">RESET MIX</button>
+      </aside>
 
       {/* 11 · AR 시작 */}
       <div className="panel-step" id="p-place">
@@ -5805,6 +8254,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           <div className="hand-hud" data-state="idle">
             <span className="lamp" />
             <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+          </div>
+          <div className="hand-hud" data-state="idle">
+            <i className="lamp" />
+            <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
+          </div>
+          <div id="mitsul-mix-game" className="hidden">
+            <div className="ferment-row">
+              <span className="ferment-rate" id="mitsul-mix-label">식힌 고두밥을 항아리에 부어주세요</span>
+              <span className="ferment-pct" id="mitsul-mix-pct">0%</span>
+            </div>
+            <div className="bar"><i id="bar-mitsul-mix" /></div>
+            <button className="cta" id="btn-mitsul-mix" disabled>식힌 고두밥을 항아리에 부어주세요</button>
+          </div>
+          <div id="mitsul-timelapse" className="hidden">
+            <div className="ferment-row">
+              <span className="ferment-rate" id="mitsul-day">1일차 / 3일</span>
+              <span className="ferment-pct" id="mitsul-ferment-pct">0%</span>
+            </div>
+            <div className="bar"><i id="bar-mitsul-ferment" /></div>
+            <div className="mitsul-ferment-message" id="mitsul-ferment-message">
+              1일차 · 항아리 속 술덧이 발효되고 있어요
+            </div>
           </div>
           <div id="ferment-game" className="hidden">
             <div className="coach" id="coach-ferment">

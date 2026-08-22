@@ -14,6 +14,7 @@ export const LM = {
   MIDDLE_MCP: 9,
   MIDDLE_TIP: 12,
   RING_MCP: 13,
+  RING_TIP: 16,
   PINKY_MCP: 17,
   PINKY_TIP: 20,
 } as const;

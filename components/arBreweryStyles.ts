@@ -32,6 +32,110 @@ export const styles = `
   touch-action:manipulation; -webkit-tap-highlight-color:transparent}
 .ar-ui > *{position:relative; z-index:1}
 
+/* 냉각① tray pull 기술 검증 패널 — URL에 ?trayDebug=1이 있을 때만 root class가 붙는다. */
+.ar-ui .tray-debug-panel{display:none}
+.ar-ui.tray-debug .tray-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(205px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(82,216,255,.52); border-radius:10px;
+  background:rgba(8,16,20,.86); color:rgba(235,247,250,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.38); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .tray-debug-panel > div:not(.tray-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .tray-debug-panel b{color:#f5fbfc; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .tray-debug-title{margin-bottom:3px; color:#52d8ff; font-weight:800; letter-spacing:.04em}
+.ar-ui #tray-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
+  background:#3f7a4e; color:#fff; text-align:center; letter-spacing:.05em}
+.ar-ui #tray-debug-ok.visible{display:block}
+.ar-ui #tray-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px; border:1px solid rgba(82,216,255,.55);
+  border-radius:6px; background:rgba(82,216,255,.12); color:#bdefff; font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace;
+  letter-spacing:.04em; cursor:pointer; -webkit-tap-highlight-color:transparent}
+.ar-ui #tray-debug-reset:active{background:rgba(82,216,255,.28)}
+
+/* 냉각② rice spread 기술 검증 UI — URL의 riceSpreadDebug root class에서만 노출. */
+.ar-ui .rice-debug-panel,.ar-ui #rice-debug-palm-marker{display:none}
+.ar-ui.rice-spread-debug .rice-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(218px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(105,217,138,.55); border-radius:10px;
+  background:rgba(8,18,13,.88); color:rgba(237,249,240,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.38); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .rice-debug-panel > div:not(.rice-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .rice-debug-panel b{color:#f5fcf7; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .rice-debug-title{margin-bottom:3px; color:#69d98a; font-weight:800; letter-spacing:.04em}
+.ar-ui #rice-debug-spread,.ar-ui #rice-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
+  color:#fff; text-align:center; font-style:normal; font-weight:800; letter-spacing:.05em}
+.ar-ui #rice-debug-spread{background:#317b92}
+.ar-ui #rice-debug-ok{background:#3f7a4e}
+.ar-ui #rice-debug-spread.visible,.ar-ui #rice-debug-ok.visible{display:block}
+.ar-ui #rice-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px; border:1px solid rgba(105,217,138,.58);
+  border-radius:6px; background:rgba(105,217,138,.12); color:#c7f3d2; font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace;
+  letter-spacing:.04em; cursor:pointer; -webkit-tap-highlight-color:transparent}
+.ar-ui #rice-debug-reset:active{background:rgba(105,217,138,.28)}
+.ar-ui.rice-spread-debug #rice-debug-palm-marker.visible{display:block; position:absolute; z-index:11;
+  width:14px; height:14px; margin:-7px 0 0 -7px; border:2px solid #69d98a; border-radius:50%;
+  background:rgba(105,217,138,.24); box-shadow:0 0 10px rgba(105,217,138,.9); pointer-events:none}
+
+/* 밑술② knead gesture 기술 검증 — production UI에는 노출하지 않는다. */
+.ar-ui .knead-debug-panel,.ar-ui #knead-debug-palm-marker{display:none}
+.ar-ui.knead-debug .knead-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(226px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(232,192,122,.58); border-radius:10px;
+  background:rgba(23,16,9,.9); color:rgba(249,240,220,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.4); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .knead-debug-panel > div:not(.knead-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .knead-debug-panel b{color:#fff8e8; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .knead-debug-title{margin-bottom:3px; color:#e8c07a; font-weight:800; letter-spacing:.04em}
+.ar-ui #knead-debug-feedback,.ar-ui #knead-debug-ok{margin-top:5px; padding:6px; border-radius:6px;
+  color:#fff; text-align:center; font-style:normal; font-weight:800; letter-spacing:.05em}
+.ar-ui #knead-debug-feedback{display:block; background:#76502e}
+.ar-ui #knead-debug-ok{display:none; background:#3f7a4e}
+.ar-ui #knead-debug-ok.visible{display:block}
+.ar-ui #knead-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px; border:1px solid rgba(232,192,122,.62);
+  border-radius:6px; background:rgba(232,192,122,.12); color:#f4d99d;
+  font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.04em;
+  cursor:pointer; -webkit-tap-highlight-color:transparent}
+.ar-ui #knead-debug-reset:active{background:rgba(232,192,122,.28)}
+.ar-ui.knead-debug #knead-debug-palm-marker.visible{display:block; position:absolute; z-index:11;
+  width:14px; height:14px; margin:-7px 0 0 -7px; border:2px solid #e8c07a; border-radius:50%;
+  background:rgba(232,192,122,.24); box-shadow:0 0 10px rgba(232,192,122,.9); pointer-events:none}
+.ar-ui.knead-debug #p-ferment .steps,
+.ar-ui.knead-debug #p-ferment .steps-hint,
+.ar-ui.knead-debug #p-ferment .dock{display:none}
+
+/* 밑술 production 혼합 QA — mitsulMixDebug query에서만 보인다. */
+.ar-ui .mitsul-debug-panel{display:none}
+.ar-ui.mitsul-mix-debug .mitsul-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(226px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(222,174,100,.6); border-radius:10px;
+  background:rgba(25,17,9,.9); color:rgba(249,240,220,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.4); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .mitsul-debug-panel > div:not(.mitsul-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .mitsul-debug-panel b{color:#fff8e8; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .mitsul-debug-title{margin-bottom:3px; color:#e8c07a; font-weight:800; letter-spacing:.04em}
+.ar-ui #mitsul-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
+  background:#3f7a4e; color:#fff; text-align:center; letter-spacing:.05em}
+.ar-ui #mitsul-debug-ok.visible{display:block}
+.ar-ui #mitsul-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px; border:1px solid rgba(232,192,122,.62);
+  border-radius:6px; background:rgba(232,192,122,.12); color:#f4d99d;
+  font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.04em; cursor:pointer}
+.ar-ui #mitsul-debug-reset:active{background:rgba(232,192,122,.28)}
+
+/* 밑술 1차 발효 QA — production에는 노출하지 않는다. */
+.ar-ui .mitsul-ferment-debug-panel{display:none}
+.ar-ui.mitsul-ferment-debug .mitsul-ferment-debug-panel{display:grid; position:absolute; z-index:12; top:70px; right:10px;
+  width:min(230px,calc(100% - 20px)); box-sizing:border-box; gap:3px; padding:10px 12px;
+  pointer-events:none; border:1px solid rgba(246,190,108,.62); border-radius:10px;
+  background:rgba(24,15,8,.91); color:rgba(250,240,218,.72); backdrop-filter:blur(6px);
+  box-shadow:0 8px 24px rgba(0,0,0,.42); font:10px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace}
+.ar-ui .mitsul-ferment-debug-panel > div:not(.mitsul-ferment-debug-title){display:flex; justify-content:space-between; gap:10px}
+.ar-ui .mitsul-ferment-debug-panel b{color:#fff7e5; font-weight:700; font-variant-numeric:tabular-nums}
+.ar-ui .mitsul-ferment-debug-title{margin-bottom:3px; color:#f0bd72; font-weight:800; letter-spacing:.04em}
+.ar-ui #mitsul-ferment-debug-ok{display:none; margin-top:5px; padding:6px; border-radius:6px;
+  background:#3f7a4e; color:#fff; text-align:center; letter-spacing:.05em}
+.ar-ui #mitsul-ferment-debug-ok.visible{display:block}
+.ar-ui #mitsul-ferment-debug-reset{pointer-events:auto; margin-top:5px; padding:7px 8px;
+  border:1px solid rgba(240,189,114,.65); border-radius:6px; background:rgba(240,189,114,.12); color:#f7d7a5;
+  font:700 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.04em; cursor:pointer}
+.ar-ui #mitsul-ferment-debug-reset:active{background:rgba(240,189,114,.28)}
+
 .ar-ui.ar-mode{background:transparent}
 .ar-ui.ar-mode canvas#gl{background:transparent}
 .ar-ui.ar-mode .lead h2{text-shadow:0 2px 12px rgba(0,0,0,.75)}
@@ -46,6 +150,7 @@ export const styles = `
   backdrop-filter:blur(6px); font-size:12.5px; color:var(--cream-dim);
   box-shadow:0 10px 24px rgba(0,0,0,.4)}
 .ar-ui.hands-on .hand-hud{display:flex}
+.ar-ui.mitsul-no-hands #p-ferment .hand-hud{display:none}
 .ar-ui .hand-hud .lamp{width:8px; height:8px; border-radius:50%; flex:none;
   background:rgba(243,230,204,.35); transition:background .18s ease, box-shadow .18s ease}
 .ar-ui .hand-hud[data-state="tracking"] .lamp{background:var(--sage); box-shadow:0 0 8px var(--sage)}
@@ -428,6 +533,13 @@ export const styles = `
   color:var(--cream-dim); text-shadow:0 1px 6px rgba(0,0,0,.7)}
 /* 온도 게임 묶음 — 후발효에서만 보인다. dock과 같은 간격을 안에서 유지한다. */
 .ar-ui #ferment-game{display:flex; flex-direction:column; gap:14px}
+.ar-ui #mitsul-mix-game{display:flex; flex-direction:column; gap:12px}
+.ar-ui #mitsul-mix-game.hidden{display:none}
+.ar-ui #mitsul-timelapse{display:flex; flex-direction:column; gap:12px; padding:14px 15px;
+  border:1px solid var(--line); border-radius:var(--r-md); background:rgba(28,21,12,.82); backdrop-filter:blur(6px)}
+.ar-ui #mitsul-timelapse.hidden{display:none}
+.ar-ui .mitsul-ferment-message{font-size:13px; line-height:1.55; color:var(--cream); text-align:center}
+.ar-ui #btn-mitsul-mix.complete{background:#3f7a4e; color:#fff; opacity:1}
 .ar-ui .ferment-rate[data-state="ok"]{color:var(--sage)}
 .ar-ui .ferment-rate[data-state="warn"]{color:#e8c07a}
 .ar-ui .ferment-rate[data-state="bad"]{color:#e8927a}
