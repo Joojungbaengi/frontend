@@ -86,7 +86,7 @@ export const nyangiTakju: Recipe = {
     },
     {
       id: "mash_metal_tray",
-      file: `${AR_ASSETS}/Metal_Tray.glb`,
+      file: `${AR_ASSETS}/mash_metal_tray.glb`,
       step: "ferment",
       processSteps: ["mash1", "mash2"],
       height: 0.05,
