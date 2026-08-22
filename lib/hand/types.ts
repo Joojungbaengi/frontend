@@ -60,6 +60,7 @@ export interface HandFrame {
   justPinched: boolean;
   /** 이 프레임에 막 폈다 */
   justReleased: boolean;
+
   /**
    * 화면에서 손이 차지하는 크기(손목~중지 MCP 거리, 화면 정규화).
    * 카메라에 가까울수록 커진다 — 깊이 추정에 쓴다.

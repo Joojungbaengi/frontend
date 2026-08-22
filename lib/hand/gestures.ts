@@ -47,6 +47,7 @@ export function pinchAmount(ratio: number): number {
   return Math.max(0, Math.min(1, t));
 }
 
+
 /** 프레임 사이에 상태를 이어가는 판정기. 손 하나당 하나씩 만든다. */
 export class GestureState {
   private smoothed: Landmark[] | null = null;

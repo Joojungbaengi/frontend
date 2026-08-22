@@ -5,6 +5,7 @@ import {
   finishSteps,
   godubapStageModels,
   godubapSteps,
+  ingredientBasinModel,
   mashSteps,
 } from "@/lib/brewery/stages";
 
@@ -19,18 +20,49 @@ export const nyangiTakju: Recipe = {
   name: "냥이탁주 9",
 
   intro:
-    "이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 가와지쌀·정제수·누룩·밀, 이 네 가지 주원료를 골라 담아보게.",
+    "이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 가와지쌀·정제수·누룩·밀, 이 네 가지를 손으로 집어 가운데 그릇에 부어보게.",
   ingredientsReady: "이제 고두밥부터 지어 세 번 담글 준비를 하세.",
 
-  // 주원료 4종(essential) + 부재료(선택). 개수가 달라져도 엔진이 essential 개수를 세어 맞춘다.
+  // 주원료 4종. 개수가 달라져도 엔진이 essential 개수를 세어 맞춘다.
+  //
+  // 넷 모두 무대에 실제 그릇으로 놓인다 — 손으로 집어 가운데 큰 그릇에 부으면
+  // 안에 내용물이 쌓인다. 누룩만은 덩어리라 붓지 않고 통째로 넣는다.
   ingredients: [
-    { id: "rice",   name: "가와지쌀", texture: "/ar/images/rice.png",   essential: true },
-    { id: "water",  name: "정제수",   texture: "/ar/images/water.png",  essential: true },
-    { id: "nuruk",  name: "누룩",     texture: "/ar/images/nuruk.png",  essential: true },
-    { id: "mil",    name: "밀함유",   texture: "/ar/images/mil.png",    essential: true },
-    { id: "flower", name: "국화",     texture: "/ar/images/flower.png", essential: false, flavorNote: "국화를 넣으면 은은한 국화 향이 감돈다네." },
-    { id: "honey",  name: "벌꿀",     texture: "/ar/images/honey.png",  essential: false, flavorNote: "벌꿀 한 술이면 둥글고 부드러운 단맛이 더해지지." },
+    {
+      id: "rice", name: "가와지쌀", texture: "/ar/images/rice.png", essential: true,
+      prop: {
+        file: `${AR_ASSETS}/rice_wood.glb`, height: 0.115, label: "가와지쌀",
+        pour: true, flow: "grain", flowColor: 0xf4ece0, fillColor: 0xefe6d6, fillAmount: 0.34,
+      },
+    },
+    {
+      id: "water", name: "정제수", texture: "/ar/images/water.png", essential: true,
+      prop: {
+        file: `${AR_ASSETS}/water_bottle.glb`, height: 0.19, label: "물",
+        pour: true, flow: "liquid", flowColor: 0x9fd8ef, fillColor: 0xbcd9e4, fillAmount: 0.3,
+        // 속이 비치는 통이라 안에 담긴 물이 줄어드는 게 그대로 보인다
+        liquid: { color: 0x8ccfe8 },
+      },
+    },
+    {
+      id: "nuruk", name: "누룩", texture: "/ar/images/nuruk.png", essential: true,
+      prop: {
+        // 그릇 없이 덩어리 하나. 붓는 게 아니라 그릇에 넣기만 하면 된다.
+        file: `${AR_ASSETS}/nuruk_lump.glb`, height: 0.095, label: "누룩",
+        pour: false, flow: "grain", flowColor: 0xd8bd86, fillColor: 0xd2b881, fillAmount: 0.18,
+      },
+    },
+    {
+      id: "mil", name: "밀함유", texture: "/ar/images/mil.png", essential: true,
+      prop: {
+        file: `${AR_ASSETS}/wheat_sack.glb`, height: 0.135, label: "밀",
+        pour: true, flow: "grain", flowColor: 0xdcc38a, fillColor: 0xd6bd85, fillAmount: 0.18,
+      },
+    },
   ],
+
+  // 가운데 놓이는 큰 담금 항아리 — 입이 넓어 안에 부어진 게 잘 보인다.
+  ingredientBasin: ingredientBasinModel(),
 
   // 무대 모델은 술끼리 공유한다 (받침대·항아리·그릇, 그리고 고두밥 단계의 솥·채반)
   models: [
@@ -133,7 +165,7 @@ export const nyangiTakju: Recipe = {
 
   report: {
     method: "삼양주 · 세 번 담금 · 수작업 100%",
-    notes: { flower: "은은한 국화 향", honey: "둥근 단맛" },
+    notes: {},
     extraRows: [
       { label: "완전발효", value: "30여 일 (가속 체험)" },
       { label: "저온 숙성", value: "1℃ 냉장창고 · 30일 이상" },

@@ -47,8 +47,10 @@ export class HandTracker {
       // 이번 체험은 한 손이면 충분하다. 2로 올리면 비용이 그대로 두 배.
       numHands: 1,
       minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      // 손을 빠르게 움직이면 잔상 때문에 확신도가 뚝 떨어진다. 문턱을 낮춰
+      // 흐릿하게 잡힌 프레임도 받아들여야 손이 중간에 끊기지 않는다.
+      minHandPresenceConfidence: 0.35,
+      minTrackingConfidence: 0.35,
     });
   }
 
@@ -90,8 +92,9 @@ export class HandTracker {
     const world = res.worldLandmarks?.[0];
 
     if (!raw || !world) {
-      // 두세 프레임 놓친 정도로 손을 지우면 잡고 있던 물건이 뚝 떨어진다. 조금 버틴다.
-      if (++this.missStreak >= 4 && this.frame.present) {
+      // 몇 프레임 놓쳤다고 손을 지우면, 빠르게 움직일 때마다 손이 사라졌다 나타난다.
+      // 마지막 자세를 붙들고 꽤 오래 버틴다 — 놓친 사이에도 손은 화면에 그대로 남는다.
+      if (++this.missStreak >= 12 && this.frame.present) {
         this.gesture.reset();
         this.worldEma = null;
         this.resetHandedness();
