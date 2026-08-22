@@ -23,18 +23,11 @@ import type { HandFrame } from "@/lib/hand/types";
 
 const MODEL = {
   right: "/ar/3d-assets/r_hand_texture.glb",
-  left: "/ar/3d-assets/l_hand.glb",
+  left: "/ar/3d-assets/l_hand_texture.glb",
 } as const;
 
 /** 손 크기가 프레임마다 튀지 않게 하는 정도 (0에 가까울수록 느리게 따라감) */
 const SCALE_EASE = 0.25;
-
-/** 리그드 모델은 따뜻한 아이보리 무광 재질로 통일한다. */
-const HAND_MATERIAL = {
-  color: 0xf4eddf,
-  roughness: 0.82,
-  metalness: 0,
-} as const;
 
 type Finger = "thumb" | "index" | "middle" | "ring" | "pinky";
 
@@ -287,10 +280,8 @@ export class RiggedHand {
           const m = o as THREE.SkinnedMesh;
           if (m.isSkinnedMesh) {
             m.frustumCulled = false; // 뼈를 크게 옮기므로 화면 밖 판정을 끈다
-            // 텍스처 오른손은 Blender Material을 유지하고 왼손만 아이보리로 통일한다.
-            if (side !== "right") {
-              m.material = new THREE.MeshStandardMaterial(HAND_MATERIAL);
-            }
+            // 이제 왼손도 오른손과 같은 텍스처를 입고 온다. 재질을 덮어쓰면
+            // 한쪽만 맨살로 나와 왼손을 비출 때마다 다른 손처럼 보인다.
           }
         });
 
