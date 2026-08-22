@@ -8310,6 +8310,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             </div>
           </div>
           <div id="ferment-game" className="hidden">
+            {/* 밑술 1차 발효 — 온도를 맞추고 사흘을 보낸다.
+                머지 과정에서 이 진행바와 온도계가 통째로 빠져 있었다. */}
+            <div className="ferment-row">
+              <span className="ferment-rate" id="ferment-rate">발효 속도 정상</span>
+              <span className="ferment-pct" id="ferment-pct">0%</span>
+            </div>
+            <div className="bar"><i id="bar-ferment" /></div>
+            <div className="meter">
+              <div className="row"><span>발효 온도</span><span className="val" id="temp-val">20℃ · 조금 낮음</span></div>
+              <input type="range" id="temp" min={18} max={34} step={1} defaultValue={20} aria-label="발효 온도" />
+            </div>
             <div className="coach" id="coach-ferment">
               <div className="avatar" />
               <div>
