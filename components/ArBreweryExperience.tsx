@@ -1209,7 +1209,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (ud.grabbed) {
             // 위치는 onHand 가 정한다. 손에 들었다고 크게 부풀리지는 않는다 —
             // 갑자기 커지면 그릇이 아니라 다른 물건처럼 보인다.
-            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.015, 0.22);
+            ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, 1.005, 0.22);
             n.scale.setScalar(ud.vis * (1 - ud.fade));
             return;
           }
@@ -1221,7 +1221,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             n.rotation.set(0, ud.homeYaw, 0);
           }
 
-          const want = ud.hover ? 1.04 : 1;
+          const want = ud.hover ? 1.02 : 1;
           ud.vis = THREE.MathUtils.lerp(ud.vis ?? 1, want, 0.2);
           n.scale.setScalar(ud.vis * (1 - ud.fade));
           n.visible = ud.fade < 0.999;
@@ -1249,8 +1249,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           const surfaceY = basinFloorY + h;
           // 그릇 바깥에 쏟아지는 것처럼 보이지 않도록, 떨어지는 자리는 그릇 한가운데다.
           // 손에 든 그릇 쪽으로 조금만 치우쳐 어디서 나오는 건지는 알 수 있게 둔다.
-          const pourX = pourWorld.x * 0.22;
-          const pourZ = pourWorld.z * 0.22;
+          const pourX = 0;
+          const pourZ = 0;
           pour.position.set(pourX, spoutY, pourZ);
           opt.height = Math.min(-0.03, surfaceY - spoutY);
           (pour.material as THREE.PointsMaterial).color.setHex(ud.prop?.flowColor ?? 0xf4ece0);
@@ -1351,13 +1351,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
           if (ud.pours && overBasin) {
             pouringNode = held;
-            // 잡은 손 반대쪽으로 기운다 — 오른손으로 들면 왼쪽으로, 왼손이면 오른쪽으로.
-            // 그릇 한가운데에 올렸을 때는 '그릇 쪽'이라는 방향 자체가 없어서,
-            // 재료 위치로 기울기를 정하면 엉뚱한 데로 쏟아진다.
-            tiltDir.setFromMatrixColumn(interactionCamera.matrixWorld, 0);
-            tiltDir.y = 0;
+            // 주둥이가 그릇 한가운데를 향하도록, 제자리에서 그릇 쪽으로 기운다.
+            // 방향은 그 재료가 원래 놓여 있던 자리에서 뽑는다 — 손 위치로 정하면
+            // 그릇 바로 위에 올렸을 때 방향이 0으로 무너져 엉뚱하게 쏟아진다.
+            // 오른쪽에 놓인 재료는 왼쪽으로, 왼쪽 재료는 오른쪽으로 기울어
+            // 그 손으로 붓는 것처럼 옆모습이 보인다.
+            const home: THREE.Vector3 = ud.home;
+            tiltDir.set(-home.x, 0, -home.z);
             if (tiltDir.lengthSq() < 1e-6) tiltDir.set(1, 0, 0);
-            tiltDir.normalize().multiplyScalar(f.handedness === "left" ? 1 : -1);
+            tiltDir.normalize();
             tiltAxis.set(tiltDir.z, 0, -tiltDir.x);
             held.quaternion.setFromAxisAngle(tiltAxis, 2.0 * ud.tilt);
             setHandHud("holding", `${nameOf(ud.id)}을(를) 붓는 중 · ${Math.round(ud.poured * 100)}%`);
@@ -3385,6 +3387,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       riceClump.visible = false;
       stageGroup.add(riceClump);
 
+      /** 물통 속에 담긴 물 — 부은 만큼 줄어든다 */
+      let mitsulWaterLiquid: THREE.Mesh | null = null;
+      let mitsulWaterFull = 0;
+      let mitsulWaterBaseY = 0;
+
       const nurukActor = new THREE.Group();
       // 누룩은 재료 고르기에 놓이는 것과 같은 덩어리를 쓴다.
       // 단계마다 다른 누룩이 나오면 같은 재료라는 게 읽히지 않는다.
@@ -3416,10 +3423,35 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       addActor("NURUK", "누룩", nurukActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
 
       const waterActor = new THREE.Group();
-      const waterDef = MODELS.find((model) => model.id === "water_jar");
-      const waterModel = waterDef ? spawnModel(waterDef) : null;
-      if (waterModel) waterActor.add(waterModel);
-      else {
+      // 물은 재료 고르기에 나오는 그 물통을 그대로 쓴다. 단계마다 다른 그릇이
+      // 나오면 같은 재료라는 게 읽히지 않는다.
+      const waterProp = INGREDIENTS.find((ingredient) => ingredient.id === "water")?.prop;
+      const waterModel = waterProp
+        ? spawnModel({
+            id: "prop_water", file: waterProp.file, step: "ingredient",
+            height: 0.17, y: 0, scaleFactor: waterProp.scaleFactor,
+          })
+        : null;
+      if (waterModel) {
+        waterActor.add(waterModel);
+        // 통 속에 담긴 물 — 부을수록 줄어든다 (재료 고르기와 같은 방식)
+        if (waterProp?.liquid) {
+          const wb = new THREE.Box3().setFromObject(waterModel);
+          const wh = wb.max.y - wb.min.y;
+          const ww = Math.min(wb.max.x - wb.min.x, wb.max.z - wb.min.z);
+          const r = ww * 0.34;
+          mitsulWaterLiquid = new THREE.Mesh(
+            new THREE.CylinderGeometry(r, r, 1, 20, 1, false),
+            new THREE.MeshStandardMaterial({
+              color: waterProp.liquid.color, roughness: 0.15, metalness: 0,
+              transparent: true, opacity: 0.85,
+            })
+          );
+          mitsulWaterFull = wh * 0.6;
+          mitsulWaterBaseY = wh * 0.05;
+          waterActor.add(mitsulWaterLiquid);
+        }
+      } else {
         const fallbackWater = new THREE.Mesh(
           new THREE.CylinderGeometry(0.045, 0.055, 0.13, 32),
           new THREE.MeshStandardMaterial({ color: 0x7c6950, roughness: 0.86 })
@@ -3427,7 +3459,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         fallbackWater.position.y = 0.065;
         waterActor.add(fallbackWater);
       }
-      addActor("WATER", "물 항아리", waterActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
+      addActor("WATER", "물통", waterActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
 
       const streamPositions = new Float32Array(30 * 3);
       const streamGeometry = new THREE.BufferGeometry();
@@ -3518,6 +3550,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const riceAmount = index > 0 ? 1 : phase === "RICE" ? pour : 0;
         const nurukAmount = index > 1 ? 1 : phase === "NURUK" ? pour : 0;
         const waterAmount = index > 2 ? 1 : phase === "WATER" ? pour : 0;
+        // 통 속에 남은 물 — 부은 만큼 줄어든다
+        if (mitsulWaterLiquid) {
+          const left = Math.max(0.0001, mitsulWaterFull * (1 - waterAmount));
+          mitsulWaterLiquid.scale.set(1, left, 1);
+          mitsulWaterLiquid.position.y = mitsulWaterBaseY + left / 2;
+          mitsulWaterLiquid.visible = waterAmount < 0.98;
+        }
         const riceAmountScale = THREE.MathUtils.lerp(0.72, 1, riceAmount);
         liquid.scale.setScalar(THREE.MathUtils.lerp(0.55, 1, waterAmount));
         liquidMaterial.opacity = THREE.MathUtils.lerp(0.12, 0.42, waterAmount);
@@ -3638,6 +3677,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         return next;
       }
 
+      /** 한 번 붓기 시작하면 그 재료를 다 부을 때까지 이어진다 */
+      let pourLatched = false;
+
       function clampHeldAboveMouth(actor: PourActor) {
         jarOpeningLocal.copy(jarOpeningWorld);
         stageGroup.worldToLocal(jarOpeningLocal);
@@ -3668,6 +3710,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       function advancePhase() {
         const next = PHASES[Math.min(PHASES.length - 1, phaseIndex(S.mitsulPhase as MixPhase) + 1)];
         returnHeldHome();
+        pourLatched = false;   // 다음 재료는 다시 항아리 위로 가져와야 시작한다
         S.mitsulPhase = next;
         S.mitsulPourProgress = 0;
         if (next === "KNEAD") {
@@ -3807,33 +3850,33 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
           const pinch = hand.pinchScreen;
           if (lidHeld) {
-            screenToWorld(pinch.x, pinch.y, lidHeldDepth, camera, followTarget);
+            // 뚜껑이 항아리에 파묻히지 않도록 언제나 항아리보다 앞에 둔다.
+            const jarDepth = camera.getWorldPosition(handOrigin).distanceTo(jarOpeningWorld);
+            const showDepth = Math.max(0.3, Math.min(lidHeldDepth, jarDepth - 0.24));
+            screenToWorld(pinch.x, pinch.y, showDepth, camera, followTarget);
             stageGroup.worldToLocal(followTarget);
             followTarget.x = THREE.MathUtils.clamp(followTarget.x, -0.46, 0.46);
             followTarget.z = THREE.MathUtils.clamp(followTarget.z, -0.4, 0.4);
             followTarget.y = Math.max(platformTop + 0.015, followTarget.y);
             lidRig.position.lerp(followTarget, 0.5);
-            const nearMouth = screenDist(pinch, jarOpeningScreen) <= 0.15;
+            const nearMouth = screenDist(pinch, jarOpeningScreen) <= 0.22;
             if (nearMouth) {
               lidRig.position.x = THREE.MathUtils.lerp(lidRig.position.x, 0, 0.55);
               lidRig.position.z = THREE.MathUtils.lerp(lidRig.position.z, 0, 0.55);
               lidRig.position.y = Math.max(lidRig.position.y, lidSnapY + 0.04);
+              // 항아리 위에 가져다 대기만 하면 닫힌다.
+              // 손을 펴는 순간과 위치 조건을 모두 맞춰야 닫히게 하면,
+              // 놓을 때 손 모양이 흔들리면서 아무리 해도 안 닫히고 여기서 막힌다.
+              snapLid();
+              updateFermentPanel();
+              return;
             }
             if (frame.justReleased) {
-              const horizontalValid = Math.hypot(lidRig.position.x, lidRig.position.z)
-                <= Math.max(lidRadius * 1.05, mashRadius * 1.7);
-              const localYValid = lidRig.position.y >= lidSnapY - 0.025
-                && lidRig.position.y <= lidSnapY + 0.24;
-              if (nearMouth && horizontalValid && localYValid) snapLid();
-              else {
-                lidHeld = false;
-                lidReturning = true;
-                setHandHud("tracking", "항아리 입구 위에서 뚜껑을 놓아주세요");
-              }
+              lidHeld = false;
+              lidReturning = true;
+              setHandHud("tracking", "항아리 입구 위에서 뚜껑을 놓아주세요");
             } else {
-              setHandHud("holding", nearMouth
-                ? "손을 펴면 뚜껑이 정확히 닫혀요"
-                : "뚜껑을 항아리 입구 위로 옮겨주세요");
+              setHandHud("holding", "뚜껑을 항아리 입구 위로 옮겨주세요");
             }
             updateFermentPanel();
             return;
@@ -3999,9 +4042,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (nearJar) clampHeldAboveMouth(held);
           // 손목을 정확히 꺾어야만 부어지게 하지 않는다. 항아리 위에 올리면 부어지고,
           // 기울기는 그 결과로 따라온다 — 그래야 "올렸는데 왜 안 부어지지"가 안 생긴다.
-          pouring = frame.pinching && nearJar;
+          if (frame.pinching && nearJar) pourLatched = true;
+          pouring = pourLatched;
+          // 제자리 기준으로 항아리 쪽으로 기운다 — 오른쪽 재료는 왼쪽으로 기울어
+          // 그 손으로 붓는 옆모습이 나온다.
           const visualTilt = pouring
-            ? (held.home.x < jarOpeningLocal.x ? POUR_TILT_RAD : -POUR_TILT_RAD)
+            ? (held.home.x >= jarOpeningLocal.x ? POUR_TILT_RAD : -POUR_TILT_RAD)
             : THREE.MathUtils.clamp(signedTilt, -Math.PI / 2, Math.PI / 2);
           held.node.rotation.z = THREE.MathUtils.lerp(held.node.rotation.z, visualTilt, 0.24);
           if (pouring) {
