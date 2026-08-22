@@ -86,7 +86,8 @@ export const nyangiTakju: Recipe = {
     },
     {
       id: "mash_metal_tray",
-      file: `${AR_ASSETS}/mash_metal_tray.glb`,
+      // 냉각에서 고두밥을 펼치던 그 채반을 덧술에서도 그대로 쓴다
+      file: `${AR_ASSETS}/metal_tray.glb`,
       step: "ferment",
       processSteps: ["mash1", "mash2"],
       height: 0.05,

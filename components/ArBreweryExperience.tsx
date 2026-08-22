@@ -3330,9 +3330,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       mash.visible = false;
       jarRig.add(mash);
 
+      // 밑술 국물 — 쌀이 풀려 희뿌옇다. 노란빛은 덧술로 넘어간 뒤의 모습이다.
       const liquidMaterial = new THREE.MeshPhysicalMaterial({
-        color: 0xb8d2cf, transparent: true, opacity: 0.42, roughness: 0.2,
-        transmission: 0.18, depthWrite: false,
+        color: 0xe6dcc6, transparent: true, opacity: 0.9, roughness: 0.6,
+        transmission: 0.03, depthWrite: false,
       });
       const liquid = new THREE.Mesh(
         new THREE.CircleGeometry(mashRadius * 0.98, 48).rotateX(-Math.PI / 2),
@@ -3341,6 +3342,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       liquid.position.y = mashBottomY + mashStartHeight + 0.008;
       liquid.visible = false;
       jarRig.add(liquid);
+
+      // 국물 위에 뜬 쌀알. 세미 때와 같은 낱알 무리를 얇게 깔아 띄운다.
+      const mashFloatRice = makeRiceField(520, new THREE.Color(0xf6efdf), 0.0075);
+      mashFloatRice.mesh.visible = false;
+      jarRig.add(mashFloatRice.mesh);
 
       const targetOutline = new THREE.Mesh(
         new THREE.RingGeometry(mashRadius, mashRadius * KNEAD.TARGET_PADDING, 48).rotateX(-Math.PI / 2),
@@ -3673,6 +3679,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         mash.scale.set(spread, (height / mashStartHeight) * (1 - kneadPulse * 0.16), spread);
         mash.position.y = mashBottomY + height * 0.5 + kneadPulse * 0.006;
         liquid.position.y = mashBottomY + height + 0.004 + waterAmount * 0.008;
+        // 국물 위에 쌀알이 떠 있다 — 물을 붓고 나면 보이기 시작한다.
+        mashFloatRice.mesh.visible = liquid.visible && waterAmount > 0.15;
+        if (mashFloatRice.mesh.visible) {
+          mashFloatRice.place(0, liquid.position.y + 0.002, 0, mashRadius * 0.95);
+          mashFloatRice.update(0, 0, 0, 0, 1);
+        }
         targetOutline.position.y = liquid.position.y + 0.006;
         mixedMashColor.copy(riceMashColor)
           .lerp(nurukMashColor, nurukAmount)
@@ -4097,20 +4109,25 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             if (kneadSnapshot.state === "COMPLETE") {
               S.mitsulPhase = "COMPLETE";
               S.mitsulDone = true;
-              S.mitsulFermentPhase = "LID";
-              S.mitsulLidSnapped = false;
+              // 뚜껑 덮기는 건너뛴다 — 치대고 나면 바로 발효 온도를 맞춘다.
+              // 밑술은 그대로 항아리 안에 담겨 있고, 뚜껑은 덮힌 채로 둔다.
+              S.mitsulFermentPhase = "TEMPERATURE";
+              S.mitsulLidSnapped = true;
+              S.temp = 20;
               S.mitsulFermentProgress = 0;
               S.mitsulFermentDay = 0;
               S.mitsulFermentDone = false;
-              lidRig.position.copy(lidHome);
+              lidRig.position.set(0, lidSnapY, 0);
               lidRig.rotation.set(0, 0, 0);
+              lidReturning = false;
               targetOutline.visible = false;
+              handTracker?.setPaused(true);
               syncActorVisibility();
             }
             applyMixVisual();
             syncMitsulMixUi();
             updateMixPanel(frame, false, 0, onMash);
-            if (S.mitsulDone) setHandHud("dropped", "혼합 완료 · 항아리 뚜껑을 닫아주세요");
+            if (S.mitsulDone) setHandHud("dropped", "혼합 완료 · 이제 발효 온도를 맞춰요");
             else if (!frame.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
             else if (!onMash) setHandHud("tracking", "손바닥을 항아리 속 재료 위에 올려주세요");
             else if (kneadSnapshot.justKneaded) setHandHud("dropped", `치대기 ${kneadSnapshot.count}/${KNEAD.TARGET_KNEAD_COUNT}`);
@@ -4370,6 +4387,19 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
         mashTrayDepth = Math.max(0.12, size.z);
         mashTrayHeight = Math.max(0.03, size.y);
+
+        // 새로 지은 고두밥이 담긴 채로 나와야 한다. 냉각에서 채반에 깔던
+        // 그 고두밥 평면을 그대로 얹는다.
+        const trayBox = new THREE.Box3().setFromObject(mashTrayModelPivot);
+        const rice = makeRicePlane(
+          0,
+          Math.max(0.06, (trayBox.max.x - trayBox.min.x) * 0.82),
+          Math.max(0.06, (trayBox.max.z - trayBox.min.z) * 0.82),
+        );
+        if (rice) {
+          rice.position.y = mashTrayHeight * 0.92;
+          mashTrayMover.add(rice);
+        }
       }
 
       const mashTrayTarget = new THREE.Group();
@@ -7367,7 +7397,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               : "todo";
         });
         const fermentCaptions = {
-          LID: "밑술 — 일양 · 발효를 위해 항아리 뚜껑을 닫아요",
+          LID: "밑술 — 일양 · 발효를 위해 항아리를 덮어요",
           TEMPERATURE: "밑술 — 일양 · 1차 발효 온도를 25℃로 맞춰요",
           FERMENTING: `밑술 — 일양 · ${S.mitsulFermentDay}일차 발효 중`,
           COMPLETE: "밑술이 완성되었어요!",
