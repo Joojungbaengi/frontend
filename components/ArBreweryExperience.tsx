@@ -4472,18 +4472,63 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         setMashMasterLine(S.mashTrayDone.has(stepId) ? 1 : 0);
       };
 
-      // 1차발효(fstage 1)부터 등장하는 발효 항아리
+      // 1차발효(fstage 1)부터 등장하는 발효 항아리.
+      // 밑술을 담갔던 그 항아리를 그대로 이어받는다 — 덧술은 새 통에 다시 담그는 게
+      // 아니라, 이미 익은 술덧에 고두밥과 물을 더하는 일이다.
       const jar = new THREE.Group();
-      const jarDef = MODELS.find((m) => m.step === "ferment");
-      if (jarDef) {
-        const node = spawnModel(jarDef);
-        if (node) {
+      const JAR_SCALE = 0.17;
+      let mashJarHeight = 0.28;
+      let mashJarWidth = 0.24;
+      const mitsulJarGltf = LOADED[MITSUL_JAR_ID];
+      if (mitsulJarGltf?.scene) {
+        const jarModel = skinnedClone(mitsulJarGltf.scene) as THREE.Object3D;
+        jarModel.scale.setScalar(JAR_SCALE);
+        jarModel.traverse((o: THREE.Object3D) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        });
+        const bounds = new THREE.Box3().setFromObject(jarModel);
+        const center = bounds.getCenter(new THREE.Vector3());
+        const size = bounds.getSize(new THREE.Vector3());
+        jarModel.position.set(-center.x, -bounds.min.y, -center.z);
+        mashJarHeight = size.y;
+        mashJarWidth = Math.max(size.x, size.z);
+        const g = new THREE.Group();
+        g.position.set(0, platformTop + 0.03, 0);
+        g.add(jarModel);
+        jar.add(g);
+      } else {
+        // 밑술 항아리를 못 받았을 때의 대체 — 기존 발효 항아리
+        const jarDef = MODELS.find((m) => m.step === "ferment");
+        const node = jarDef ? spawnModel(jarDef) : null;
+        if (node && jarDef) {
           const g = new THREE.Group();
           g.position.set(0, platformTop + jarDef.y, 0);
           g.add(node);
           jar.add(g);
         }
       }
+
+      // 항아리 안에 이미 들어 있는 술덧. 밑술에서 넘어온 것이라 이미 익어
+      // 누런빛을 띠고, 떠 있는 쌀알도 밑술 때보다 적다.
+      const mashSurfaceY = platformTop + 0.03 + Math.max(0.05, mashJarHeight - 0.058);
+      const mashSurfaceR = Math.min(0.09, mashJarWidth * 0.31);
+      const mashBrothMat = new THREE.MeshPhysicalMaterial({
+        color: 0xd8b757, transparent: true, opacity: 0.92, roughness: 0.5,
+        transmission: 0.04, depthWrite: false,
+      });
+      const mashBroth = new THREE.Mesh(
+        new THREE.CircleGeometry(mashSurfaceR * 0.98, 48).rotateX(-Math.PI / 2),
+        mashBrothMat
+      );
+      mashBroth.position.y = mashSurfaceY;
+      jar.add(mashBroth);
+      // 밑술 때는 쌀이 가득이었지만, 익으면서 많이 풀어져 알갱이가 줄었다.
+      const mashBrothRice = makeRiceField(150, new THREE.Color(0xf1e6cd), 0.0065);
+      jar.add(mashBrothRice.mesh);
+
       jar.visible = false;
       stageGroup.add(jar);
 
@@ -4812,6 +4857,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const viewRight = new THREE.Vector3();
       const effectPosition = new THREE.Vector3();
       live.tick = (time) => {
+        // 항아리 속 술덧 위의 쌀알 — 항아리가 보일 때만 그린다
+        mashBrothRice.mesh.visible = jar.visible;
+        if (jar.visible) {
+          mashBrothRice.place(0, mashSurfaceY + 0.002, 0, mashSurfaceR * 0.92);
+          mashBrothRice.update(time, 0, 0, 0, 1);
+        }
+
         const active = S.fstage >= F_LAST_I; // 후발효에서만 실제 발효 진행
         mashWaterMaterials.forEach((material) => {
           material.uniforms.uTime.value = time;
@@ -7441,6 +7493,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
           fermentButton?.classList.add("hidden");
         } else if (fermentPhase === "TEMPERATURE") {
+          $("#ferment-temp-controls")?.classList.remove("hidden");
           if (tempInput) tempInput.value = String(S.temp);
           const temperatureReady = S.temp === 25;
           const rate = $("#ferment-rate") as HTMLElement | null;
@@ -7528,6 +7581,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       $("#mash2-skip")?.classList.toggle("hidden", active || current?.id !== "mash2");
       const mashActive = current?.id.startsWith("mash") === true;
       $("#ferment-game")?.classList.toggle("hidden", !active && !mashActive);
+      // 덧술에는 온도를 맞추는 일이 없다. 코치 문구만 남기고 온도 조절부는 접는다.
+      $("#ferment-temp-controls")?.classList.toggle("hidden", mashActive);
       $("#btn-ferment")?.classList.toggle("hidden", !active);
       if (active) onFermentTick();       // 후발효: 일차·원형 게이지·버튼 갱신
       else {
@@ -8384,15 +8439,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           </div>
           <div id="ferment-game" className="hidden">
             {/* 밑술 1차 발효 — 온도를 맞추고 사흘을 보낸다.
-                머지 과정에서 이 진행바와 온도계가 통째로 빠져 있었다. */}
-            <div className="ferment-row">
-              <span className="ferment-rate" id="ferment-rate">발효 속도 정상</span>
-              <span className="ferment-pct" id="ferment-pct">0%</span>
-            </div>
-            <div className="bar"><i id="bar-ferment" /></div>
-            <div className="meter">
-              <div className="row"><span>발효 온도</span><span className="val" id="temp-val">20℃ · 조금 낮음</span></div>
-              <input type="range" id="temp" min={18} max={34} step={1} defaultValue={20} aria-label="발효 온도" />
+                덧술에는 온도를 맞추는 일이 없으므로 통째로 접을 수 있게 묶어 둔다. */}
+            <div id="ferment-temp-controls">
+              <div className="ferment-row">
+                <span className="ferment-rate" id="ferment-rate">발효 속도 정상</span>
+                <span className="ferment-pct" id="ferment-pct">0%</span>
+              </div>
+              <div className="bar"><i id="bar-ferment" /></div>
+              <div className="meter">
+                <div className="row"><span>발효 온도</span><span className="val" id="temp-val">20℃ · 조금 낮음</span></div>
+                <input type="range" id="temp" min={18} max={34} step={1} defaultValue={20} aria-label="발효 온도" />
+              </div>
             </div>
             <div className="coach" id="coach-ferment">
               <div className="avatar" />
