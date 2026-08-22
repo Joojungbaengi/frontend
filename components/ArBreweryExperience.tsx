@@ -3682,7 +3682,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         // 국물 위에 쌀알이 떠 있다 — 물을 붓고 나면 보이기 시작한다.
         mashFloatRice.mesh.visible = liquid.visible && waterAmount > 0.15;
         if (mashFloatRice.mesh.visible) {
-          mashFloatRice.place(0, liquid.position.y + 0.002, 0, mashRadius * 0.95);
+          // mound 를 아주 얕게 줘서 낱알이 국물 표면에 붙어 뜨게 한다.
+          // 안 그러면 알갱이가 표면 위 허공에 흩어져 떠 있는 것처럼 보인다.
+          mashFloatRice.place(0, liquid.position.y + 0.001, 0, mashRadius * 0.95, 0.0015);
           mashFloatRice.update(0, 0, 0, 0, 1);
         }
         targetOutline.position.y = liquid.position.y + 0.006;
@@ -4370,6 +4372,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       mashTrayMover.add(mashTrayModelPivot);
       let mashTrayDepth = 0.18;
       let mashTrayHeight = 0.05;
+      /** 채반에 담긴 고두밥 — 자리를 잡으면 항아리로 쏟아져 들어간다 */
+      let mashTrayRice: THREE.Mesh | null = null;
+      /** 채반이 자리를 잡은 시각. 잠시 뒤 고두밥이 저절로 흘러 들어간다 */
+      let mashPlacedAt = 0;
+      let mashRicePoured = false;
       if (mashTrayNode) {
         // spawnModel이 중앙 정렬한 root 자체를 다시 scale/rotate하면 root.position은
         // 그대로 남아 모델 중심과 잡기 링이 갈라진다. 별도 pivot에 변환을 적용해
@@ -4399,6 +4406,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (rice) {
           rice.position.y = mashTrayHeight * 0.92;
           mashTrayMover.add(rice);
+          mashTrayRice = rice;
         }
       }
 
@@ -4528,6 +4536,67 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 밑술 때는 쌀이 가득이었지만, 익으면서 많이 풀어져 알갱이가 줄었다.
       const mashBrothRice = makeRiceField(150, new THREE.Color(0xf1e6cd), 0.0065);
       jar.add(mashBrothRice.mesh);
+
+      /* ── 덧술에 붓는 정제수 ─────────────────────────────────────────
+       * 재료 고르기에 나오는 그 물통을 그대로 쓴다. 집어서 항아리 위에 올리면
+       * 다른 단계와 똑같이 알아서 부어진다 — 손목을 꺾을 필요가 없다.
+       */
+      const mashWaterProp = INGREDIENTS.find((i) => i.id === "water")?.prop;
+      const mashWaterGroup = new THREE.Group();
+      const mashWaterHome = new THREE.Vector3(-0.3, platformTop + 0.03, 0.18);
+      mashWaterGroup.position.copy(mashWaterHome);
+      let mashWaterLiquid: THREE.Mesh | null = null;
+      let mashWaterFull = 0;
+      let mashWaterBaseY = 0;
+      if (mashWaterProp) {
+        const node = spawnModel({
+          id: "prop_water", file: mashWaterProp.file, step: "ferment",
+          height: 0.17, y: 0, scaleFactor: mashWaterProp.scaleFactor,
+        });
+        if (node) {
+          mashWaterGroup.add(node);
+          if (mashWaterProp.liquid) {
+            const wb = new THREE.Box3().setFromObject(node);
+            const wh = wb.max.y - wb.min.y;
+            const r = Math.min(wb.max.x - wb.min.x, wb.max.z - wb.min.z) * 0.34;
+            mashWaterLiquid = new THREE.Mesh(
+              new THREE.CylinderGeometry(r, r, 1, 20, 1, false),
+              new THREE.MeshStandardMaterial({
+                color: mashWaterProp.liquid.color, roughness: 0.15, metalness: 0,
+                transparent: true, opacity: 0.85,
+              })
+            );
+            mashWaterFull = wh * 0.6;
+            mashWaterBaseY = wh * 0.05;
+            mashWaterGroup.add(mashWaterLiquid);
+          }
+        }
+      }
+      mashWaterGroup.visible = false;
+      stageGroup.add(mashWaterGroup);
+      /** 물을 부은 정도 0~1 */
+      let mashWaterPoured = 0;
+      let mashWaterHeld = false;
+      let mashWaterDepth = 0.7;
+      let mashWaterLatched = false;
+      const mashWaterStreamMat = new THREE.MeshBasicMaterial({
+        color: 0x9fd8ef, transparent: true, opacity: 0, depthWrite: false,
+      });
+      const mashWaterStream = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.006, 0.009, 1, 10, 1, true), mashWaterStreamMat
+      );
+      mashWaterStream.visible = false;
+      stageGroup.add(mashWaterStream);
+
+      // 채반에서 항아리로 쏟아지는 고두밥 알갱이
+      const mashRicePour = makeParticles(120, {
+        color: 0xf2e7d2, size: 0.009, opacity: 0, speed: 2.0,
+        radius: 0.03, baseY: platformTop + 0.30, height: -0.1, taper: -0.4,
+      });
+      mashRicePour.position.set(0.12, 0, 0.12);
+      mashRicePour.visible = false;
+      stageGroup.add(mashRicePour);
+      live.particles.push(mashRicePour);
 
       jar.visible = false;
       stageGroup.add(jar);
@@ -4857,10 +4926,26 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const viewRight = new THREE.Vector3();
       const effectPosition = new THREE.Vector3();
       live.tick = (time) => {
+        // 고두밥을 다 넣고 나면 물통이 작업대에 나온다
+        const waterTurn = mashRicePoured && mashWaterPoured < 1;
+        mashWaterGroup.visible = jar.visible && (waterTurn || mashWaterPoured > 0);
+        if (mashWaterLiquid) {
+          const left = Math.max(0.0001, mashWaterFull * (1 - mashWaterPoured));
+          mashWaterLiquid.scale.set(1, left, 1);
+          mashWaterLiquid.position.y = mashWaterBaseY + left / 2;
+          mashWaterLiquid.visible = mashWaterPoured < 0.98;
+        }
+        if (!mashWaterHeld && mashWaterGroup.visible) {
+          mashWaterGroup.position.lerp(mashWaterHome, 0.2);
+          mashWaterGroup.rotation.set(0, 0, 0);
+        }
+        mashWaterStreamMat.opacity += ((mashWaterLatched && mashWaterPoured < 1 ? 0.6 : 0) - mashWaterStreamMat.opacity) * 0.25;
+        mashWaterStream.visible = mashWaterStreamMat.opacity > 0.02;
+
         // 항아리 속 술덧 위의 쌀알 — 항아리가 보일 때만 그린다
         mashBrothRice.mesh.visible = jar.visible;
         if (jar.visible) {
-          mashBrothRice.place(0, mashSurfaceY + 0.002, 0, mashSurfaceR * 0.92);
+          mashBrothRice.place(0, mashSurfaceY + 0.001, 0, mashSurfaceR * 0.92, 0.0015);
           mashBrothRice.update(time, 0, 0, 0, 1);
         }
 
@@ -4880,11 +4965,33 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               mashTrayMover.position.copy(mashTrayDropPosition);
               mashTrayMover.quaternion.copy(mashTrayDropQuaternion);
               mashTrayPhase = "placed";
+              mashPlacedAt = time;
               if (activeMashId) S.mashTrayDone.add(activeMashId);
               if (!mashTrayCompletionAnnounced) {
                 mashTrayCompletionAnnounced = true;
                 navigator.vibrate?.(28);
                 syncFermentPhase();
+              }
+            }
+          } else if (mashTrayPhase === "placed" && !mashRicePoured) {
+            // 자리를 잡고 잠깐 있으면 고두밥이 저절로 항아리로 흘러 들어간다.
+            // 채반은 이미 항아리 쪽으로 기울어 놓여 있으니 쏟아지는 게 자연스럽다.
+            const since = time - mashPlacedAt;
+            if (since > 1.1) {
+              const slide = THREE.MathUtils.clamp((since - 1.1) / 1.6, 0, 1);
+              if (mashTrayRice) {
+                // 기운 쪽으로 미끄러져 내려가며 사라진다
+                mashTrayRice.position.z = -slide * mashTrayDepth * 0.55;
+                mashTrayRice.position.y = mashTrayHeight * 0.92 - slide * 0.05;
+                mashTrayRice.scale.setScalar(Math.max(0.001, 1 - slide));
+                mashTrayRice.visible = slide < 0.99;
+              }
+              mashRicePour.visible = slide > 0.02 && slide < 0.99;
+              (mashRicePour.material as THREE.PointsMaterial).opacity = slide < 0.9 ? 0.95 : 0;
+              if (slide >= 1) {
+                mashRicePoured = true;
+                mashRicePour.visible = false;
+                setHandHud("dropped", "고두밥이 항아리에 들어갔어요 · 이제 물을 부어요");
               }
             }
           }
@@ -5050,27 +5157,82 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             mashTrayMover.position.x - mashTrayDropPosition.x,
             mashTrayMover.position.z - mashTrayDropPosition.z,
           );
-          const overDropTarget = dropDistance <= 0.13;
+          const overDropTarget = dropDistance <= 0.2;
           (mashTrayDropRing.material as THREE.MeshBasicMaterial).color.setHex(
             overDropTarget ? 0x78e39b : 0xffd45f,
           );
-          if (frame.justReleased) {
-            if (overDropTarget) {
-              mashTrayPhase = "snapping";
-              mashTrayDropTarget.visible = false;
-              setHandHud("dropped", "좋아, 항아리 옆에 채반을 놓아 보게");
-            } else {
-              mashTrayPhase = "extracted";
-              setHandHud("tracking", "채반을 다시 잡아 노란 자리에 놓아 주세요");
-            }
+          // 가이드 위에 대충 가져다 놓으면 알아서 자리를 잡는다.
+          // 손을 펴는 순간까지 맞추게 하면, 놓을 때마다 위치를 다시 잡아야 해서 번거롭다.
+          if (overDropTarget) {
+            mashTrayPhase = "snapping";
+            mashTrayDropTarget.visible = false;
+            setHandHud("dropped", "좋아, 채반이 자리를 잡았네");
             return;
           }
-          setHandHud(
-            "holding",
-            overDropTarget
-              ? "여기에서 손가락을 펴 채반을 놓으세요"
-              : "채반을 항아리 옆의 노란 자리로 옮기세요",
-          );
+          if (frame.justReleased) {
+            mashTrayPhase = "extracted";
+            setHandHud("tracking", "채반을 다시 잡아 노란 자리에 놓아 주세요");
+            return;
+          }
+          setHandHud("holding", "채반을 항아리 옆의 노란 자리로 옮기세요");
+          return;
+        }
+
+        // 고두밥이 들어간 뒤에는 물을 붓는다 — 집어서 항아리 위에 올리면 알아서 부어진다
+        if (mashRicePoured && mashWaterPoured < 1) {
+          const pinch = hand.pinchScreen;
+          const jarMouth = new THREE.Vector3(0, mashSurfaceY + 0.03, 0);
+          stageGroup.localToWorld(jarMouth);
+          const jarMouthScreen = { x: 0.5, y: 0.5 };
+          worldToScreen(jarMouth, interactionCamera, jarMouthScreen);
+
+          if (mashWaterHeld) {
+            const jarDist = interactionCamera.getWorldPosition(handOrigin).distanceTo(jarMouth);
+            const showDepth = Math.max(0.3, Math.min(mashWaterDepth, jarDist * 0.88));
+            screenToWorld(pinch.x, pinch.y, showDepth, interactionCamera, trayCarryTarget);
+            stageGroup.worldToLocal(trayCarryTarget);
+            mashWaterGroup.position.lerp(trayCarryTarget, 0.45);
+
+            const overJar = screenDist(pinch, jarMouthScreen) <= 0.23;
+            if (overJar) mashWaterLatched = true;
+            if (mashWaterLatched) {
+              // 제자리 기준으로 항아리 쪽으로 기울여 옆모습이 나오게 한다
+              mashWaterGroup.rotation.z = THREE.MathUtils.lerp(
+                mashWaterGroup.rotation.z,
+                mashWaterHome.x >= 0 ? 1.9 : -1.9,
+                0.18,
+              );
+              mashWaterPoured = Math.min(1, mashWaterPoured + 0.06);
+              const surfaceY = mashSurfaceY;
+              const len = Math.max(0.02, mashWaterGroup.position.y - surfaceY);
+              mashWaterStream.position.set(0, surfaceY + len / 2, 0);
+              mashWaterStream.scale.set(1, len, 1);
+              if (mashWaterPoured >= 1) {
+                mashWaterHeld = false;
+                mashWaterLatched = false;
+                setHandHud("dropped", "물을 다 부었어요 · 이제 주걱으로 저어요");
+                return;
+              }
+              setHandHud("dropped", `정제수를 붓는 중… ${Math.round(mashWaterPoured * 100)}%`);
+            } else {
+              mashWaterGroup.rotation.z = THREE.MathUtils.lerp(mashWaterGroup.rotation.z, 0, 0.2);
+              setHandHud("holding", "물통을 항아리 위로 가져가세요");
+            }
+            if (frame.justReleased && !mashWaterLatched) mashWaterHeld = false;
+            return;
+          }
+
+          mashWaterGroup.getWorldPosition(trayWorld);
+          worldToScreen(trayWorld, interactionCamera, trayScreen);
+          const nearWater = screenDist(pinch, trayScreen) <= 0.15;
+          if (nearWater && frame.justPinched) {
+            mashWaterHeld = true;
+            mashWaterDepth = interactionCamera.getWorldPosition(handOrigin).distanceTo(trayWorld);
+            setHandHud("holding", "물통을 집었어요");
+            return;
+          }
+          setHandHud(nearWater ? "hover" : "tracking",
+            nearWater ? "엄지와 검지를 붙여 물통을 집으세요" : "작업대의 물통으로 손을 옮겨주세요");
           return;
         }
 
@@ -6769,7 +6931,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         reticle.visible = false;
       }
 
-      if (!productionMitsulMix && S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
+      if (S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
         const dist = Math.abs(S.temp - OPTIMAL_C);
         // 25℃에서 약 17초에 완주. 너무 빨리 끝나면 온도를 조절해 본 효과를 느끼기 어렵다.
         const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 6;
