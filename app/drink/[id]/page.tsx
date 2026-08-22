@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import AppImage from "@/components/AppImage";
+import DrinkPhotoViewer from "@/components/DrinkPhotoViewer";
 import ScreenHeader from "@/components/ScreenHeader";
 import ArEntryButton from "@/components/ArEntryButton";
 import db from "@/data/drinks.json";
@@ -8,7 +8,7 @@ import type { Drink } from "@/lib/types";
 
 /**
  * 전통주 상세 — material/전통주 상세 리디자인.html 기준.
- * 정보 순서: 제품 → 한 줄 요약 → 스탯 → 맛 → 향(감각 먼저) → 수상·인증 → 기본정보 → 제조(타임라인) → 음식 → 이야기 → CTA.
+ * 정보 순서: 제품 → 한 줄 요약 → 스탯 → 맛 → 향 → 어울리는 음식(감각 먼저) → 수상·인증 → 기본정보 → 제조(타임라인) → 이야기 → CTA.
  */
 
 const drinks = db.drinks as unknown as Drink[];
@@ -126,16 +126,15 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
 
   return (
     <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
-      <ScreenHeader title="전통주 상세" />
+      <ScreenHeader title="상세 보기" />
 
       <div style={{ padding: "22px 22px 34px", display: "flex", flexDirection: "column", gap: 26 }}>
         {/* ── 히어로 (술이름+뱃지를 사진 높이의 세로 중앙에 정렬) ── */}
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           {drink.image ? (
-            <AppImage
+            <DrinkPhotoViewer
               src={drink.image}
               alt={drink.name}
-              eager
               boxStyle={{
                 width: 96,
                 height: 132,
@@ -251,6 +250,20 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
           </div>
         </div>
 
+        {/* ── 어울리는 음식 ── */}
+        {drink.pairing.length > 0 && (
+          <div>
+            <SectionHead text="어울리는 음식" />
+            <div className="card" style={{ padding: "16px 18px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {drink.pairing.map((t) => (
+                <span key={t} style={{ fontSize: 13, background: "#ece2cd", color: "#8a6a4a", padding: "7px 14px", borderRadius: 99 }}>
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── 수상 · 인증 ── */}
         {drink.awards.length > 0 && (
           <div>
@@ -347,20 +360,6 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
                     <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--ink-soft)" }}>{s.body}</div>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── 어울리는 음식 ── */}
-        {drink.pairing.length > 0 && (
-          <div>
-            <SectionHead text="어울리는 음식" />
-            <div className="card" style={{ padding: "16px 18px", display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {drink.pairing.map((t) => (
-                <span key={t} style={{ fontSize: 13, background: "#ece2cd", color: "#8a6a4a", padding: "7px 14px", borderRadius: 99 }}>
-                  {t}
-                </span>
               ))}
             </div>
           </div>
