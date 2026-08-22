@@ -5,14 +5,21 @@ import { LM, type HandFrame } from "@/lib/hand/types";
 
 /** Galaxy 실기기 측정값을 보고 한곳에서 조절할 knead 판정값. */
 export const KNEAD = {
-  OPEN_THRESHOLD: 0.90,
-  CLOSED_THRESHOLD: 0.72,
-  POSE_HOLD_MS: 120,
-  MIN_CYCLE_MS: 250,
-  MAX_CYCLE_MS: 1800,
-  COUNT_COOLDOWN_MS: 250,
+  /**
+   * 편 손은 handRatio 가 크고 오므린 손은 작다.
+   * 실기기 기준값(폄 0.90 · 주먹 0.72)을 그대로 쓰면 어중간한 손 모양이 전부
+   * TRANSITION 으로 빠져 아무리 치대도 안 세어진다. 두 문턱을 서로 당겨
+   * 살짝만 펴도 폄, 살짝만 오므려도 오므린 것으로 본다.
+   */
+  OPEN_THRESHOLD: 0.86,
+  CLOSED_THRESHOLD: 0.78,
+  POSE_HOLD_MS: 70,
+  MIN_CYCLE_MS: 140,
+  MAX_CYCLE_MS: 3500,
+  COUNT_COOLDOWN_MS: 160,
   HAND_LOST_TIMEOUT: 350,
-  TARGET_PADDING: 1.08,
+  /** 술덧 위로 인정하는 범위 — 손이 조금 비켜도 치대는 것으로 본다 */
+  TARGET_PADDING: 1.6,
   TARGET_KNEAD_COUNT: 3,
 } as const;
 
@@ -89,8 +96,10 @@ export class KneadGesture {
     this.onMashValue = onMash;
 
     if (this.stateValue === "COMPLETE") return this.snapshot(false);
-    if (!onMash) {
-      this.cancelCycle(true);
+    // 손이 술덧 위를 잠깐 벗어났다고 진행 중인 주기를 버리지 않는다.
+    // 치대다 보면 손이 조금씩 비켜나기 마련이라, 그때마다 처음부터 다시 하면
+    // 아무리 오므렸다 펴도 숫자가 안 올라간다. 주기를 **시작**할 때만 따진다.
+    if (!onMash && this.stateValue === "WAIT_OPEN") {
       return this.snapshot(false);
     }
 
@@ -120,7 +129,9 @@ export class KneadGesture {
           this.cooldownUntil = now + KNEAD.COUNT_COOLDOWN_MS;
           this.stateValue = this.countValue >= KNEAD.TARGET_KNEAD_COUNT ? "COMPLETE" : "COOLDOWN";
         } else {
-          this.cancelCycle(false);
+          // 너무 빨랐을 뿐이다. 버리지 말고 편 자세에서 다시 세기 시작한다.
+          this.stateValue = "OPEN_READY";
+          this.cycleStartedAt = now;
         }
       }
     } else if (this.stateValue === "COOLDOWN" && now >= this.cooldownUntil) {
