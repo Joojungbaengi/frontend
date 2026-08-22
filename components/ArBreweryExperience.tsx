@@ -201,6 +201,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let fermentShowStage: (() => void) | null = null;
     // 후발효 원형 게이지의 일수·진행 눈금을 다시 그리는 함수(buildFerment 가 채운다)
     let fermentUpdateGauge: ((progress: number, day: number) => void) | null = null;
+    /** 밑술 1차 발효의 원형 게이지를 켜고 눈금을 그리는 함수 (buildMitsulMix 가 채운다) */
+    let mitsulGaugeSync: ((show: boolean, progress: number, day: number) => void) | null = null;
     /**
      * 지금이 부채질로 식혀야 하는 국면인가.
      *
@@ -798,6 +800,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       finishShowShip = null;
       fermentShowStage = null;
       fermentUpdateGauge = null;
+      mitsulGaugeSync = null;
       // 단계 전환 뒤 이전 장면의 화면 효과가 남지 않도록 모두 초기화한다.
       uiRoot!.classList.remove("cooling", "aging-focus", "aging-complete");
       uiRoot!.classList.remove("cooling"); // 냉각 비네트는 무대가 바뀌면 끈다
@@ -928,6 +931,95 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       mesh.renderOrder = 30;
       live.cleanup.push(() => texture.dispose());
       return mesh;
+    }
+
+    /**
+     * 발효 일수를 보여주는 원형 게이지.
+     * 후발효에서 쓰던 것을 밑술 1차 발효도 같이 쓴다 — 같은 '며칠을 기다린다'는
+     * 국면인데 한쪽만 아래 진행바로 나오면 다른 화면처럼 보인다.
+     */
+    function makeDayGauge(y: number, line1: string, line2: string) {
+        // DOM 위에 떠 있던 게이지를 3D 평면으로 옮긴다. 투명 평면이 항아리보다
+        // 뒤에 있으므로 깊이 테스트를 통해 항아리가 원의 아래쪽을 자연스럽게 가린다.
+        const gaugeCanvas = document.createElement("canvas");
+        gaugeCanvas.width = 512;
+        gaugeCanvas.height = 512;
+        const gaugeContext = gaugeCanvas.getContext("2d");
+        const gaugeTexture = new THREE.CanvasTexture(gaugeCanvas);
+        gaugeTexture.colorSpace = THREE.SRGBColorSpace;
+        gaugeTexture.minFilter = THREE.LinearFilter;
+        gaugeTexture.magFilter = THREE.LinearFilter;
+        gaugeTexture.generateMipmaps = false;
+        const gaugeMaterial = new THREE.MeshBasicMaterial({
+          map: gaugeTexture,
+          transparent: true,
+          depthTest: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+        const gauge = new THREE.Mesh(new THREE.PlaneGeometry(0.378, 0.378), gaugeMaterial);
+        gauge.position.set(0, y, -0.075);
+        gauge.visible = false;
+        gauge.renderOrder = 1;
+        stageGroup.add(gauge);
+        live.cleanup.push(() => gaugeTexture.dispose());
+
+        let lastGaugeTick = -1;
+        let lastGaugeDay = -1;
+        const update = (progress: number, day: number) => {
+          if (!gaugeContext) return;
+          const ctx = gaugeContext;
+          const center = 256;
+          const innerRadius = 205;
+          const outerRadius = 232;
+          const ticks = 120;
+          const completedTicks = Math.round((THREE.MathUtils.clamp(progress, 0, 100) / 100) * ticks);
+          // 같은 눈금과 일수라면 텍스처를 다시 그리지 않아 모바일 GPU 업로드를 줄인다.
+          if (completedTicks === lastGaugeTick && day === lastGaugeDay) return;
+          lastGaugeTick = completedTicks;
+          lastGaugeDay = day;
+          ctx.clearRect(0, 0, gaugeCanvas.width, gaugeCanvas.height);
+
+          // 어두운 반투명 원판은 카메라 배경 위에서도 글자를 읽히게 한다.
+          const shade = ctx.createRadialGradient(center, center, 34, center, center, 222);
+          shade.addColorStop(0, "rgba(24,18,12,0.54)");
+          shade.addColorStop(0.72, "rgba(24,18,12,0.43)");
+          shade.addColorStop(1, "rgba(24,18,12,0.16)");
+          ctx.fillStyle = shade;
+          ctx.beginPath();
+          ctx.arc(center, center, 222, 0, Math.PI * 2);
+          ctx.fill();
+
+          // 모든 눈금은 원 둘레에서 중심을 향하도록 방사형으로 그린다.
+          ctx.lineCap = "round";
+          for (let i = 0; i < ticks; i++) {
+            const angle = -Math.PI / 2 + (i / ticks) * Math.PI * 2;
+            const major = i % 10 === 0;
+            const tickInner = innerRadius - (major ? 7 : 0);
+            ctx.beginPath();
+            ctx.moveTo(center + Math.cos(angle) * outerRadius, center + Math.sin(angle) * outerRadius);
+            ctx.lineTo(center + Math.cos(angle) * tickInner, center + Math.sin(angle) * tickInner);
+            ctx.lineWidth = major ? 3.2 : 2;
+            ctx.strokeStyle = i < completedTicks ? "rgba(246,198,128,0.98)" : "rgba(239,218,184,0.28)";
+            ctx.stroke();
+          }
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#f8e8c9";
+          ctx.shadowColor = "rgba(0,0,0,0.8)";
+          ctx.shadowBlur = 10;
+          ctx.font = "700 76px serif";
+          ctx.fillText(`${day}일차`, center, 225);
+          ctx.fillStyle = "rgba(248,232,201,0.78)";
+          ctx.font = "32px sans-serif";
+          ctx.fillText(line1, center, 302);
+          ctx.fillText(line2, center, 344);
+          ctx.shadowBlur = 0;
+          gaugeTexture.needsUpdate = true;
+        };
+      return { mesh: gauge, update };
     }
 
     /* --- 12 · 원료 --- */
@@ -3390,6 +3482,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       riceClump.visible = false;
       stageGroup.add(riceClump);
 
+      // 1차 발효(사흘)도 후발효와 같은 원형 게이지로 보여준다.
+      const mitsulGauge = makeDayGauge(platformTop + 0.42, "사흘 동안 천천히", "익어가요");
+      mitsulGauge.mesh.visible = false;
+      mitsulGaugeSync = (show, progress, day) => {
+        mitsulGauge.mesh.visible = show;
+        if (show) mitsulGauge.update(progress, day);
+      };
+
       /** 물통 속에 담긴 물 — 부은 만큼 줄어든다 */
       let mitsulWaterLiquid: THREE.Mesh | null = null;
       let mitsulWaterFull = 0;
@@ -4056,10 +4156,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             : THREE.MathUtils.clamp(signedTilt, -Math.PI / 2, Math.PI / 2);
           held.node.rotation.z = THREE.MathUtils.lerp(held.node.rotation.z, visualTilt, 0.24);
           if (pouring) {
+            // 누룩은 붓는 게 아니라 덩어리를 넣는 것이다 — 재료 고르기와 똑같이
+            // 항아리 위에 가져다 대면 그것으로 끝난다.
+            if (phase === "NURUK") {
+              S.mitsulPourProgress = 1;
+              stream.visible = false;
+              advancePhase();
+              return;
+            }
             const elapsed = Math.min(80, Math.max(0, now - lastPourAt));
             S.mitsulPourProgress = Math.min(1, S.mitsulPourProgress + elapsed / POUR_DURATION_MS);
             stream.visible = true;
-            streamMaterial.color.setHex(phase === "NURUK" ? 0xb88a4d : 0x7fc8dd);
+            streamMaterial.color.setHex(0x7fc8dd);
             if (S.mitsulPourProgress >= 1) {
               advancePhase();
               return;
@@ -4094,6 +4202,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
 
       live.tick = (time, dt) => {
+        // 원형 게이지는 늘 화면을 마주본다 (후발효 게이지와 같은 방식)
+        if (mitsulGauge.mesh.visible) mitsulGauge.mesh.quaternion.copy(camera.quaternion);
         kneadPulse = Math.max(0, kneadPulse - dt * 2.6);
         if (lidReturning) {
           lidRig.position.lerp(lidHome, Math.min(1, dt * 7));
@@ -4633,86 +4743,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         bubbleSprites.forEach((sprite) => (sprite.material as THREE.SpriteMaterial).dispose());
       });
 
-      // DOM 위에 떠 있던 게이지를 3D 평면으로 옮긴다. 투명 평면이 항아리보다
-      // 뒤에 있으므로 깊이 테스트를 통해 항아리가 원의 아래쪽을 자연스럽게 가린다.
-      const gaugeCanvas = document.createElement("canvas");
-      gaugeCanvas.width = 512;
-      gaugeCanvas.height = 512;
-      const gaugeContext = gaugeCanvas.getContext("2d");
-      const gaugeTexture = new THREE.CanvasTexture(gaugeCanvas);
-      gaugeTexture.colorSpace = THREE.SRGBColorSpace;
-      gaugeTexture.minFilter = THREE.LinearFilter;
-      gaugeTexture.magFilter = THREE.LinearFilter;
-      gaugeTexture.generateMipmaps = false;
-      const gaugeMaterial = new THREE.MeshBasicMaterial({
-        map: gaugeTexture,
-        transparent: true,
-        depthTest: true,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      });
-      const gauge = new THREE.Mesh(new THREE.PlaneGeometry(0.378, 0.378), gaugeMaterial);
-      gauge.position.set(0, platformTop + 0.34, -0.075);
-      gauge.visible = false;
-      gauge.renderOrder = 1;
-      stageGroup.add(gauge);
-      live.cleanup.push(() => gaugeTexture.dispose());
-
-      let lastGaugeTick = -1;
-      let lastGaugeDay = -1;
-      fermentUpdateGauge = (progress, day) => {
-        if (!gaugeContext) return;
-        const ctx = gaugeContext;
-        const center = 256;
-        const innerRadius = 205;
-        const outerRadius = 232;
-        const ticks = 120;
-        const completedTicks = Math.round((THREE.MathUtils.clamp(progress, 0, 100) / 100) * ticks);
-        // 같은 눈금과 일수라면 텍스처를 다시 그리지 않아 모바일 GPU 업로드를 줄인다.
-        if (completedTicks === lastGaugeTick && day === lastGaugeDay) return;
-        lastGaugeTick = completedTicks;
-        lastGaugeDay = day;
-        ctx.clearRect(0, 0, gaugeCanvas.width, gaugeCanvas.height);
-
-        // 어두운 반투명 원판은 카메라 배경 위에서도 글자를 읽히게 한다.
-        const shade = ctx.createRadialGradient(center, center, 34, center, center, 222);
-        shade.addColorStop(0, "rgba(24,18,12,0.54)");
-        shade.addColorStop(0.72, "rgba(24,18,12,0.43)");
-        shade.addColorStop(1, "rgba(24,18,12,0.16)");
-        ctx.fillStyle = shade;
-        ctx.beginPath();
-        ctx.arc(center, center, 222, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 모든 눈금은 원 둘레에서 중심을 향하도록 방사형으로 그린다.
-        ctx.lineCap = "round";
-        for (let i = 0; i < ticks; i++) {
-          const angle = -Math.PI / 2 + (i / ticks) * Math.PI * 2;
-          const major = i % 10 === 0;
-          const tickInner = innerRadius - (major ? 7 : 0);
-          ctx.beginPath();
-          ctx.moveTo(center + Math.cos(angle) * outerRadius, center + Math.sin(angle) * outerRadius);
-          ctx.lineTo(center + Math.cos(angle) * tickInner, center + Math.sin(angle) * tickInner);
-          ctx.lineWidth = major ? 3.2 : 2;
-          ctx.strokeStyle = i < completedTicks ? "rgba(246,198,128,0.98)" : "rgba(239,218,184,0.28)";
-          ctx.stroke();
-        }
-
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = "#f8e8c9";
-        ctx.shadowColor = "rgba(0,0,0,0.8)";
-        ctx.shadowBlur = 10;
-        ctx.font = "700 76px serif";
-        ctx.fillText(`${day}일차`, center, 225);
-        ctx.fillStyle = "rgba(248,232,201,0.78)";
-        ctx.font = "32px sans-serif";
-        ctx.fillText("30일 동안 천천히", center, 302);
-        ctx.fillText("익어가요", center, 344);
-        ctx.shadowBlur = 0;
-        gaugeTexture.needsUpdate = true;
-      };
+      const dayGauge = makeDayGauge(platformTop + 0.34, "30일 동안 천천히", "익어가요");
+      const gauge = dayGauge.mesh;
+      fermentUpdateGauge = dayGauge.update;
 
       const F_LAST_I = FERMENT_STEPS.length - 1;
       fermentShowStage = () => {
@@ -6435,6 +6468,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         mashHandOverPending = false;
         if (S.step !== "ferment") return;
         buildStageFor("ferment");
+        // 밑술 뚜껑을 닫을 때 손 인식을 재웠다. 덧술은 손으로 하는 단계라 다시 깨운다.
+        handTracker?.setPaused(!shouldTrackHand(S.step));
         syncFermentPhase();
       }, 0);
     }
@@ -7309,7 +7344,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const overall = phase === "COMPLETE" ? 1 : (phaseIndex + currentProgress) / 4;
       const labels = {
         RICE: `고두밥을 한 움큼씩 항아리에 담아주세요 · ${S.mitsulRiceScoops}/3`,
-        NURUK: "누룩 그릇을 집어 항아리에 부어주세요",
+        NURUK: "누룩을 집어 항아리 안에 넣어주세요",
         WATER: "물 항아리를 집어 기울여 부어주세요",
         KNEAD: `손으로 치대며 버무리기 · ${S.mitsulKneadCount}/${KNEAD.TARGET_KNEAD_COUNT}`,
         COMPLETE: "재료가 골고루 섞였어요 · 혼합 완료",
@@ -7352,7 +7387,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const fermentButton = $("#btn-ferment") as HTMLButtonElement | null;
         mixGame?.classList.toggle("hidden", fermentPhase !== "LID");
         temperatureGame?.classList.toggle("hidden", fermentPhase !== "TEMPERATURE");
-        timeGame?.classList.toggle("hidden", fermentPhase !== "FERMENTING" && fermentPhase !== "COMPLETE");
+        // 발효가 도는 동안은 후발효와 같은 원형 게이지로 보여준다.
+        // 아래 진행바까지 같이 띄우면 같은 얘기를 두 번 하는 셈이다.
+        const fermenting = fermentPhase === "FERMENTING" || fermentPhase === "COMPLETE";
+        timeGame?.classList.add("hidden");
+        mitsulGaugeSync?.(
+          fermenting,
+          S.mitsulFermentProgress * 100,
+          Math.max(1, Math.min(3, S.mitsulFermentDay)),
+        );
 
         if (fermentPhase === "LID") {
           const label = $("#mitsul-mix-label");
