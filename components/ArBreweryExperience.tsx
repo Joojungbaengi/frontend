@@ -959,16 +959,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           /** 기울어진 정도 0~1 */
           tilt: 0,
           /**
-           * 다 붓고 난 뒤의 뒷정리 상태.
+           * 다 넣고 난 뒤의 뒷정리 상태.
            *   idle    평소
-           *   vanish  다 부은 자리에서 스르르 사라지는 중
-           *   return  제자리에서 다시 나타나는 중
+           *   vanish  다 넣은 자리에서 스르르 사라지는 중
+           *   gone    무대에서 아주 빠졌다 (다시 나타나지 않는다)
            */
-          state: "idle" as "idle" | "vanish" | "return",
+          state: "idle" as "idle" | "vanish" | "gone",
           /** 사라진 정도 0(보임) ~ 1(안 보임) */
           fade: 0,
-          /** 이번에 부은 몫을 이미 치웠나 — 사라짐 연출이 반복되지 않게 */
-          settled: false,
           phase: i,
           hover: false,
           grabbed: false,
@@ -1046,28 +1044,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 기울이기 — 붓는 동안만
           ud.tilt = THREE.MathUtils.lerp(ud.tilt, n === pouringNode ? 1 : 0, 0.18);
 
-          // 다 부은 그릇은 부은 그 자리에서 사라졌다가 제자리에 다시 놓인다.
-          // 빈 그릇이 손에 남아 있으면 "다 넣었다"가 안 읽히고, 그렇다고 영영
-          // 없애 버리면 다시 담고 싶을 때 집을 것이 없다.
-          {
-            if (ud.state === "idle" && ud.poured > 0.99 && !ud.grabbed && !ud.settled) {
-              ud.state = "vanish";
-            }
-            if (ud.state === "vanish") {
-              ud.fade = Math.min(1, ud.fade + dt / 0.3);
-              if (ud.fade >= 1) {
-                n.position.copy(ud.home);
-                n.rotation.set(0, ud.homeYaw, 0);
-                ud.state = "return";
-                ud.settled = true;
-              }
-            } else if (ud.state === "return") {
-              ud.fade = Math.max(0, ud.fade - dt / 0.35);
-              if (ud.fade <= 0) ud.state = "idle";
-            } else if (ud.poured < 0.99) {
-              ud.fade = 0;
-              ud.settled = false;
-            }
+          // 다 넣은 재료는 그 자리에서 사라지고 그대로 무대에서 빠진다.
+          // 제자리로 돌려놓으면 이미 담은 걸 또 담게 되고, 몇 가지를 넣었는지도
+          // 헷갈린다. 담긴 것은 담금 그릇 안에만 남는다.
+          if (ud.state === "idle" && ud.poured > 0.99 && !ud.grabbed) {
+            ud.state = "vanish";
+          }
+          if (ud.state === "vanish") {
+            ud.fade = Math.min(1, ud.fade + dt / 0.3);
+            if (ud.fade >= 1) ud.state = "gone";
           }
 
           // 통에 담긴 액체는 부을수록 줄어든다
@@ -1096,8 +1081,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             return;
           }
 
-          // 다 넣은 재료는 사라지는 동안 그 자리에 머물고, 사라진 뒤 제자리로 돌아온다.
-          if (ud.state !== "vanish") {
+          // 사라지는 동안에는 넣은 그 자리에 머문다
+          if (ud.state === "idle") {
             seat.copy(ud.home);
             n.position.lerp(seat, 0.25);
             n.rotation.set(0, ud.homeYaw, 0);
@@ -1272,6 +1257,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         let best: THREE.Group | null = null;
         let bestD = PICK_R;
         for (const n of ingredientNodes) {
+          if ((n.userData as any).state !== "idle") continue; // 이미 담은 재료는 무대에 없다
           n.getWorldPosition(nodeWorld);
           worldToScreen(nodeWorld, interactionCamera, nodeScreen);
           const d = screenDist(grab, nodeScreen);
@@ -1283,7 +1269,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         setHover(best);
 
         if (!best) {
-          setHandHud("tracking", "재료 위로 손을 옮겨 보세요");
+          const left = INGREDIENTS.filter((i) => i.essential && !S.selected.has(i.id)).length;
+          setHandHud("tracking", left ? "재료 위로 손을 옮겨 보세요" : "주원료가 다 모였어요 · 아래 버튼으로 이어가세요");
           return;
         }
 
@@ -1296,15 +1283,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           held = best;
           best.getWorldPosition(nodeWorld);
           heldDepth = interactionCamera.getWorldPosition(handOrigin).distanceTo(nodeWorld);
-          // 이미 담아 둔 걸 다시 집었다면 선택에서 빼 준다 (손에 들려 있으니까)
-          if (S.selected.has(id)) {
-            S.selected.delete(id);
-            syncIngredient(undefined, true);
-            ud.poured = 0;
-          }
-          ud.state = "idle";
-          ud.fade = 0;
-          ud.settled = false;
           setHandHud("holding", `${nameOf(id)}을(를) 잡았어요`);
           return;
         }
