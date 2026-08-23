@@ -3,43 +3,57 @@
 import { useEffect } from "react";
 
 /**
- * 화면을 처음 건드릴 때 전체화면으로 바꾼다 — 주소창을 걷어내기 위해서다.
+ * 화면을 건드릴 때 전체화면으로 바꾼다 — 주소창을 걷어내기 위해서다.
  *
- * 주소창은 페이지가 스스로 지울 수 없다. 홈 화면에 설치해 열면(standalone)
- * 애초에 안 나오지만, 링크를 눌러 브라우저 탭으로 연 사람에게는 그 길이 없다.
- * 전체화면 API 는 사용자가 화면을 건드린 직후에만 받아 주므로, 첫 손짓에 얹는다.
+ * 주소창은 페이지가 스스로 지울 수 없다. 어느 사이트를 보고 있는지 감추지
+ * 못하게 막아 둔 것이라, 웹 표준으로 없애는 길은 둘뿐이다 —
+ * 홈 화면에 설치해 앱처럼 열거나(app/manifest.ts), 전체화면 API 를 쓰거나.
  *
- * 페이지를 옮겨 다녀도 문서는 그대로라 전체화면이 유지된다. 그래서 한 번만 건다.
- * 거절당하면(브라우저가 막았거나 iOS 처럼 지원하지 않으면) 조용히 넘어간다 —
- * 주소창이 있는 것뿐이지 체험에는 아무 지장이 없다.
+ * 보통 모바일 브라우저는 아래로 스크롤할 때 주소창을 접어 주는데,
+ * 이 앱은 body 가 스크롤되지 않아(.phone 안에서만 스크롤) 그 일이 영영 없다.
+ * 그래서 손짓에 얹어 직접 전체화면으로 들어간다.
+ *
+ * 첫 손짓이 거절당하는 경우가 있어(정책·타이밍) 될 때까지 다시 시도한다.
+ * 다만 사용자가 스스로 빠져나오면 그 뜻을 존중하고 더 붙잡지 않는다.
  */
 export default function FullscreenOnTap() {
   useEffect(() => {
     const root = document.documentElement;
+    if (!root.requestFullscreen) return;
 
-    // 이미 설치해서 앱처럼 열었거나, 이미 전체화면이면 할 일이 없다
-    const standalone =
+    const isImmersive = () =>
+      Boolean(document.fullscreenElement) ||
       window.matchMedia?.("(display-mode: standalone)").matches ||
       window.matchMedia?.("(display-mode: fullscreen)").matches ||
       (navigator as unknown as { standalone?: boolean }).standalone === true;
-    if (standalone || document.fullscreenElement) return;
-    if (!root.requestFullscreen) return;
 
-    let done = false;
-    const enter = () => {
-      if (done) return;
-      done = true;
-      stop();
-      // 거절은 흔한 일이다 (권한 정책, 데스크톱 설정 등). 조용히 둔다.
-      void root.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
-    };
+    // 홈 화면에서 앱으로 열었다면 애초에 주소창이 없다
+    if (isImmersive()) return;
+
+    let settled = false;
     const stop = () => {
-      window.removeEventListener("pointerdown", enter);
-      window.removeEventListener("keydown", enter);
+      settled = true;
+      window.removeEventListener("pointerdown", tryEnter);
+      window.removeEventListener("keydown", tryEnter);
+      document.removeEventListener("fullscreenchange", onChange);
     };
 
-    window.addEventListener("pointerdown", enter, { once: true, passive: true });
-    window.addEventListener("keydown", enter, { once: true });
+    function tryEnter() {
+      if (settled || isImmersive()) return;
+      // 거절은 흔한 일이다. 조용히 두고 다음 손짓에 다시 해 본다.
+      void root.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+    }
+
+    function onChange() {
+      if (document.fullscreenElement) {
+        // 한 번 들어갔으면 더 붙잡지 않는다 — 나가는 것도 사용자 뜻이다
+        stop();
+      }
+    }
+
+    window.addEventListener("pointerdown", tryEnter, { passive: true });
+    window.addEventListener("keydown", tryEnter);
+    document.addEventListener("fullscreenchange", onChange);
     return stop;
   }, []);
 
