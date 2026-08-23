@@ -135,10 +135,17 @@ export class HandVisual {
 
     this.handScene.add(this.glove.group);
 
-    this.handScene.add(new THREE.HemisphereLight(0xfff6e6, 0x4a3a28, 1.1));
-    const key = new THREE.DirectionalLight(0xfff4e2, 2.3);
+    // 아래를 향한 면(손목 마개, 손바닥 그늘)은 하늘빛을 못 받고 바닥색만 받는다.
+    // 바닥색이 진한 갈색(0x4a3a28)이라 손목 끝이 거의 검게 나왔다 —
+    // 손목에 까만 줄이 생기던 원인이다. 살색에 가까운 밝은 바닥색으로 올린다.
+    this.handScene.add(new THREE.HemisphereLight(0xfff6e6, 0xc9a68c, 1.15));
+    const key = new THREE.DirectionalLight(0xfff4e2, 2.1);
     key.position.set(0.4, 1, 0.8);
     this.handScene.add(key);
+    // 손목 쪽을 아래에서 받쳐 주는 약한 빛. 어느 각도에서 봐도 끝이 죽지 않는다.
+    const fill = new THREE.DirectionalLight(0xffe9d8, 0.75);
+    fill.position.set(-0.3, -1, -0.4);
+    this.handScene.add(fill);
 
     this.cursor = new THREE.Mesh(
       new THREE.RingGeometry(0.22, 0.3, 28),
