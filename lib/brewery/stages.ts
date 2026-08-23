@@ -24,6 +24,15 @@ import type { ModelDef, ProcessStep } from "@/lib/brewery/types";
 /** 3D 모델이 사는 곳. 술끼리 공유한다. */
 export const AR_ASSETS = "/ar/3d-assets";
 
+/**
+ * 받침대(low wooden bench) 상판 위에 물건을 앉히는 높이(m).
+ *
+ * 예전에는 0.03 을 썼는데, 상판 맨 위가 0.2327m 이라 물건들이 하나같이
+ * 3cm 떠 있었다. 얹혀 있는 게 아니라 떠 있는 것처럼 보이던 원인이다.
+ * 판자 결이 조금 울퉁불퉁해서 2mm 만 남겨 그림자가 겹쳐 깜빡이지 않게 한다.
+ */
+export const BENCH_LIFT = 0.002;
+
 /** 덧술 횟수로 부르는 이름 — 덧술 2번이면 삼양주 */
 export function brewName(rounds: number): string {
   return ["단양주", "이양주", "삼양주", "사양주", "오양주"][rounds] ?? `${rounds + 1}양주`;
@@ -36,14 +45,14 @@ export function brewName(rounds: number): string {
 /** 어느 술이든 쓰는 무대 모델 — 받침대와 발효 항아리 */
 export function commonStageModels(): ModelDef[] {
   return [
-    { id: "low_wooden_bench", file: `${AR_ASSETS}/low_wooden_bench.glb`, step: "common", height: 0.14, y: 0.03 },
-    { id: "water_jar", file: `${AR_ASSETS}/water_jar.glb`, step: "ferment", height: 0.17, y: 0.03 },
+    { id: "low_wooden_bench", file: `${AR_ASSETS}/low_wooden_bench.glb`, step: "common", height: 0.14, y: BENCH_LIFT },
+    { id: "water_jar", file: `${AR_ASSETS}/water_jar.glb`, step: "ferment", height: 0.17, y: BENCH_LIFT },
   ];
 }
 
 /** 원료 고르기 한가운데 놓이는 큰 담금 그릇 — 재료를 여기에 붓는다 */
 export function ingredientBasinModel(): ModelDef {
-  return { id: "mixing_bowl", file: `${AR_ASSETS}/bowl.glb`, step: "ingredient", height: 0.15, y: 0.03 };
+  return { id: "mixing_bowl", file: `${AR_ASSETS}/bowl.glb`, step: "ingredient", height: 0.15, y: BENCH_LIFT };
 }
 
 /**
@@ -54,15 +63,15 @@ export function godubapStageModels(): ModelDef[] {
   return [
     // 같은 그릇이지만 여기서는 비워서 쓴다 — 물과 쌀알을 코드로 그려 넣어야 하니까.
     // (원료 고르기에서는 쌀이 담긴 그대로 쓴다)
-    { id: "rice_bowl", file: `${AR_ASSETS}/rice_bowl.glb`, step: "godubap", height: 0.16, y: 0.03, hollow: true },
-    { id: "bamboo_basket", file: `${AR_ASSETS}/bamboo_basket.glb`, step: "godubap", height: 0.11, y: 0.03 },
+    { id: "rice_bowl", file: `${AR_ASSETS}/rice_bowl.glb`, step: "godubap", height: 0.16, y: BENCH_LIFT, hollow: true },
+    { id: "bamboo_basket", file: `${AR_ASSETS}/bamboo_basket.glb`, step: "godubap", height: 0.11, y: BENCH_LIFT },
     // 증자 — 받침대를 치우고 바닥에 화덕을 놓는다. y 는 화덕 위 솥 자리에서 다시 잰다.
     { id: "camp_fire", file: `${AR_ASSETS}/camp_fire.glb`, step: "godubap", height: 0.115, y: 0 },
     // 솥과 뚜껑은 한 모델에서 갈라 나온 짝이라 **같은 배율**로 키워야 아귀가 맞는다.
     // 각자 목표 높이로 정규화하면 뚜껑이 솥보다 작거나 커져서 덮이지 않는다.
     { id: "steamer_pot", file: `${AR_ASSETS}/steamer_pot.glb`, step: "godubap", height: 0.16, y: 0, scaleFactor: 1.25 },
     { id: "steamer_lid", file: `${AR_ASSETS}/steamer_lid.glb`, step: "godubap", height: 0.075, y: 0, scaleFactor: 1.25 },
-    { id: "metal_food_tray", file: `${AR_ASSETS}/metal_food_tray.glb`, step: "godubap", height: 0.05, y: 0.03 },
+    { id: "metal_food_tray", file: `${AR_ASSETS}/metal_food_tray.glb`, step: "godubap", height: 0.05, y: BENCH_LIFT },
   ];
 }
 

@@ -20,6 +20,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { clone as skinnedClone } from "three/addons/utils/SkeletonUtils.js";
+import { BENCH_LIFT } from "@/lib/brewery/stages";
 import type { Recipe, ModelDef, ArStep, Ingredient } from "@/lib/brewery/types";
 import { HandTracker } from "@/lib/hand/handTracker";
 import { HandVisual, coverFit, screenDist, screenToWorld, toScreen, worldToScreen, type CoverFit } from "@/lib/hand/handVisual";
@@ -268,6 +269,58 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       ...((kneadDebug || productionMitsulMix) ? (["ferment"] as const) : []),
     ]);
 
+    /* ── 장면이 바뀔 때의 뜸 ──────────────────────────────────────────
+     * 무대가 통째로 갈리는 자리에서 모델이 그 자리에서 툭 사라지고
+     * 다른 게 툭 나타나면 눈이 따라가지 못한다. 잠깐 화면을 덮었다가,
+     * 가려진 사이에 갈아 끼우고, 다시 걷어낸다.
+     *
+     * key 가 같으면(같은 장면을 다시 그리는 것뿐이면) 그냥 바로 반영한다.
+     */
+    /** 지금 화면에 떠 있는 장면. 이게 바뀔 때만 덮는다. */
+    let veilKey = `step:${S.step}`;
+    /** 덮개가 오르내리는 중 */
+    let veilBusy = false;
+    /** 덮인 사이에 반영할 내용 */
+    let veilPending: (() => void) | null = null;
+    /** 지금 덮개 아래에서 반영하는 중 — 이때 겹쳐 불린 것은 그대로 같이 반영한다 */
+    let veilApplying = false;
+    const veilTimers: number[] = [];
+    /** 덮는 시간 · 덮인 채 두는 시간 · 걷는 시간 (ms) */
+    const VEIL_IN = 200, VEIL_HOLD = 130, VEIL_OUT = 320;
+
+    function stageVeil(key: string, apply: () => void) {
+      // 이미 덮개 아래다 — 무대를 갈아 끼우는 김에 같이 반영한다.
+      // (단계 build 안에서 하위 단계 표시 함수가 다시 불리는 경우)
+      if (veilApplying) { veilKey = key; apply(); return; }
+      // 덮개가 오르내리는 중이면, 덮였을 때 반영할 내용만 최신으로 갈아 둔다
+      if (veilBusy) { veilKey = key; veilPending = apply; return; }
+      // 같은 장면을 다시 그리는 것뿐이면 덮을 이유가 없다
+      if (key === veilKey) { apply(); return; }
+
+      veilKey = key;
+      veilBusy = true;
+      veilPending = apply;
+      uiRoot!.classList.add("stage-veil-on");
+      veilTimers.push(window.setTimeout(() => {
+        // 반영 도중 또 쌓이는 경우가 있어(하위 단계 표시) 남는 게 없을 때까지 돈다
+        veilApplying = true;
+        try {
+          for (let guard = 0; guard < 8 && veilPending; guard++) {
+            const run = veilPending;
+            veilPending = null;
+            run();
+          }
+        } finally {
+          veilApplying = false;
+          veilPending = null;
+        }
+        veilTimers.push(window.setTimeout(() => {
+          uiRoot!.classList.remove("stage-veil-on");
+          veilTimers.push(window.setTimeout(() => { veilBusy = false; }, VEIL_OUT));
+        }, VEIL_HOLD));
+      }, VEIL_IN));
+    }
+
     function setStep(next: typeof S.step) {
       if (productionCooling && S.step === "godubap" && next !== "godubap") {
         resetCoolingInteraction?.();
@@ -286,7 +339,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       document.documentElement.dataset.arStep = next === "done" ? "ferment" : next;
       // 원료 단계에 들어올 때마다 선택을 깨끗이 비워 '1개 선택된 채 시작'을 막는다.
       if (next === "ingredient") resetIngredientSelection();
-      buildStageFor(next);
+      stageVeil(`step:${next}`, () => buildStageFor(next));
       const needed = [
         ...MODELS.filter((m) => m.step === "common" || m.step === next),
         ...(next === "ingredient" ? [...(BASIN_MODEL ? [BASIN_MODEL] : []), ...PROP_MODELS] : []),
@@ -295,7 +348,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       ].filter((m) => !LOADED[m.id]);
       if (needed.length) {
         void Promise.all(needed.map(loadModel)).then(() => {
-          if (S.step === next) buildStageFor(next);
+          // 같은 장면을 채워 그리는 것뿐이라 덮개 없이 바로 반영된다
+          if (S.step === next) stageVeil(`step:${next}`, () => buildStageFor(next));
         });
       }
     }
@@ -764,6 +818,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       return g;
     }
 
+    /** 손에 든 물건을 대상 그릇보다 얼마나 앞에 둘지 (거리 대비) */
+    const HELD_FRONT_MARGIN = 0.12;
+    /**
+     * 손에 든 물건이 부어짐을 당하는 그릇을 뚫고 들어가지 않도록
+     * 카메라에서의 거리를 잘라 준다.
+     *
+     * 거리를 비율로만 자르면(0.88배) 물건 자체의 두께와, 기울였을 때
+     * 시선 방향으로 늘어나는 길이를 셈에 넣지 못해 여전히 겹쳐 보인다.
+     * clearance 에 그 여유(대개 물건 크기의 절반쯤)를 넘긴다.
+     */
+    function frontOf(targetDepth: number, heldDepth: number, clearance = 0) {
+      return Math.max(
+        0.3,
+        Math.min(heldDepth, targetDepth * (1 - HELD_FRONT_MARGIN) - clearance),
+      );
+    }
+
     interface ParticleOpt {
       color: number; size: number; opacity: number; speed: number;
       radius: number; baseY: number; height: number; taper: number;
@@ -1170,7 +1241,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           });
         }
 
-        const homeY = node ? platformTop + 0.03 : floatY;
+        const homeY = node ? platformTop + BENCH_LIFT : floatY;
         g.position.set(px, homeY, pz);
 
         // 재료의 실제 크기 — 이름표를 얼마나 위에 띄울지, 액체를 얼마나 채울지의 기준
@@ -1448,7 +1519,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        * 뒤쪽에 놓인 재료를 집어 그릇 위로 가져가면 그릇에 가려 안 보이는데,
        * 그러면 부어지고 있는지를 알 수가 없다. 손에 든 것은 언제나 그릇 앞에 온다.
        */
-      const HELD_FRONT_MARGIN = 0.12;
 
       let hovered: THREE.Group | null = null;
 
@@ -1498,7 +1568,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 그릇보다 뒤에 놓이지 않도록 거리를 잘라 준다
           const basinDepth = interactionCamera.getWorldPosition(handOrigin).distanceTo(basinWorld);
           // 당기는 양을 거리에 비례시킨다 — 가까운 무대에서 물건이 갑자기 커지지 않게.
-          const showDepth = Math.max(0.3, Math.min(heldDepth, basinDepth * (1 - HELD_FRONT_MARGIN)));
+          // 기울이면 그릇 윗부분이 시선 쪽으로 그만큼 나오므로 여유를 더 준다.
+          const showDepth = frontOf(
+            basinDepth, heldDepth, (ud.propH ?? 0.12) * 0.6 * ud.tilt,
+          );
           screenToWorld(grab.x, grab.y, showDepth, interactionCamera, grabTarget);
           stageGroup.worldToLocal(grabTarget);
           held.position.lerp(grabTarget, 0.5);
@@ -1831,7 +1904,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       /** 소쿠리 제자리 — 손으로 들었다 놓으면 여기로 돌아온다 */
       const basketHome = basketGroup
         ? (basketGroup as THREE.Group).position.clone()
-        : new THREE.Vector3(0, platformTop + 0.03, 0);
+        : new THREE.Vector3(0, platformTop + BENCH_LIFT, 0);
       const lidHome = lidGroup ? (lidGroup as THREE.Group).position.clone() : new THREE.Vector3();
       /* ── 냉각① tray pull 기술 검증 (?trayDebug=1 전용) ───────────────
        * 실제 metal_tray.glb scene 전체를 하나의 물체로 취급한다. 임시 레일은
@@ -2410,7 +2483,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const heldTarget = new THREE.Vector3();
 
       // 현재 하위 단계에 맞춰 무대 모델을 보이거나 숨긴다.
-      godubapShowStage = () => {
+      godubapShowStage = () => stageVeil(
+        `godubap:${Math.min(S.godubap, GB_LAST)}:${S.coolingPhase}`,
+        applyGodubapStage,
+      );
+      function applyGodubapStage() {
         const cur = GODUBAP_STEPS[Math.min(S.godubap, GB_LAST)];
         const show = new Set(cur?.models ?? []);
         Object.entries(stage).forEach(([id, groups]) => {
@@ -2579,14 +2656,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 그릇은 가라앉으며 작아지고, 소쿠리는 올라오며 커진다
           const out = THREE.MathUtils.smoothstep(swap, 0, 1);
           bowlG.scale.setScalar(Math.max(0.001, 1 - out));
-          bowlG.position.y = platformTop + 0.03 - out * 0.04;
+          bowlG.position.y = platformTop + BENCH_LIFT - out * 0.04;
           if (out >= 0.999) bowlG.visible = false;
           if (basketGroup) {
             basketGroup.scale.setScalar(0.6 + out * 0.4);
           }
         } else if (bowlG) {
           bowlG.scale.setScalar(1);
-          bowlG.position.y = platformTop + 0.03;
+          bowlG.position.y = platformTop + BENCH_LIFT;
           if (basketGroup) basketGroup.scale.setScalar(1);
         }
 
@@ -3588,7 +3665,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         nurukTop.position.y = 0.046;
         nurukActor.add(nurukTop);
       }
-      addActor("NURUK", "누룩", nurukActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
+      addActor("NURUK", "누룩", nurukActor, new THREE.Vector3(0.27, platformTop + BENCH_LIFT, 0.06));
 
       const waterActor = new THREE.Group();
       // 물은 재료 고르기에 나오는 그 물통을 그대로 쓴다. 단계마다 다른 그릇이
@@ -3627,7 +3704,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         fallbackWater.position.y = 0.065;
         waterActor.add(fallbackWater);
       }
-      addActor("WATER", "물통", waterActor, new THREE.Vector3(0.27, platformTop + 0.03, 0.06));
+      addActor("WATER", "물통", waterActor, new THREE.Vector3(0.27, platformTop + BENCH_LIFT, 0.06));
 
       const streamPositions = new Float32Array(30 * 3);
       const streamGeometry = new THREE.BufferGeometry();
@@ -4030,7 +4107,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (lidHeld) {
             // 뚜껑이 항아리에 파묻히지 않도록 언제나 항아리보다 앞에 둔다.
             const jarDepth = camera.getWorldPosition(handOrigin).distanceTo(jarOpeningWorld);
-            const showDepth = Math.max(0.3, Math.min(lidHeldDepth, jarDepth * 0.88));
+            const showDepth = frontOf(jarDepth, lidHeldDepth, lidRadius);
             screenToWorld(pinch.x, pinch.y, showDepth, camera, followTarget);
             stageGroup.worldToLocal(followTarget);
             followTarget.x = THREE.MathUtils.clamp(followTarget.x, -0.46, 0.46);
@@ -4217,7 +4294,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           // 항아리보다 뒤에 놓이면 그릇이 항아리에 파묻혀 붓는 게 안 보인다.
           // 재료 고르기와 같은 방식으로, 든 것은 언제나 항아리 앞에 온다.
           const jarDepth = camera.getWorldPosition(handOrigin).distanceTo(jarOpeningWorld);
-          const showDepth = Math.max(0.3, Math.min(heldDepth, jarDepth * 0.88));
+          const showDepth = frontOf(jarDepth, heldDepth, (current?.radius ?? 0.08) * 1.2);
           screenToWorld(pinch.x, pinch.y, showDepth, camera, followTarget);
           stageGroup.worldToLocal(followTarget);
           held.node.position.lerp(followTarget, 0.48);
@@ -4410,7 +4487,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
 
       // 다단식 랙과 당기는 Metal_Tray가 같은 무대 기준점을 공유한다.
-      const mashRackPosition = new THREE.Vector3(0.3, platformTop + 0.032, -0.25);
+      const mashRackPosition = new THREE.Vector3(0.3, platformTop + BENCH_LIFT + 0.002, -0.25);
       // 중앙 보정 오류를 고치기 전 화면에서 맞췄던 높이를 그대로 재현한다.
       // 당시 root.position 잔여값 때문에 실제 메시는 약 0.44m 낮게 보였다.
       const mashTrayShelfY = 0.28;
@@ -4573,7 +4650,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         mashJarHeight = size.y;
         mashJarWidth = Math.max(size.x, size.z);
         const g = new THREE.Group();
-        g.position.set(0, platformTop + 0.03, 0);
+        g.position.set(0, platformTop + BENCH_LIFT, 0);
         g.add(jarModel);
         jar.add(g);
       } else {
@@ -4592,8 +4669,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 누런빛을 띠고, 떠 있는 쌀알도 밑술 때보다 적다.
       // 항아리 속 술덧이 차 있는 높이. 밑술에서 넘어온 만큼(0)에서 시작해
       // 고두밥과 물을 더할수록 올라간다. 가득 채우지는 않는다 — 저을 자리가 있어야 한다.
-      const mashJarFloorY = platformTop + 0.03 + mashJarHeight * 0.30;
-      const mashJarBrimY = platformTop + 0.03 + mashJarHeight * 0.70;
+      const mashJarFloorY = platformTop + BENCH_LIFT + mashJarHeight * 0.30;
+      const mashJarBrimY = platformTop + BENCH_LIFT + mashJarHeight * 0.70;
       let mashFill = 0;                       // 0 = 밑술만 · 1 = 고두밥과 물까지
       const mashSurfaceAt = (fill: number) =>
         THREE.MathUtils.lerp(mashJarFloorY, mashJarBrimY, THREE.MathUtils.clamp(fill, 0, 1));
@@ -4625,7 +4702,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const mashWaterGroup = new THREE.Group();
       // 밑술 혼합에서 물통을 놓던 자리(x 0.27)를 좌우만 바꿔 그대로 쓴다.
       // 오른쪽은 채반 랙과 내려놓는 자리가 차지하고 있다.
-      const mashWaterHome = new THREE.Vector3(-0.27, platformTop + 0.03, 0.06);
+      const mashWaterHome = new THREE.Vector3(-0.27, platformTop + BENCH_LIFT, 0.06);
       mashWaterGroup.position.copy(mashWaterHome);
       let mashWaterLiquid: THREE.Mesh | null = null;
       let mashWaterFull = 0;
@@ -4992,7 +5069,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       fermentUpdateGauge = dayGauge.update;
 
       const F_LAST_I = FERMENT_STEPS.length - 1;
-      fermentShowStage = () => {
+      fermentShowStage = () => stageVeil(
+        `ferment:${Math.min(S.fstage, F_LAST_I)}`,
+        applyFermentStage,
+      );
+      function applyFermentStage() {
         const processId = FERMENT_STEPS[Math.min(S.fstage, F_LAST_I)]?.id;
         const mashStage = processId?.startsWith("mash") === true;
         if (mashStage && processId && activeMashId !== processId) resetMashTray(processId);
@@ -5340,7 +5421,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
           if (spatulaHeld) {
             const jarDist = interactionCamera.getWorldPosition(handOrigin).distanceTo(jarMouth);
-            const showDepth = Math.max(0.3, Math.min(spatulaDepth, jarDist * 0.88));
+            const showDepth = frontOf(jarDist, spatulaDepth, 0.1);
             screenToWorld(pinch.x, pinch.y, showDepth, interactionCamera, trayCarryTarget);
             stageGroup.worldToLocal(trayCarryTarget);
             spatulaGroup.position.lerp(trayCarryTarget, 0.45);
@@ -5402,7 +5483,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
           if (mashWaterHeld) {
             const jarDist = interactionCamera.getWorldPosition(handOrigin).distanceTo(jarMouth);
-            const showDepth = Math.max(0.3, Math.min(mashWaterDepth, jarDist * 0.88));
+            const showDepth = frontOf(jarDist, mashWaterDepth, mashWaterHeight * 0.6);
             screenToWorld(pinch.x, pinch.y, showDepth, interactionCamera, trayCarryTarget);
             stageGroup.worldToLocal(trayCarryTarget);
             mashWaterGroup.position.lerp(trayCarryTarget, 0.45);
@@ -5525,7 +5606,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     /* --- 15 · 완성 --- */
     function buildFinish() {
       const platformTop = addPlatform();
-      const contentY = platformTop + 0.03;
+      const contentY = platformTop + BENCH_LIFT;
       const finishBench = stageGroup.children.find((child) => child.userData.isLowWoodenBench);
       const forceShowFinishBench = () => {
         if (!finishBench) return;
@@ -6557,7 +6638,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const cameraInStage = new THREE.Vector3();
 
       const SHIP_AT = PRESS_STEPS.length - 1; // '출고' 인덱스
-      finishShowShip = () => {
+      finishShowShip = () => stageVeil(
+        `press:${Math.min(S.press, SHIP_AT)}:${S.press >= SHIP_AT}`,
+        applyFinishStage,
+      );
+      function applyFinishStage() {
         const shipped = S.press >= SHIP_AT;
         const processId = PRESS_STEPS[Math.min(S.press, SHIP_AT)]?.id;
         finishProcessModels.forEach(({ def, group }) => {
@@ -8524,6 +8609,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       {/* ?agingDebug=1 전용 — 저온숙성 항아리 옮기기 판정 확인 */}
       <pre id="aging-hand-debug" aria-live="polite">AGING HAND · 대기 중</pre>
+
+      {/* 장면이 갈릴 때 잠깐 덮는 막 — 가려진 사이에 모델이 바뀐다 */}
+      <div className="stage-veil" aria-hidden="true" />
 
       {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
       <div className="vignette" />

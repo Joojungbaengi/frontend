@@ -6,8 +6,7 @@ import {
   godubapStageModels,
   godubapSteps,
   ingredientBasinModel,
-  mashSteps,
-} from "@/lib/brewery/stages";
+  mashSteps, BENCH_LIFT } from "@/lib/brewery/stages";
 
 /**
  * 냥이탁주 9 — 고양 가와지쌀로 세 번 담가 빚는 삼양주 (행주산성주가).
@@ -75,7 +74,7 @@ export const nyangiTakju: Recipe = {
       // 이 모델은 루트 노드에 자체 배율이 걸려 있어 높이 자동 정규화가 통하지 않는다
       // (0.24 로 맞추려다 4m 가 나왔다). 원본이 이미 미터 단위라 배율 1이 실측 24cm 다.
       height: 0.24,
-      y: 0.03,
+      y: BENCH_LIFT,
       scaleFactor: 1,
     },
     {
@@ -84,7 +83,7 @@ export const nyangiTakju: Recipe = {
       step: "ferment",
       processSteps: ["mash1", "mash2"],
       height: 0.3,
-      y: 0.03,
+      y: BENCH_LIFT,
     },
     {
       id: "mash_metal_tray",
@@ -93,7 +92,7 @@ export const nyangiTakju: Recipe = {
       step: "ferment",
       processSteps: ["mash1", "mash2"],
       height: 0.05,
-      y: 0.03,
+      y: BENCH_LIFT,
     },
     {
       id: "mash_water_spout_jar",
@@ -101,7 +100,7 @@ export const nyangiTakju: Recipe = {
       step: "ferment",
       processSteps: ["mash1", "mash2"],
       height: 0.14,
-      y: 0.03,
+      y: BENCH_LIFT,
     },
     {
       id: "mash_jar_body",
@@ -109,7 +108,7 @@ export const nyangiTakju: Recipe = {
       step: "ferment",
       processSteps: ["mash1", "mash2"],
       height: 0.24,
-      y: 0.03,
+      y: BENCH_LIFT,
     },
     {
       id: "closed_jar",
@@ -117,7 +116,7 @@ export const nyangiTakju: Recipe = {
       step: "ferment",
       processSteps: ["post"],
       height: 0.25,
-      y: 0.03,
+      y: BENCH_LIFT,
     },
     {
       id: "press_jar",
@@ -125,7 +124,7 @@ export const nyangiTakju: Recipe = {
       step: "done",
       processSteps: ["press"],
       height: 0.3,
-      y: 0.03,
+      y: BENCH_LIFT,
     },
     {
       id: "cold_storage_chamber",
@@ -133,17 +132,17 @@ export const nyangiTakju: Recipe = {
       step: "done",
       processSteps: ["aging"],
       height: 0.3,
-      y: 0.03,
+      y: BENCH_LIFT,
     },
   ],
   godubapModels: godubapStageModels(),
 
   // 냉각/혼합 때 채반 위에 까는 고두밥 평면. 채반 크기에 맞춰 자동으로 덮되,
   // 채반이 없을 때 쓸 기본 크기는 3:5(직사각). texture 에 '고두밥' 이미지를 넣는다.
-  godubapRicePlane: { texture: "/ar/images/godubap.png", width: 0.18, depth: 0.30, y: 0.055 },
+  godubapRicePlane: { texture: "/ar/images/godubap.png", width: 0.18, depth: 0.30, y: BENCH_LIFT + 0.027 },
 
   // 완성 공정 '출고' 단계에서 나타나는 완성 제품 병 (Nyangi_Takju.glb 를 아래 경로에 넣어야 보인다)
-  finishModel: { id: "nyangi", file: `${AR_ASSETS}/Nyangi_Takju.glb`, step: "done", height: 0.28476, y: 0.03 },
+  finishModel: { id: "nyangi", file: `${AR_ASSETS}/Nyangi_Takju.glb`, step: "done", height: 0.28476, y: BENCH_LIFT },
 
   // ── 공정 ────────────────────────────────────────────────────────────
   // 겹치는 과정은 lib/brewery/stages.ts 에서 가져와 조립한다.

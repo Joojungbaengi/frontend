@@ -750,4 +750,15 @@ export const styles = `
   border:1px solid rgba(141,225,255,.5); background:rgba(0,12,20,.78); color:#b9efff;
   font-family:monospace; font-size:10px; line-height:1.45;
   white-space:pre-wrap; pointer-events:none}
+
+/* ── 장면 전환 막 ────────────────────────────────────────────────
+   무대가 통째로 갈리는 자리에서 모델이 툭 사라지고 툭 나타나는 걸 가린다.
+   덮을 때는 빠르게, 걷을 때는 느긋하게 — 새 장면이 천천히 드러난다. */
+.ar-ui .stage-veil{position:absolute; inset:0; z-index:40; pointer-events:none; opacity:0;
+  background:radial-gradient(120% 90% at 50% 45%, rgba(28,19,10,.62), rgba(14,9,5,.92));
+  transition:opacity .32s ease-out}
+.ar-ui.stage-veil-on .stage-veil{opacity:1; transition:opacity .2s ease-in}
+@media (prefers-reduced-motion: reduce){
+  .ar-ui .stage-veil{transition:none}
+}
 `;
