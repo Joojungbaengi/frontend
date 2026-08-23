@@ -366,13 +366,28 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     /** 지금 무대에 떠 있는 장면. 이게 바뀔 때만 갈아 끼운다. */
     let sceneKey = `step:${S.step}`;
 
-    /** 무대 위 물건들의 지금 보임 상태를 적어 둔다 (받침대는 빼고) */
+    /**
+     * 이 물건(과 그 아래 전부)은 fade 가 손대지 않는다.
+     *
+     * 스스로 투명도를 올렸다 내렸다 하는 연출이 붙은 것들이다.
+     * fade 는 물건만의 재질을 만들려고 원본을 복제하는데, 그러면 연출이
+     * 붙잡고 있던 재질이 화면에서 빠져 아무리 투명도를 올려도 안 보인다.
+     */
+    function markNoFade(root: THREE.Object3D | null | undefined) {
+      if (root) root.userData.noFade = true;
+    }
+
+    /** 무대 위 물건들의 지금 보임 상태를 적어 둔다 (받침대·자체 연출은 빼고) */
     function snapshotVisibility() {
       const map = new Map<THREE.Object3D, boolean>();
-      stageGroup.traverse((o) => {
-        if (o === stageGroup || o === platformNode) return;
-        map.set(o, o.visible);
-      });
+      const walk = (o: THREE.Object3D) => {
+        if (o !== stageGroup) {
+          if (o === platformNode || o.userData.noFade) return;
+          map.set(o, o.visible);
+        }
+        o.children.forEach(walk);
+      };
+      walk(stageGroup);
       return map;
     }
 
@@ -402,8 +417,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       const before = snapshotVisibility();
       apply();
-      stageGroup.traverse((o) => {
-        if (o === stageGroup || o === platformNode) return;
+      const visit = (o: THREE.Object3D) => {
+        if (o !== stageGroup) {
+          if (o === platformNode || o.userData.noFade) return;
+          step(o);
+        }
+        o.children.forEach(visit);
+      };
+      const step = (o: THREE.Object3D) => {
         const was = before.get(o);
         if (was === undefined) {
           // 이번에 새로 놓인 것
@@ -413,7 +434,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (was === o.visible) return;
         if (o.visible) fadeObject(o, true, 0);
         else { o.visible = true; fadeObject(o, false, 1); }
-      });
+      };
+      visit(stageGroup);
     }
 
     function setStep(next: typeof S.step) {
@@ -5862,8 +5884,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const SHIP_REVEAL_END = 0.3;
       const SHIP_BOUNCE_END = 0.48;
       const SHIP_CELEBRATE_END = 0.62;
-      const SHIP_RESULT_END = 0.82;
-      const SHIP_READY_AT = 0.9;
+      // 병이 먼저 자리를 잡고, 1초쯤 뒤에 완성 카드가 아래에서 올라온다
+      const SHIP_RESULT_END = 1.0;
+      const SHIP_READY_AT = 1.15;
 
       const setShipSequence = (phase?: "settling" | "reveal" | "celebrate" | "result" | "ready") => {
         if (phase) {
@@ -6050,6 +6073,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         });
         pressDrip.position.set(jarTopLocal.x, bojagiY - 0.03, jarTopLocal.z);
         pressDrip.visible = false;
+        markNoFade(pressDrip);
         stageGroup.add(pressDrip);
         live.particles.push(pressDrip);
 
@@ -6405,6 +6429,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       coldTarget.position.set(0, 0.012, 0);
       coldTarget.renderOrder = 12;
       coldTarget.visible = false;
+      markNoFade(coldTarget);
       coldZoneAnchor.add(coldTarget);
 
       // 항아리가 놓인 뒤에는 직사각형 목표 대신 원형 링과 방사형 눈금으로
@@ -6497,6 +6522,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       agingContactShadow.visible = false;
       coldZoneAnchor.add(agingContactShadow);
       placedIndicator.visible = false;
+      markNoFade(placedIndicator);
       coldZoneAnchor.add(placedIndicator);
 
       // 바닥 UI 전체를 덮는 보이지 않는 3D 충돌 박스. 항아리 중심이 들어오는 즉시
@@ -6534,6 +6560,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       coldFloorGlow.position.y = 0.003;
       coldFloorGlow.renderOrder = 11;
       coldFloorGlow.visible = false;
+      markNoFade(coldFloorGlow);
       coldZoneAnchor.add(coldFloorGlow);
 
       /* ── 찬 기운 ───────────────────────────────────────────────────
@@ -6546,6 +6573,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         radius: 0.055, baseY: 0.20, height: -0.19, taper: -1.5,
       });
       coldMist.visible = false;
+      markNoFade(coldMist);
       coldZoneAnchor.add(coldMist);
       live.particles.push(coldMist);
       /** 찬 기운이 오른 정도 0~1 */
@@ -6810,7 +6838,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           g.visible = false;
           stageGroup.add(g);
           shipModel = g;
-          
+          markNoFade(g);   // 등장 연출이 투명도를 직접 다룬다
           // 완성 병이 최종적으로 자리잡을 높이 저장
           shipRestY = g.position.y;
         }
@@ -6843,6 +6871,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         return ring;
       });
 
+      // 출고 연출은 빛과 발자국 투명도를 직접 다룬다 — fade 가 끼어들면 안 된다
+      glowRings.forEach(markNoFade);
       const hideGlowRings = () => glowRings.forEach((ring) => {
         ring.visible = false;
         ring.scale.setScalar(0.12);
@@ -6900,6 +6930,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         [0, contentY + 0.29, 0, 0.022],
         [-0.12, contentY + 0.16, -0.02, 0.016],
       ] as const;
+      paws.forEach(markNoFade);
       const sparkles = sparkleDefs.map(([x, y, z, size], i) => {
         const material = new THREE.SpriteMaterial({
           map: sparkleTexture,
@@ -6919,6 +6950,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         stageGroup.add(sprite);
         return sprite;
       });
+      sparkles.forEach(markNoFade);
 
       type ShipPhase = "hidden" | "revealing" | "complete";
       let shipPhase: ShipPhase = "hidden";
@@ -8510,17 +8542,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         markObtained(recipe.drinkId);
       };
 
-    const btnShipAgain = $("#btn-ship-again");
-    if (btnShipAgain) {
-      (btnShipAgain as HTMLButtonElement).onclick = () => {
-        S.press = PRESS_STEPS.length - 1;
-        delete uiRoot.dataset.shipSequence;
-        uiRoot.classList.remove("ship-capture");
-        buildStageFor("done");
-        syncPress();
-      };
-    }
-
     const btnShipInfo = $("#btn-ship-info");
     if (btnShipInfo) {
       (btnShipInfo as HTMLButtonElement).onclick = async () => {
@@ -9217,17 +9238,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             </div>
             <h2>양조가 <em>완료</em>되었습니다!</h2>
             <p className="ship-card-note">가와지쌀 삼양주 9도 · 부드럽고 새콤달콤한 맛</p>
-            <button id="btn-ship-again" className="ship-row" type="button">
-              <img className="ship-row-icon" src="/ar/ui/shipping-drink-set.png" alt="" aria-hidden="true" />
-              <b>냥이탁주 다시 빚기</b><i>›</i>
-            </button>
-            <div className="ship-save-row">
+            <button id="btn-ship-capture" className="ship-save-row" type="button">
               <span className="ship-result-thumb">
                 <img src={recipe.finish.image} alt="완성된 냥이탁주 결과 미리보기" />
               </span>
-              <span><b>결과 이미지 저장</b><small>완성된 병과 양조 결과를 기록해요</small></span>
-              <button id="btn-ship-capture" type="button">촬영하기</button>
-            </div>
+              <span>
+                <b>완성한 술 사진으로 남기기</b>
+                <small>완성된 병과 양조 결과를 기록해요</small>
+              </span>
+              <i aria-hidden="true">›</i>
+            </button>
             <button id="btn-ship-info" className="ship-primary" type="button">
               완성된 냥이탁주 정보 보기
             </button>

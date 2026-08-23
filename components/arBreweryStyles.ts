@@ -706,12 +706,13 @@ export const styles = `
 .ar-ui .ship-row{display:grid;grid-template-columns:34px 1fr 18px;align-items:center;text-align:left;font:inherit;cursor:pointer}
 .ar-ui .ship-row-icon{display:block;width:31px;height:27px;object-fit:contain;filter:drop-shadow(0 1px 2px rgba(49,25,12,.16))}
 .ar-ui .ship-row b{font-family:var(--font-myeongjo),serif;font-size:14px}.ar-ui .ship-row i{font-style:normal;font-size:24px}
-.ar-ui .ship-save-row{display:grid;grid-template-columns:45px 1fr auto;align-items:center;gap:10px;margin-top:9px;text-align:left}
+.ar-ui .ship-save-row{display:grid;grid-template-columns:45px 1fr 18px;align-items:center;gap:10px;margin-top:9px;text-align:left;font:inherit;cursor:pointer}
 .ar-ui .ship-result-thumb{display:block;width:45px;height:45px;overflow:hidden;border-radius:9px;border:1px solid rgba(102,61,36,.18);background:rgba(74,42,24,.18)}
 .ar-ui .ship-result-thumb img{display:block;width:100%;height:100%;object-fit:cover;object-position:center;transform:scale(1.42)}
-.ar-ui .ship-save-row span{min-width:0}.ar-ui .ship-save-row b{display:block;font-family:var(--font-myeongjo),serif;font-size:13px}
+.ar-ui .ship-save-row span{min-width:0}.ar-ui .ship-save-row b{display:block;font-family:var(--font-myeongjo),serif;font-size:14px}
 .ar-ui .ship-save-row small{display:block;margin-top:3px;color:#806049;font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ar-ui .ship-save-row button{border:1px solid rgba(255,255,255,.42);border-radius:999px;padding:9px 11px;background:rgba(255,255,255,.48);color:#4b3020;font:inherit;font-size:11px}
+.ar-ui .ship-save-row i{font-style:normal;font-size:24px;color:#7a5636}
+.ar-ui .ship-save-row:active{transform:scale(.995)}
 .ar-ui .ship-primary{width:100%;margin-top:11px;padding:15px;border:1px solid rgba(255,231,196,.34);
   border-radius:16px;color:#fff6e6;font-family:var(--font-myeongjo),serif;
   font-size:15px;font-weight:700;letter-spacing:.01em;
