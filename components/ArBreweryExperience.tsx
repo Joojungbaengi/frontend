@@ -64,6 +64,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const kneadDebug = query.get("kneadDebug") === "1";
     const mitsulMixDebug = query.get("mitsulMixDebug") === "1";
     const mitsulFermentDebug = query.get("mitsulFermentDebug") === "1";
+    const agingDebug = query.get("agingDebug") === "1";
     const skipToCooling = trayDebug && query.get("skipTo") === "cooling";
     const skipToRiceSpread = riceSpreadDebug && query.get("skipTo") === "riceSpread";
     const skipToKnead = kneadDebug && query.get("skipTo") === "knead";
@@ -77,6 +78,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     uiRoot.classList.toggle("knead-debug", kneadDebug);
     uiRoot.classList.toggle("mitsul-mix-debug", mitsulMixDebug);
     uiRoot.classList.toggle("mitsul-ferment-debug", mitsulFermentDebug);
+    uiRoot.classList.toggle("aging-debug", agingDebug);
 
     /* =====================================================================
      * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
@@ -203,6 +205,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     let fermentUpdateGauge: ((progress: number, day: number) => void) | null = null;
     /** 밑술 1차 발효의 원형 게이지를 켜고 눈금을 그리는 함수 (buildMitsulMix 가 채운다) */
     let mitsulGaugeSync: ((show: boolean, progress: number, day: number) => void) | null = null;
+    // 저온숙성이 직접 쓴 안내 문구. syncPress 가 덮어쓰지 않도록 여기 담아 둔다.
+    let agingCopy: { caption: string; hint: string } | null = null;
     /**
      * 지금이 부채질로 식혀야 하는 국면인가.
      *
@@ -2483,7 +2487,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           godubapShowStage?.();
           syncGodubap();
           $("#quiz")?.classList.remove("hidden");
-          setHandHud("idle", "고두밥을 골고루 펼쳤어요 · 장인의 질문에 답해주세요");
+          setHandHud("idle", "고두밥을 골고루 펼쳤어요");
         }
 
         // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
@@ -5035,7 +5039,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           const targetRingMaterial = targetRing.material as THREE.MeshBasicMaterial;
           targetRingMaterial.color.setHex(
             mashTraySnapshot.grabbed
-              ? 0x62e89a // 초록: 트레이 잡기 성공
+              ? 0x62e89a // 초록: 채반 잡기 성공
               : mashTraySnapshot.state === "HOVER"
                 ? 0x65d9ff // 하늘색: 잡을 수 있는 위치
                 : 0xffd45f, // 노랑: 손을 가져갈 위치
@@ -5139,12 +5143,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       live.onHand = (frame, hand, interactionCamera) => {
         const processId = FERMENT_STEPS[Math.min(S.fstage, F_LAST_I)]?.id;
         if (!processId?.startsWith("mash") || !mashTrayRig.visible) return;
-        if (mashTrayPhase === "placed" || S.mashTrayDone.has(processId)) {
-          setHandHud("dropped", "채반을 놓았어요 · 이제 고두밥을 항아리에 넣어 주세요");
+        if (mashTrayPhase === "placed" && !mashRicePoured) {
+          setHandHud("dropped", "채반이 자리를 잡았어요 · 고두밥이 항아리로 쏟아집니다");
           return;
         }
         if (mashTrayPhase === "snapping") {
-          setHandHud("dropped", "채반을 항아리 옆에 내려놓고 있어요");
+          setHandHud("dropped", "채반을 자리에 내려놓는 중이에요");
           return;
         }
 
@@ -5206,10 +5210,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
           if (frame.justReleased) {
             mashTrayPhase = "extracted";
-            setHandHud("tracking", "채반을 다시 잡아 노란 자리에 놓아 주세요");
+            setHandHud("tracking", "채반을 다시 잡아 노란 자리에 놓아주세요");
             return;
           }
-          setHandHud("holding", "채반을 항아리 옆의 노란 자리로 옮기세요");
+          setHandHud("holding", "채반을 항아리 옆 노란 자리로 옮기세요");
           return;
         }
 
@@ -5366,9 +5370,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (mashTraySnapshot.state === "COMPLETE") {
           mashTrayVisualProgress = 1;
           beginTrayCarry();
-          setHandHud("holding", "꺼낸 채반을 항아리 옆의 노란 자리로 옮기세요");
+          setHandHud("holding", "채반을 항아리 옆 노란 자리로 옮기세요");
         } else if (mashTraySnapshot.grabbed) {
-          setHandHud("holding", "트레이 잡기 성공 · 손가락을 붙인 채 몸 쪽으로 당기세요");
+          setHandHud("holding", "채반을 잡았어요 · 손가락을 붙인 채 몸 쪽으로 당기세요");
         } else if (hovering) {
           setHandHud(
             "hover",
@@ -6066,6 +6070,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const targetScreen = { x: 0.5, y: 0.5 };
 
       const setAgingCopy = (caption: string, hint = "") => {
+        agingCopy = { caption, hint };
         const cap = $("#cap-finishing");
         if (cap) cap.textContent = caption;
         const hintNode = $("#finishing-hint");
@@ -7428,7 +7433,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             : skipToCooling && S.godubap === GB_LAST
               ? "노란 표시를 pinch한 뒤 손을 몸 쪽으로 당겨주세요"
             : S.godubap >= GB_N
-            ? "고두밥이 완성됐어요. 아래 버튼으로 이어가세요."
+            ? "고두밥이 완성됐어요 · 아래 버튼으로 이어가요"
             : S.godubap === GB_LAST
               ? !S.quizDone
                 ? "장인의 질문에 먼저 답해주세요"
@@ -7489,7 +7494,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             : S.coolingPhase === "RICE_SPREAD"
               ? "고두밥을 펼치는 중…"
               : S.coolingPhase === "QUIZ"
-                ? "장인의 질문에 답해주세요"
+                ? "답을 고르면 이어져요"
                 : "고두밥을 식히는 중…"
           : ready
           ? "누룩 섞고 항아리에 담기"
@@ -7675,7 +7680,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const labels = {
         RICE: `고두밥을 한 움큼씩 항아리에 담아주세요 · ${S.mitsulRiceScoops}/3`,
         NURUK: "누룩을 집어 항아리 안에 넣어주세요",
-        WATER: "물 항아리를 집어 기울여 부어주세요",
+        WATER: "물을 집어 항아리 위로 옮겨주세요",
         KNEAD: `손으로 치대며 버무리기 · ${S.mitsulKneadCount}/${KNEAD.TARGET_KNEAD_COUNT}`,
         COMPLETE: "재료가 골고루 섞였어요 · 혼합 완료",
       } satisfies Record<typeof phase, string>;
@@ -7734,11 +7739,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (pct) pct.textContent = "혼합 완료";
           const bar = $("#bar-mitsul-mix") as HTMLElement | null;
           if (bar) bar.style.width = "100%";
-          const button = $("#btn-mitsul-mix") as HTMLButtonElement | null;
-          if (button) {
-            button.disabled = true;
-            button.textContent = "항아리 뚜껑을 닫아주세요";
-          }
           fermentButton?.classList.add("hidden");
         } else if (fermentPhase === "TEMPERATURE") {
           $("#ferment-temp-controls")?.classList.remove("hidden");
@@ -7792,7 +7792,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         (pill as HTMLElement).dataset.state = index === 0 ? (S.mitsulDone ? "done" : "now") : "todo";
       });
       const hint = $("#ferment-hint");
-      if (hint) hint.textContent = S.mitsulDone ? "혼합까지만 구현된 production 검증입니다" : "고두밥 → 누룩 → 물 → 치대기 순서로 진행해요";
+      if (hint) hint.textContent = S.mitsulDone
+        ? "혼합을 마쳤어요 · 이제 발효로 넘어가요"
+        : "고두밥 → 누룩 → 물 → 치대기 순서로 진행해요";
       const caption = $("#cap-ferment");
       if (caption) caption.textContent = captions[phase];
       const label = $("#mitsul-mix-label");
@@ -7801,12 +7803,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (pct) pct.textContent = `${Math.round(overall * 100)}%`;
       const bar = $("#bar-mitsul-mix") as HTMLElement | null;
       if (bar) bar.style.width = `${overall * 100}%`;
-      const button = $("#btn-mitsul-mix") as HTMLButtonElement | null;
-      if (button) {
-        button.disabled = true;
-        button.classList.toggle("complete", S.mitsulDone);
-        button.textContent = S.mitsulDone ? "혼합 완료" : labels[phase];
-      }
     }
     // 후발효(fstage 3)에서만 온도 게임·항아리 자동 발효가 돈다. 그 전엔 탭으로만 진행.
     function syncFermentPhase() {
@@ -7819,6 +7815,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       $("#mitsul-mix-game")?.classList.add("hidden");
       $("#mitsul-timelapse")?.classList.add("hidden");
       uiRoot!.classList.remove("mitsul-no-hands");
+      const mixHint = $("#ferment-hint");
+      if (mixHint) mixHint.textContent = "";
 
       fermentShowStage?.(); // 혼합=채반+고두밥 / 1차발효~=항아리
       $$("#ferment-pills .pill").forEach((p, i) => {
@@ -7834,13 +7832,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       $("#btn-ferment")?.classList.toggle("hidden", !active);
       if (active) onFermentTick();       // 후발효: 일차·원형 게이지·버튼 갱신
       else {
+        const trayPending = mashActive && !S.mashTrayDone.has(current.id);
         const cap = $("#cap-ferment");
         if (cap) {
-          cap.textContent = current.id === "mash2"
-            ? "술덧을 한 차례 더 넣어주세요"
-            : current.id.startsWith("mash") && !S.mashTrayDone.has(current.id)
-              ? `${current.name} · 채반을 잡고 몸 쪽으로 당겨 꺼내세요`
+          cap.textContent = trayPending
+            ? `${current.name} · 채반을 잡고 몸 쪽으로 당겨 꺼내세요`
+            : current.id === "mash2"
+              ? "술덧을 한 차례 더 넣어주세요"
               : current.caption;
+        }
+        // 덧술에서는 온도 조절부를 접어 코치 말풍선만 남는다.
+        // 후발효 문구가 그대로 남아 있으면 지금 할 일과 어긋나므로 여기서 다시 쓴다.
+        const mashMessage = $("#msg-ferment");
+        if (mashActive && mashMessage) {
+          mashMessage.textContent = trayPending
+            ? "식힌 고두밥이 담긴 채반부터 꺼내 오게."
+            : "고두밥과 물을 넣고, 주걱으로 고루 저어보게.";
         }
       }
     }
@@ -7916,20 +7923,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 압착·여과의 짜기 동작과 저온숙성의 항아리 옮기기에서 손 입력을 사용한다.
       // 출고 연출에서는 다시 멈춰 렌더링 여유를 확보한다.
       handTracker?.setPaused(cur?.id !== "press" && cur?.id !== "aging");
+      if (cur?.id !== "aging") agingCopy = null;
       const cap = $("#cap-finishing");
       if (cap) {
-        cap.textContent = done
-          ? "양조가 완료되었습니다!"
-          : shipping
-            ? "냥이탁주 라벨이 정면을 향하며 완성 병이 나타나고 있어요"
-            : cur.caption;
+        cap.textContent = agingCopy
+          ? agingCopy.caption
+          : done
+            ? "양조가 완료되었습니다!"
+            : shipping
+              ? "냥이탁주 라벨이 정면을 향하며 완성 병이 나타나고 있어요"
+              : cur.caption;
       }
       const hint = $("#finishing-hint");
       if (hint) {
-        hint.textContent = done
-          ? "🐾 냥이탁주가 세상에 나갈 준비를 마쳤어요"
-          : shipping
-            ? ""
+        hint.textContent = agingCopy
+          ? agingCopy.hint
+          : done
+            ? "🐾 냥이탁주가 세상에 나갈 준비를 마쳤어요"
             : "";
       }
       const b = $("#btn-finishing") as HTMLButtonElement | null;
@@ -7940,14 +7950,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           ? "🐾 나의 술 확인하기"
           : shipping
             ? "완성 병 등장 중…"
-            : "공정을 순서대로 진행하세요";
+            : cur?.id === "press"
+              ? "손으로 짜면 이어져요"
+              : cur?.id === "aging"
+                ? "숙성이 끝나면 이어져요"
+                : "공정을 순서대로 진행하세요";
       }
     }
     const btnFinishing = $("#btn-finishing");
     if (btnFinishing)
       (btnFinishing as HTMLElement).onclick = () => {
         if (btnFinishing.classList.contains("waiting")) {
-          showNotice("위쪽 타임라인에서 단계를 차례로 눌러 마지막 공정을 마쳐 주세요.");
+          showNotice("지금 공정을 마치면 다음 단계로 이어집니다.");
           return;
         }
         uiRoot!.classList.add("shipped");
@@ -8382,91 +8396,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         <p>덧술 1과 같은 과정이에요</p>
       </div>
 
-      {/* TEMP DEBUG — 개발 완료 후 삭제 */}
-      <button
-        id="debug-skip-before-press"
-        type="button"
-        style={{
-          position: "absolute",
-          top: 174,
-          right: 12,
-          zIndex: 9999,
-          padding: "8px 12px",
-          borderRadius: 8,
-          border: "1px solid rgba(255,255,255,0.4)",
-          background: "rgba(0,0,0,0.7)",
-          color: "#fff",
-          fontSize: 11,
-          fontWeight: 700,
-        }}
-      >
-        DEV · 압착·여과 직전
-      </button>
-      <button
-        id="debug-skip-before-post-fermentation"
-        type="button"
-        style={{
-          position: "absolute",
-          top: 124,
-          right: 12,
-          zIndex: 9999,
-          padding: "8px 12px",
-          borderRadius: 8,
-          border: "1px solid rgba(255,255,255,0.4)",
-          background: "rgba(0,0,0,0.7)",
-          color: "#fff",
-          fontSize: 11,
-          fontWeight: 700,
-        }}
-      >
-        DEV · 후발효 직전
-      </button>
+      {/* TEMP DEBUG — 개발 완료 후 삭제. 한 줄로 묶어 간격을 맞춘다. */}
+      <div className="dev-jump">
+        <button id="debug-skip-before-post-fermentation" type="button">DEV · 후발효 직전</button>
+        <button id="debug-skip-before-press" type="button">DEV · 압착·여과 직전</button>
+        <button id="debug-skip-before-first-mash" type="button">DEV · 덧술1 직전</button>
+      </div>
 
-      <button
-        id="debug-skip-before-first-mash"
-        type="button"
-        style={{
-          position: "absolute",
-          top: 218,
-          right: 12,
-          zIndex: 9999,
-          padding: "8px 12px",
-          borderRadius: 8,
-          border: "1px solid rgba(255,255,255,0.4)",
-          background: "rgba(0,0,0,0.7)",
-          color: "#fff",
-          fontSize: 11,
-          fontWeight: 700,
-        }}
-      >
-        DEV · 덧술1 직전
-      </button>
-
-      <pre
-        id="aging-hand-debug"
-        aria-live="polite"
-        style={{
-          position: "absolute",
-          top: 262,
-          right: 12,
-          zIndex: 9999,
-          minWidth: 190,
-          margin: 0,
-          padding: "8px 10px",
-          borderRadius: 8,
-          border: "1px solid rgba(141,225,255,0.5)",
-          background: "rgba(0,12,20,0.78)",
-          color: "#b9efff",
-          fontSize: 10,
-          lineHeight: 1.45,
-          fontFamily: "monospace",
-          pointerEvents: "none",
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        AGING HAND · 대기 중
-      </pre>
-
+      {/* ?agingDebug=1 전용 — 저온숙성 항아리 옮기기 판정 확인 */}
+      <pre id="aging-hand-debug" aria-live="polite">AGING HAND · 대기 중</pre>
 
       {/* 냉각 단계 가장자리 어둡게(비네트) — .cooling 일 때만 보인다 */}
       <div className="vignette" />
@@ -8605,7 +8543,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             <i className="lamp" />
             <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
           </div>
-          <button className="cta" id="btn-ingredient" disabled>주원료 선택</button>
+          <button className="cta" id="btn-ingredient" disabled>주원료 0/4 선택</button>
         </div>
       </div>
 
@@ -8648,6 +8586,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       {/* 14 · 발효 */}
       <div className="panel-step" id="p-ferment">
         <div className="steps" id="ferment-pills" />
+        <div className="steps-hint" id="ferment-hint"></div>
         <div className="fill">
           <div className="caption" id="cap-ferment">{recipe.fermentSteps[0]?.caption}</div>
         </div>
@@ -8655,13 +8594,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           <div id="mash-tray-place-guide" className="mash-tray-place-guide hidden" aria-live="polite">
             <img src="/ar/ui/mash-tray-place-card.jpg" alt="채반을 바닥 가이드 위에 내려놓는 모습" />
             <div>
-              <strong>바닥 가이드 위에<br />채반을 놓아주세요</strong>
-              <span>모서리가 초록색이 되면 배치 완료</span>
+              <strong>노란 자리 위로<br />채반을 옮겨주세요</strong>
+              <span>자리에 닿으면 저절로 놓여요</span>
             </div>
-          </div>
-          <div className="hand-hud" data-state="idle">
-            <span className="lamp" />
-            <span className="hand-hud-msg">손을 카메라에 비춰 주세요</span>
           </div>
           <div className="hand-hud" data-state="idle">
             <i className="lamp" />
@@ -8673,7 +8608,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               <span className="ferment-pct" id="mitsul-mix-pct">0%</span>
             </div>
             <div className="bar"><i id="bar-mitsul-mix" /></div>
-            <button className="cta" id="btn-mitsul-mix" disabled>식힌 고두밥을 항아리에 부어주세요</button>
           </div>
           <div id="mitsul-timelapse" className="hidden">
             <div className="ferment-row">

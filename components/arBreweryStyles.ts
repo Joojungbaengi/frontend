@@ -482,8 +482,10 @@ export const styles = `
 }
 
 @keyframes ar-pulse{0%,100%{box-shadow:0 0 0 0 rgba(181,72,47,.55)}50%{box-shadow:0 0 0 8px rgba(181,72,47,0)}}
-.ar-ui .steps-hint{margin:10px 22px 0; text-align:center; font-size:12px; color:var(--gold-bright);
-  text-shadow:0 1px 6px rgba(0,0,0,.75)}
+.ar-ui .steps-hint{margin:10px 22px 0; text-align:center; font-size:12px; line-height:1.55;
+  color:var(--gold-bright); word-break:keep-all; text-shadow:0 1px 6px rgba(0,0,0,.75)}
+/* 문구가 없는 단계에서는 자리째 접는다 — 빈 줄의 여백만 남지 않게 */
+.ar-ui .steps-hint:empty{display:none}
 
 .ar-ui .caption{position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:12px; color:var(--cream-dim)}
 
@@ -529,11 +531,16 @@ export const styles = `
 /* 온도가 어긋나면 진행 막대와 안내 문구가 함께 색으로 알려준다 */
 .ar-ui .bar i[data-state="warn"]{background:#d8a441}
 .ar-ui .bar i[data-state="bad"]{background:var(--clay)}
-.ar-ui .ferment-row{display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px;
-  color:var(--cream-dim); text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.ar-ui .ferment-row{display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+  font-size:12.5px; line-height:1.5; color:var(--cream-dim); text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.ar-ui .ferment-row .ferment-rate{min-width:0; word-break:keep-all}
+.ar-ui .ferment-row .ferment-pct{flex:none; font-variant-numeric:tabular-nums}
 /* 온도 게임 묶음 — 후발효에서만 보인다. dock과 같은 간격을 안에서 유지한다. */
 .ar-ui #ferment-game{display:flex; flex-direction:column; gap:14px}
-.ar-ui #mitsul-mix-game{display:flex; flex-direction:column; gap:12px}
+.ar-ui #godubap-game,
+.ar-ui #mitsul-mix-game{display:flex; flex-direction:column; gap:12px; padding:14px 15px;
+  border:1px solid var(--line); border-radius:var(--r-md); background:rgba(28,21,12,.82);
+  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px)}
 .ar-ui #mitsul-mix-game.hidden{display:none}
 .ar-ui #mitsul-timelapse{display:flex; flex-direction:column; gap:12px; padding:14px 15px;
   border:1px solid var(--line); border-radius:var(--r-md); background:rgba(28,21,12,.82); backdrop-filter:blur(6px)}
@@ -728,4 +735,20 @@ export const styles = `
 .ar-ui #btn-capture-sticker[aria-pressed="false"]{opacity:.55}
 
 @media (prefers-reduced-motion:reduce){.ar-ui *{animation:none !important; transition:none !important}}
+
+/* ── 개발용 ─────────────────────────────────────────────
+   TEMP: 단계 이동 버튼. 오른쪽 위는 덧술2 건너뛰기가 쓰므로 왼쪽에 세로로 세운다. */
+.ar-ui .dev-jump{position:absolute; top:180px; left:12px; z-index:9998;
+  display:flex; flex-direction:column; align-items:flex-start; gap:8px; pointer-events:auto}
+.ar-ui .dev-jump button{padding:8px 12px; border-radius:8px;
+  border:1px solid rgba(255,255,255,.4); background:rgba(0,0,0,.7); color:#fff;
+  font:inherit; font-size:11px; font-weight:700; white-space:nowrap}
+
+/* ?agingDebug=1 일 때만 보이는 저온숙성 손 판정 값 */
+.ar-ui #aging-hand-debug{display:none}
+.ar-ui.aging-debug #aging-hand-debug{display:block; position:absolute; top:80px; right:12px; z-index:9999;
+  min-width:190px; margin:0; padding:8px 10px; border-radius:8px;
+  border:1px solid rgba(141,225,255,.5); background:rgba(0,12,20,.78); color:#b9efff;
+  font-family:monospace; font-size:10px; line-height:1.45;
+  white-space:pre-wrap; pointer-events:none}
 `;
