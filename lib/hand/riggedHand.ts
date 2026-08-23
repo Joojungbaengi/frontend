@@ -21,6 +21,53 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { HandFrame } from "@/lib/hand/types";
 
+/**
+ * 손목을 막은 면을 조명에서 떼어 낸다.
+ *
+ * 이 손 모델은 손목 끝이 뚫려 있지 않고 막혀 있다(경계 모서리 0개).
+ * 그 마개는 손끝 반대쪽 — 대개 아래를 향해서, 위에서 오는 빛을 못 받고
+ * 환경광의 바닥색만 받는다. 그래서 거의 검은 타원으로 나오고,
+ * 비스듬히 보면 얇게 눌려 손목 옆에서 뻗어 나온 검은 줄처럼 보인다.
+ *
+ * 살빛 무광으로 칠해 어느 각도·어느 조명에서도 어두워지지 않게 한다.
+ * 어차피 손목 끝은 화면 밖으로 이어지는 자리라 음영이 필요 없다.
+ */
+function flattenWristCap(mesh: THREE.SkinnedMesh) {
+  const geo = mesh.geometry;
+  const index = geo.getIndex();
+  const normal = geo.getAttribute("normal");
+  const position = geo.getAttribute("position");
+  if (!index || !normal || !position) return;
+
+  // 손끝은 -Y 쪽, 손목은 +Y 쪽이다. 손목 끝 높이를 먼저 잡는다.
+  let maxY = -Infinity;
+  for (let i = 0; i < position.count; i++) maxY = Math.max(maxY, position.getY(i));
+
+  const cap: number[] = [];
+  const rest: number[] = [];
+  const tri = [0, 0, 0];
+  for (let t = 0; t < index.count; t += 3) {
+    tri[0] = index.getX(t); tri[1] = index.getX(t + 1); tri[2] = index.getX(t + 2);
+    // 세 꼭짓점이 모두 손목 끝에 붙어 있고, 면이 손끝 반대쪽(+Y)을 보면 마개다
+    const atEnd = tri.every((v) => maxY - position.getY(v) < 0.004);
+    const facingBack = tri.every((v) => normal.getY(v) > 0.55);
+    (atEnd && facingBack ? cap : rest).push(tri[0], tri[1], tri[2]);
+  }
+  if (!cap.length) return;
+
+  geo.setIndex([...rest, ...cap]);
+  geo.clearGroups();
+  geo.addGroup(0, rest.length, 0);
+  geo.addGroup(rest.length, cap.length, 1);
+
+  const skin = new THREE.MeshBasicMaterial({ color: WRIST_CAP_COLOR });
+  const base = mesh.material;
+  mesh.material = Array.isArray(base) ? [...base, skin] : [base, skin];
+}
+
+/** 손목 마개 색 — 손 텍스처의 살빛에서 뽑았다 */
+const WRIST_CAP_COLOR = 0xd09b7e;
+
 const MODEL = {
   right: "/ar/3d-assets/r_hand_texture.glb",
   left: "/ar/3d-assets/l_hand_texture.glb",
@@ -282,6 +329,7 @@ export class RiggedHand {
             m.frustumCulled = false; // 뼈를 크게 옮기므로 화면 밖 판정을 끈다
             // 이제 왼손도 오른손과 같은 텍스처를 입고 온다. 재질을 덮어쓰면
             // 한쪽만 맨살로 나와 왼손을 비출 때마다 다른 손처럼 보인다.
+            flattenWristCap(m);
           }
         });
 
