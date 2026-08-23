@@ -510,6 +510,44 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
     const LOADED: Record<string, any> = {};
     const LOADING: Partial<Record<string, Promise<void>>> = {};
+
+    /**
+     * 이 체험이 쥐고 있는 GPU 메모리를 전부 놓아준다.
+     *
+     * 다른 페이지로 넘어가기 직전에 부른다. renderer 만 정리하면
+     * 받아 둔 GLB 수십 개의 지오메트리·텍스처가 그대로 남아,
+     * 다음 페이지를 여는 순간 Android Chrome 이 메모리를 못 견디고
+     * 탭을 통째로 죽인다. 상세 페이지가 안 열리던 원인이다.
+     */
+    function releaseAllGpuMemory() {
+      const seen = new Set<any>();
+      const disposeMaterial = (material: any) => {
+        if (!material || seen.has(material)) return;
+        seen.add(material);
+        for (const value of Object.values(material)) {
+          if (value && (value as any).isTexture) (value as any).dispose();
+        }
+        material.dispose?.();
+      };
+      const disposeTree = (root: THREE.Object3D | null | undefined) => {
+        root?.traverse((o: any) => {
+          if (o.geometry && !seen.has(o.geometry)) {
+            seen.add(o.geometry);
+            o.geometry.dispose?.();
+          }
+          const material = o.material;
+          if (Array.isArray(material)) material.forEach(disposeMaterial);
+          else disposeMaterial(material);
+        });
+      };
+      disposeTree(scene);
+      for (const key of Object.keys(LOADED)) {
+        disposeTree(LOADED[key]?.scene);
+        delete LOADED[key];
+      }
+      for (const key of Object.keys(LOADING)) delete (LOADING as any)[key];
+      scene.clear();
+    }
     const gltfLoader = new GLTFLoader();
     const DEBUG_TRAY_ID = "__tray_pull_debug";
     const DEBUG_TRAY_FILE = "/ar/3d-assets/metal_tray.glb";
@@ -729,6 +767,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     interface ParticleOpt {
       color: number; size: number; opacity: number; speed: number;
       radius: number; baseY: number; height: number; taper: number;
+      /** 알갱이처럼 또렷하게 보여야 하면 "normal". 기본은 빛나는 가산 혼합. */
+      blending?: "additive" | "normal";
+      /** 돌면서 흩어지지 않고 곧게 떨어지게 한다 */
+      straight?: boolean;
     }
     function makeParticles(count: number, opt: ParticleOpt) {
       const pos = new Float32Array(count * 3);
@@ -738,7 +780,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       const mat = new THREE.PointsMaterial({
         color: opt.color, size: opt.size, transparent: true, opacity: opt.opacity,
-        depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+        depthWrite: false, sizeAttenuation: true,
+        blending: opt.blending === "normal"
+          ? THREE.NormalBlending
+          : THREE.AdditiveBlending,
       });
       const pts = new THREE.Points(geo, mat);
       (pts.userData as any) = { seed, count, opt, t: 0 };
@@ -754,7 +799,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const s = seed[i];
         const life = (t * opt.speed + s) % 1;
         const spread = opt.radius * (0.35 + s * 0.65);
-        const ang = s * Math.PI * 2 + t * 0.5;
+        // 곧게 떨어지는 알갱이는 제자리 흩어짐만 두고 돌리지 않는다.
+        const ang = s * Math.PI * 2 + (opt.straight ? 0 : t * 0.5);
         arr[i * 3] = Math.cos(ang) * spread * (1 - life * opt.taper);
         arr[i * 3 + 1] = opt.baseY + life * opt.height;
         arr[i * 3 + 2] = Math.sin(ang) * spread * (1 - life * opt.taper);
@@ -1203,6 +1249,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           label,
           home: new THREE.Vector3(px, homeY, pz),
           homeYaw: g.rotation.y,
+          /** 실제로 잰 크기 — 아가리 위치를 잡는 기준 */
+          propH,
+          propW,
         };
         stageGroup.add(g);
         return g;
@@ -1212,6 +1261,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const mixColor = new THREE.Color();
       const tmpColor = new THREE.Color();
       const seat = new THREE.Vector3();
+      /** 붓는 그릇의 아가리 위치를 잡는 데 쓰는 임시 벡터 */
+      const spout = new THREE.Vector3();
       /** 지금 붓고 있는 재료 (onHand 가 정하고 tick 이 진행시킨다) */
       let pouringNode: THREE.Group | null = null;
       /**
@@ -1343,12 +1394,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           stageGroup.worldToLocal(pourWorld);
           // 내용물은 기울어진 그릇의 **주둥이**에서 나온다. 그릇 밑바닥에서
           // 새는 것처럼 보이지 않도록, 기운 방향으로 반 통만큼 나간 자리를 쓴다.
-          const propH = ud.prop?.height ?? 0.1;
-          const lip = tiltDir.lengthSq() > 1e-6 ? tiltDir : tiltAxis.set(0, 0, 1);
-          const spoutY = pourWorld.y + propH * (0.18 + 0.3 * ud.tilt);
+          const propH = ud.propH ?? ud.prop?.height ?? 0.1;
+          // 아가리는 그릇 좌표의 (0, 높이, 0) 이다. 기울이면 그 점도 같이 돌아가므로
+          // 통이 기운 만큼 정확히 주둥이 끝에서 쏟아진다.
+          spout.set(0, propH * 0.98, 0);
+          pouringNode.localToWorld(spout);
+          stageGroup.worldToLocal(spout);
+          const spoutY = spout.y;
           const surfaceY = basinFloorY + h;
-          const pourX = pourWorld.x + lip.x * propH * 0.5 * ud.tilt;
-          const pourZ = pourWorld.z + lip.z * propH * 0.5 * ud.tilt;
+          const pourX = spout.x;
+          const pourZ = spout.z;
           pour.position.set(pourX, spoutY, pourZ);
           opt.height = Math.min(-0.03, surfaceY - spoutY);
           (pour.material as THREE.PointsMaterial).color.setHex(ud.prop?.flowColor ?? 0xf4ece0);
@@ -3493,7 +3548,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(riceClump);
 
       // 1차 발효(사흘)도 후발효와 같은 원형 게이지로 보여준다.
-      const mitsulGauge = makeDayGauge(platformTop + 0.42, "사흘 동안 천천히", "익어가요");
+      const mitsulGauge = makeDayGauge(platformTop + 0.50, "사흘 동안 천천히", "익어가요");
       mitsulGauge.mesh.visible = false;
       mitsulGaugeSync = (show, progress, day) => {
         mitsulGauge.mesh.visible = show;
@@ -4240,7 +4295,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
 
         if (S.mitsulFermentPhase === "FERMENTING") {
-          const TIMELAPSE_SECONDS = 7.5;
+          const TIMELAPSE_SECONDS = 4.2;
           fermentElapsed = Math.min(TIMELAPSE_SECONDS, fermentElapsed + dt);
           S.mitsulFermentProgress = fermentElapsed / TIMELAPSE_SECONDS;
           S.mitsulFermentDay = Math.min(3, Math.floor(S.mitsulFermentProgress * 3) + 1);
@@ -4381,6 +4436,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       /** 채반이 자리를 잡은 시각. 잠시 뒤 고두밥이 저절로 흘러 들어간다 */
       let mashPlacedAt = 0;
       let mashRicePoured = false;
+      /** 다 쏟은 채반과 랙이 물러난 정도 0(그대로) ~ 1(사라짐) */
+      let mashTrayRetire = 0;
       if (mashTrayNode) {
         // spawnModel이 중앙 정렬한 root 자체를 다시 scale/rotate하면 root.position은
         // 그대로 남아 모델 중심과 잡기 링이 갈라진다. 별도 pivot에 변환을 적용해
@@ -4428,12 +4485,18 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       mashTrayMover.add(mashTrayTarget);
       mashTrayRig.visible = false;
 
-      // jar_body 입구 오른쪽 위의 최종 배치 자세. 오른쪽 끝은 높고 항아리 쪽
-      // 가장자리는 낮게 기울여, 고두밥을 바로 부을 수 있는 모습으로 고정한다.
-      const mashTrayDropPosition = new THREE.Vector3(0.28, platformTop + 0.285, 0.3);
+      // 항아리 아가리 바로 앞 위쪽. 채반의 낮은 쪽 끝이 아가리 안으로 넘어와야
+      // 고두밥이 항아리로 쏟아진다. 예전 자리(x 0.28, z 0.3)는 항아리에서
+      // 0.4m 나 떨어져 있어, 쏟으면 전부 바닥으로 떨어졌다.
+      //   기운 각 0.62rad, 채반 길이의 절반 0.157 →
+      //   낮은 끝은 중심에서 z -0.128, y -0.091 만큼 간다.
+      //   중심을 z 0.20 / y platformTop+0.38 에 두면 낮은 끝이
+      //   z 0.072 · y platformTop+0.289 — 반지름 0.11 짜리 아가리(위 0.28) 안이다.
+      const mashTrayDropPosition = new THREE.Vector3(0, platformTop + 0.38, 0.2);
       const mashTrayDropQuaternion = new THREE.Quaternion().setFromEuler(
-        // 긴 축을 따라 기울여 짧은 끝부분이 항아리 쪽으로 내려가게 한다.
-        new THREE.Euler(-0.58, 0.08, 0.12),
+        // 긴 축(Z)을 따라 기울여 항아리 쪽 끝이 내려가게 한다. 좌우로 비틀면
+        // 쏟아지는 줄기가 아가리를 빗나가므로 X 회전만 준다.
+        new THREE.Euler(-0.62, 0, 0),
       );
       const mashTrayDropTarget = new THREE.Group();
       mashTrayDropTarget.position.copy(mashTrayDropPosition);
@@ -4549,7 +4612,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       mashBroth.position.y = mashSurfaceY;
       jar.add(mashBroth);
       // 밑술 때는 쌀이 가득이었지만, 익으면서 많이 풀어져 알갱이가 줄었다.
-      const mashBrothRice = makeRiceField(150, new THREE.Color(0xf1e6cd), 0.0065);
+      /** 술덧 위에 뜬 낱알 수 — 저을수록 줄어든다 */
+      const MASH_RICE_GRAINS = 150;
+      const mashBrothRice = makeRiceField(MASH_RICE_GRAINS, new THREE.Color(0xf1e6cd), 0.0065);
       jar.add(mashBrothRice.mesh);
 
       /* ── 덧술에 붓는 정제수 ─────────────────────────────────────────
@@ -4591,6 +4656,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
       mashWaterGroup.visible = false;
       stageGroup.add(mashWaterGroup);
+      /** 물통의 실제 높이 — 아가리가 어디인지 잡는 기준 */
+      const mashWaterHeight = new THREE.Box3()
+        .setFromObject(mashWaterGroup).getSize(new THREE.Vector3()).y || 0.17;
+      const mashSpout = new THREE.Vector3();
       /** 물을 부은 정도 0~1 */
       let mashWaterPoured = 0;
       let mashWaterHeld = false;
@@ -4606,12 +4675,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       stageGroup.add(mashWaterStream);
 
       // 채반에서 항아리로 쏟아지는 고두밥 알갱이
-      const mashRicePour = makeParticles(120, {
-        color: 0xf2e7d2, size: 0.009, opacity: 0, speed: 2.0,
-        radius: 0.03, baseY: platformTop + 0.30, height: -0.1, taper: -0.4,
+      const mashRicePour = makeParticles(150, {
+        color: 0xf3e8d0, size: 0.011, opacity: 0, speed: 2.6,
+        radius: 0.018, baseY: 0, height: -0.115, taper: -0.25,
+        // 김이 아니라 낟알이다 — 빛나지 않고, 돌지 않고, 곧게 떨어진다.
+        blending: "normal", straight: true,
       });
-      // 채반이 놓인 자리에서 항아리 입구 쪽으로 떨어진다
-      mashRicePour.position.set(0.14, 0, 0.15);
+      // 채반의 낮은 쪽 끝에서 항아리 아가리로 곧장 떨어진다
+      mashRicePour.position.set(0, platformTop + 0.30, 0.072);
       mashRicePour.visible = false;
       stageGroup.add(mashRicePour);
       live.particles.push(mashRicePour);
@@ -4916,7 +4987,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         bubbleSprites.forEach((sprite) => (sprite.material as THREE.SpriteMaterial).dispose());
       });
 
-      const dayGauge = makeDayGauge(platformTop + 0.34, "30일 동안 천천히", "익어가요");
+      const dayGauge = makeDayGauge(platformTop + 0.50, "30일 동안 천천히", "익어가요");
       const gauge = dayGauge.mesh;
       fermentUpdateGauge = dayGauge.update;
 
@@ -4961,7 +5032,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const viewDirection = new THREE.Vector3();
       const viewRight = new THREE.Vector3();
       const effectPosition = new THREE.Vector3();
-      live.tick = (time) => {
+      live.tick = (time, dt) => {
         // 고두밥을 다 넣고 나면 물통이 작업대에 나온다
         const waterTurn = mashRicePoured && mashWaterPoured < 1;
         mashWaterGroup.visible = jar.visible && (waterTurn || mashWaterPoured > 0);
@@ -4974,6 +5045,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (spatulaGroup && !spatulaHeld) {
           spatulaGroup.position.lerp(spatulaHome, 0.18);
           spatulaGroup.rotation.z = THREE.MathUtils.lerp(spatulaGroup.rotation.z, -0.72, 0.18);
+          spatulaGroup.rotation.x = THREE.MathUtils.lerp(spatulaGroup.rotation.x, 0, 0.18);
+          spatulaGroup.rotation.y = THREE.MathUtils.lerp(spatulaGroup.rotation.y, 0, 0.18);
         }
         if (!mashWaterHeld && mashWaterGroup.visible) {
           mashWaterGroup.position.lerp(mashWaterHome, 0.2);
@@ -4982,6 +5055,23 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         mashWaterStreamMat.opacity += ((mashWaterLatched && mashWaterPoured < 1 ? 0.6 : 0) - mashWaterStreamMat.opacity) * 0.25;
         mashWaterStream.visible = mashWaterStreamMat.opacity > 0.02;
 
+        // 고두밥을 다 쏟았으면 빈 채반과 랙은 조용히 물러난다.
+        // 항아리 위에 빈 쟁반이 걸쳐진 채 남아 있으면 물을 부을 자리가 없다.
+        if (mashRicePoured && mashTrayRetire < 1) {
+          mashTrayRetire = Math.min(1, mashTrayRetire + dt / 0.9);
+          const ease = mashTrayRetire * mashTrayRetire * (3 - 2 * mashTrayRetire);
+          const shrink = Math.max(0.001, 1 - ease);
+          mashTrayMover.scale.setScalar(shrink);
+          mashTrayMover.position.y = mashTrayDropPosition.y + ease * 0.06;
+          mashTrayMover.visible = ease < 0.99;
+          if (mashRackProcess) {
+            mashRackProcess.group.scale.setScalar(
+              Math.max(0.001, (1.59 * 1.3 * 1.5) * shrink)
+            );
+            mashRackProcess.group.visible = ease < 0.99;
+          }
+        }
+
         // 항아리 속 술덧 위의 쌀알 — 항아리가 보일 때만 그린다
         mashBrothRice.mesh.visible = jar.visible;
         if (jar.visible) {
@@ -4989,15 +5079,26 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           mashFill = Math.min(1, (mashRicePoured ? 0.45 : 0) + mashWaterPoured * 0.55);
           mashSurfaceY = mashSurfaceAt(mashFill);
           mashBroth.position.y = mashSurfaceY;
-          // 저으면 떠 있던 쌀이 가라앉는다 — 수면에서 바닥으로 내려가며 잦아든다
+          // 젓는 세기 — 세미 단계의 물살과 같은 값을 쓴다
+          const stirSwirl = spatulaHeld ? mashStir.speed : mashStir.speed * 0.3;
+          // 저을수록 낱알이 수면 아래로 내려간다. 다만 끝까지 바닥에 붙이지는 않는다.
           const riceY = THREE.MathUtils.lerp(
             mashSurfaceY + 0.001,
-            mashJarFloorY - 0.004,
+            mashSurfaceY - 0.012,
             mashStirred,
           );
-          mashBrothRice.place(0, riceY, 0, mashSurfaceR * (0.92 - mashStirred * 0.2), 0.0015);
-          mashBrothRice.update(time, 0, mashStirred * 0.6, 0, 1);
-          mashBrothRice.mesh.visible = jar.visible && mashStirred < 0.97;
+          mashBrothRice.place(0, riceY, 0, mashSurfaceR * (0.92 - mashStirred * 0.18), 0.0015);
+          mashBrothRice.update(time, dt, stirSwirl, 0, 1);
+          // 가라앉은 만큼 수면에 뜬 낱알을 줄인다. 다 저어도 몇 톨은 남는다.
+          mashBrothRice.mesh.count = Math.max(
+            10,
+            Math.round(MASH_RICE_GRAINS * (1 - mashStirred * 0.9)),
+          );
+          mashBrothRice.mesh.visible = jar.visible;
+          // 물살을 따라 국물 표면도 함께 일렁인다
+          const ripple = 1 + Math.sin(time * (2.4 + stirSwirl * 7)) * (0.008 + stirSwirl * 0.04);
+          mashBroth.scale.set(ripple, 1, ripple);
+          mashBroth.rotation.y += (0.2 + stirSwirl * 6) * dt;
         }
 
         const active = S.fstage >= F_LAST_I; // 후발효에서만 실제 발효 진행
@@ -5243,11 +5344,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             screenToWorld(pinch.x, pinch.y, showDepth, interactionCamera, trayCarryTarget);
             stageGroup.worldToLocal(trayCarryTarget);
             spatulaGroup.position.lerp(trayCarryTarget, 0.45);
-            spatulaGroup.rotation.z = THREE.MathUtils.lerp(spatulaGroup.rotation.z, -0.2, 0.2);
+            // 날을 아래로 세워 잡는다 — 눕혀 들면 젓는 게 아니라 얹은 모양이 된다.
+            spatulaGroup.rotation.z = THREE.MathUtils.lerp(spatulaGroup.rotation.z, -1.15, 0.2);
+            spatulaGroup.rotation.x = THREE.MathUtils.lerp(spatulaGroup.rotation.x, 0.22, 0.2);
+            // 젓는 동안 손을 따라 날이 함께 돈다
+            spatulaGroup.rotation.y = THREE.MathUtils.lerp(
+              spatulaGroup.rotation.y,
+              mashStir.speed * 1.1,
+              0.2,
+            );
 
             const overJar = screenDist(pinch, jarMouthScreen) <= 0.26;
             // 항아리 위에서 손을 둥글게 돌리면 저어진다 (8자든 원이든 도는 건 도는 것)
-            const turns = overJar ? mashStir.update(frame) : 0;
+            // 판정은 매 프레임 돌린다 — 부르지 않으면 물살 세기가 잦아들지 않아
+            // 손을 멈춰도 국물이 계속 도는 것처럼 보인다.
+            const stirTurns = mashStir.update(frame);
+            const turns = overJar ? stirTurns : 0;
             if (turns) {
               mashStirred = Math.min(1, mashStirred + turns / REQUIRED_STIR_TURNS);
               if (mashStirred >= 1) {
@@ -5306,8 +5418,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               );
               mashWaterPoured = Math.min(1, mashWaterPoured + 0.06);
               const surfaceY = mashSurfaceY;
-              const len = Math.max(0.02, mashWaterGroup.position.y - surfaceY);
-              mashWaterStream.position.set(0, surfaceY + len / 2, 0);
+              // 물은 물통 아가리에서 나온다. 기울인 그대로의 아가리 위치를
+              // 물통 좌표에서 뽑아, 거기서 수면까지 곧게 떨어뜨린다.
+              mashSpout.set(0, mashWaterHeight * 0.98, 0);
+              mashWaterGroup.localToWorld(mashSpout);
+              stageGroup.worldToLocal(mashSpout);
+              const len = Math.max(0.02, mashSpout.y - surfaceY);
+              mashWaterStream.position.set(mashSpout.x, surfaceY + len / 2, mashSpout.z);
               mashWaterStream.scale.set(1, len, 1);
               if (mashWaterPoured >= 1) {
                 mashWaterHeld = false;
@@ -7036,8 +7153,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       if (S.step === "ferment" && S.fstage >= FERMENT_STEPS.length - 1 && S.ferment < 100) {
         const dist = Math.abs(S.temp - OPTIMAL_C);
-        // 25℃에서 약 17초에 완주. 너무 빨리 끝나면 온도를 조절해 본 효과를 느끼기 어렵다.
-        const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 6;
+        // 25℃에서 약 9초에 완주. 더 줄이면 온도를 맞춘 보람이 느껴지지 않는다.
+        const rate = THREE.MathUtils.clamp(1 - dist / 9, 0.12, 1) * 11;
         S.ferment = Math.min(100, S.ferment + rate * dt);
         S.tempLog.push(S.temp);
         onFermentTick();
@@ -8020,6 +8137,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
         }
 
+        releaseAllGpuMemory();
         renderer.dispose();
         renderer.forceContextLoss();
 
@@ -8036,22 +8154,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const closeShipCapture = () => uiRoot.classList.remove("ship-capture");
     const btnShipCapture = $("#btn-ship-capture");
     if (btnShipCapture) (btnShipCapture as HTMLButtonElement).onclick = () => {
-      uiRoot.classList.remove("capture-sticker-off");
-      const stickerToggle = $("#btn-capture-sticker");
-      stickerToggle?.setAttribute("aria-pressed", "true");
       uiRoot.classList.add("ship-capture");
     };
     const btnCaptureCancel = $("#btn-capture-cancel");
     if (btnCaptureCancel) (btnCaptureCancel as HTMLButtonElement).onclick = closeShipCapture;
-
-    const btnCaptureSticker = $("#btn-capture-sticker");
-    if (btnCaptureSticker) {
-      (btnCaptureSticker as HTMLButtonElement).onclick = () => {
-        const next = btnCaptureSticker.getAttribute("aria-pressed") !== "true";
-        btnCaptureSticker.setAttribute("aria-pressed", String(next));
-        uiRoot.classList.toggle("capture-sticker-off", !next);
-      };
-    }
 
     const btnCaptureShot = $("#btn-capture-shot");
     if (btnCaptureShot) {
@@ -8199,7 +8305,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           console.warn("[AR capture] offscreen virtual layer unavailable", error);
         }
 
-        if (!uiRoot.classList.contains("capture-sticker-off")) {
+        {
+          // 스티커는 늘 붙는다 — 고르는 버튼을 없앴다.
           const sticker = $(".capture-label-sticker") as HTMLImageElement | null;
           try {
             if (sticker && sticker.complete && sticker.naturalWidth > 0) {
@@ -8705,9 +8812,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         <footer>
           <button id="btn-capture-cancel" type="button">취소</button>
           <button id="btn-capture-shot" className="capture-shutter" type="button" aria-label="촬영">
-            <img src="/ar/ui/paw-pink.png" alt="" aria-hidden="true" />
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M9.4 4h5.2l1.3 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4.1z" />
+              <circle className="lens" cx="12" cy="13" r="4" />
+            </svg>
           </button>
-          <button id="btn-capture-sticker" type="button" aria-pressed="true">스티커 포함</button>
+          {/* 취소 맞은편 자리 — 셔터를 가운데에 두기 위한 빈 칸 */}
+          <span aria-hidden="true" />
         </footer>
       </div>
 

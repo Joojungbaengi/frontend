@@ -721,18 +721,17 @@ export const styles = `
 .ar-ui .capture-frame .tl{left:-3px;top:-3px;border-width:4px 0 0 4px;border-radius:10px 0 0}.ar-ui .capture-frame .tr{right:-3px;top:-3px;border-width:4px 4px 0 0;border-radius:0 10px 0 0}
 .ar-ui .capture-frame .bl{left:-3px;bottom:-3px;border-width:0 0 4px 4px;border-radius:0 0 0 10px}.ar-ui .capture-frame .br{right:-3px;bottom:-3px;border-width:0 4px 4px 0;border-radius:0 0 10px}
 .ar-ui .capture-label-sticker{position:absolute;right:5%;bottom:8%;display:block;width:37%;height:auto;transform:rotate(4deg);filter:drop-shadow(0 7px 10px rgba(0,0,0,.28));opacity:1;visibility:visible;animation:none!important}
-.ar-ui.capture-sticker-off .capture-label-sticker{display:none}
 .ar-ui .ship-capture-ui>p{position:relative;z-index:2;text-align:center;color:#f1d6a4;font-size:11px;margin:0 0 20px}
 .ar-ui .ship-capture-ui footer{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr);gap:12px;align-items:center;text-align:center}
 .ar-ui .ship-capture-ui footer button{border:0;background:none;color:#fff;font:inherit;font-size:13px}
 .ar-ui .capture-shutter{position:relative;width:70px;height:70px;padding:0!important;border-radius:50%!important;background:transparent!important;border:3px solid #fff!important;display:grid;place-items:center;overflow:hidden;transform:translateZ(0);transition:transform .1s ease}
 .ar-ui .capture-shutter::before{content:"";position:absolute;inset:-1px;border-radius:50%;background:#fff;transform:scale(1);transition:transform .12s ease}
-.ar-ui .capture-shutter img{position:relative;z-index:1;display:block;width:35px;height:35px;object-fit:contain;transform:scale(1);transition:transform .12s ease}
+.ar-ui .capture-shutter svg{position:relative;z-index:1;display:block;width:34px;height:34px;fill:#2a1b11;transform:scale(1);transition:transform .12s ease}
+.ar-ui .capture-shutter svg .lens{fill:none;stroke:#f6ecd6;stroke-width:2.2}
 .ar-ui .capture-shutter:active,.ar-ui .capture-shutter.is-capturing{transform:scale(.99)}
 .ar-ui .capture-shutter:active::before,.ar-ui .capture-shutter.is-capturing::before{transform:scale(.90)}
-.ar-ui .capture-shutter:active img,.ar-ui .capture-shutter.is-capturing img{transform:scale(.92)}
-.ar-ui #btn-capture-cancel,.ar-ui #btn-capture-sticker{justify-self:center;width:max-content;max-width:100%;white-space:nowrap;padding:8px 14px!important;border:1px solid rgba(255,255,255,.45)!important;border-radius:999px!important;background:rgba(0,0,0,.12)}
-.ar-ui #btn-capture-sticker[aria-pressed="false"]{opacity:.55}
+.ar-ui .capture-shutter:active svg,.ar-ui .capture-shutter.is-capturing svg{transform:scale(.92)}
+.ar-ui #btn-capture-cancel{justify-self:center;width:max-content;max-width:100%;white-space:nowrap;padding:8px 14px!important;border:1px solid rgba(255,255,255,.45)!important;border-radius:999px!important;background:rgba(0,0,0,.12)}
 
 @media (prefers-reduced-motion:reduce){.ar-ui *{animation:none !important; transition:none !important}}
 
