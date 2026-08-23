@@ -4511,7 +4511,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           fermentElapsed = Math.min(TIMELAPSE_SECONDS, fermentElapsed + dt);
           S.mitsulFermentProgress = fermentElapsed / TIMELAPSE_SECONDS;
           S.mitsulFermentDay = Math.min(3, Math.floor(S.mitsulFermentProgress * 3) + 1);
-          S.ferment = S.mitsulFermentProgress * 100;
           const activity = S.mitsulFermentProgress;
           fermentBubbles.visible = true;
           fermentBubbles.geometry.setDrawRange(0, Math.round(10 + activity * 32));
@@ -4731,9 +4730,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       //   z 0.072 · y platformTop+0.289 — 반지름 0.11 짜리 아가리(위 0.28) 안이다.
       const mashTrayDropPosition = new THREE.Vector3(0, platformTop + 0.38, 0.2);
       const mashTrayDropQuaternion = new THREE.Quaternion().setFromEuler(
-        // 긴 축(Z)을 따라 기울여 항아리 쪽 끝이 내려가게 한다. 좌우로 비틀면
-        // 쏟아지는 줄기가 아가리를 빗나가므로 X 회전만 준다.
-        new THREE.Euler(-0.62, 0, 0),
+        // 긴 축(Z)을 따라 기울여 한쪽 끝이 내려가게 하고(X), 통째로 90도 돌려
+        // 그 낮은 끝이 -X 쪽 — 항아리를 향하게 한다(Y). 채반은 항아리 오른쪽에 선다.
+        new THREE.Euler(-0.62, Math.PI / 2, 0, "YXZ"),
       );
       const mashTrayDropTarget = new THREE.Group();
       mashTrayDropTarget.position.copy(mashTrayDropPosition);
@@ -4951,13 +4950,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const tilt = 0.62;
         const half = mashTrayDepth / 2;
         const jarTopY = platformTop + BENCH_LIFT + mashJarHeight;
+        // 낮은 끝이 아가리 안으로 살짝 넘어오도록 오른쪽에 세운다.
+        //   낮은 끝 x = 중심 x - cos(기운각) * 길이의 절반
+        const lipX = mashJarWidth * 0.12;
         mashTrayDropPosition.set(
-          0,
+          lipX + Math.cos(tilt) * half,
           jarTopY + Math.sin(tilt) * half + 0.012,
-          Math.cos(tilt) * half + mashJarWidth * 0.12,
+          0,
         );
         mashTrayDropTarget.position.copy(mashTrayDropPosition);
-        mashRicePour.position.set(0, jarTopY + 0.02, mashJarWidth * 0.12);
+        mashRicePour.position.set(lipX, jarTopY + 0.02, 0);
       }
       mashRicePour.visible = false;
       stageGroup.add(mashRicePour);
@@ -5781,7 +5783,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (trayCameraLocal.lengthSq() > 1e-6) {
             const facing = Math.atan2(trayCameraLocal.x, trayCameraLocal.z);
             mashTrayRig.rotation.y = facing;
-            if (mashRackProcess) mashRackProcess.group.rotation.y = facing + Math.PI / 2;
+            if (mashRackProcess) mashRackProcess.group.rotation.y = facing;
             mashTrayDirectionLocked = true;
           }
         }
@@ -7257,6 +7259,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       setTimeout(() => {
         mashHandOverPending = false;
         if (S.step !== "ferment") return;
+        // 후발효는 여기서부터 처음 시작한다 — 앞 단계의 값이 남아 있으면 안 된다
+        S.ferment = 0;
         // 밑술 무대에서 덧술 무대로 — 새 무대가 스르르 드러나게 한다
         stageSwap(`step:ferment:mash`, () => buildStageFor("ferment"), true);
         // 밑술 뚜껑을 닫을 때 손 인식을 재웠다. 덧술은 손으로 하는 단계라 다시 깨운다.
@@ -9129,7 +9133,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               <img src="/ar/ui/shipping-crest-jar.png" alt="" />
             </div>
             <h2>양조가 <em>완료</em>되었습니다!</h2>
-            <p className="ship-card-note">누룩이 만든 은은한 단맛과 발효 향</p>
+            <p className="ship-card-note">가와지쌀 삼양주 9도 · 부드럽고 새콤달콤한 맛</p>
             <button id="btn-ship-again" className="ship-row" type="button">
               <img className="ship-row-icon" src="/ar/ui/shipping-drink-set.png" alt="" aria-hidden="true" />
               <b>냥이탁주 다시 빚기</b><i>›</i>
@@ -9142,7 +9146,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               <button id="btn-ship-capture" type="button">촬영하기</button>
             </div>
             <button id="btn-ship-info" className="ship-primary" type="button">
-              <img src="/ar/ui/paw-pink.png" alt="" aria-hidden="true" />
               완성된 냥이탁주 정보 보기
             </button>
           </section>

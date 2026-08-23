@@ -544,6 +544,9 @@ export const styles = `
 .ar-ui .ferment-row .ferment-pct{flex:none; font-variant-numeric:tabular-nums}
 /* 온도 게임 묶음 — 후발효에서만 보인다. dock과 같은 간격을 안에서 유지한다. */
 .ar-ui #ferment-game{display:flex; flex-direction:column; gap:14px}
+/* 온도 묶음 안쪽도 같은 간격을 준다 — 없으면 '준비 완료' 줄이 막대에 붙는다 */
+.ar-ui #ferment-temp-controls{display:flex; flex-direction:column; gap:12px}
+.ar-ui #ferment-temp-controls.hidden{display:none}
 .ar-ui #godubap-game,
 .ar-ui #mitsul-mix-game{display:flex; flex-direction:column; gap:12px; padding:14px 15px;
   border:1px solid var(--line); border-radius:var(--r-md); background:rgba(28,21,12,.82);
@@ -709,10 +712,13 @@ export const styles = `
 .ar-ui .ship-save-row span{min-width:0}.ar-ui .ship-save-row b{display:block;font-family:var(--font-myeongjo),serif;font-size:13px}
 .ar-ui .ship-save-row small{display:block;margin-top:3px;color:#806049;font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ar-ui .ship-save-row button{border:1px solid rgba(255,255,255,.42);border-radius:999px;padding:9px 11px;background:rgba(255,255,255,.48);color:#4b3020;font:inherit;font-size:11px}
-.ar-ui .ship-primary{width:100%;margin-top:11px;padding:14px;border:0;border-radius:16px;color:#fff;font-family:var(--font-myeongjo),serif;
-  font-size:14px;font-weight:700;background:linear-gradient(135deg,#ef8fa5,#df6d8b);box-shadow:0 8px 20px rgba(207,87,117,.25);
-  display:flex;align-items:center;justify-content:center;gap:7px}
-.ar-ui .ship-primary img{width:31px;height:31px;object-fit:contain;filter:drop-shadow(0 2px 5px rgba(125,36,63,.28))}
+.ar-ui .ship-primary{width:100%;margin-top:11px;padding:15px;border:1px solid rgba(255,231,196,.34);
+  border-radius:16px;color:#fff6e6;font-family:var(--font-myeongjo),serif;
+  font-size:15px;font-weight:700;letter-spacing:.01em;
+  background:linear-gradient(135deg,#c2452f,#9d3320);
+  box-shadow:0 8px 20px rgba(60,20,10,.32),inset 0 1px 0 rgba(255,255,255,.14);
+  display:flex;align-items:center;justify-content:center}
+.ar-ui .ship-primary:active{transform:scale(.99);background:linear-gradient(135deg,#b03d2a,#8c2d1c)}
 
 /* 촬영 모드: 브라우저가 AR compositor 캡처를 막는 경우에도 같은 프레임으로 시스템 스크린샷 가능 */
 .ar-ui .ship-capture-ui{position:absolute;inset:0;z-index:60;display:none;flex-direction:column;padding:calc(22px + env(safe-area-inset-top,0px)) 22px calc(22px + var(--safe-b));
