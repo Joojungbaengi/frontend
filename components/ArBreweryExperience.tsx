@@ -3523,6 +3523,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         node: THREE.Group;
         home: THREE.Vector3;
         radius: number;
+        /** 실제로 잰 높이 — 아가리가 어디인지 잡는 기준 */
+        height: number;
       };
 
       const jarRig = new THREE.Group();
@@ -3685,6 +3687,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           node,
           home,
           radius: Math.max(size.x, size.z) * 0.5,
+          height: size.y,
         });
       };
 
@@ -3825,6 +3828,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
       addActor("WATER", "물통", waterActor, new THREE.Vector3(0.27, platformTop + BENCH_LIFT, 0.06));
 
+      /** 물통 아가리 자리를 잡는 데 쓰는 임시 벡터 */
+      const mixSpout = new THREE.Vector3();
+      /** 붓는 동안 그릇이 앉을 자리 */
+      const mixPourPose = new THREE.Vector3();
       const streamPositions = new Float32Array(30 * 3);
       const streamGeometry = new THREE.BufferGeometry();
       streamGeometry.setAttribute("position", new THREE.BufferAttribute(streamPositions, 3));
@@ -4429,6 +4436,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             ? (held.home.x >= jarOpeningLocal.x ? POUR_TILT_RAD : -POUR_TILT_RAD)
             : THREE.MathUtils.clamp(signedTilt, -Math.PI / 2, Math.PI / 2);
           held.node.rotation.z = THREE.MathUtils.lerp(held.node.rotation.z, visualTilt, 0.24);
+          if (pouring && phase !== "NURUK") {
+            // 기울이면 아가리가 기운 쪽으로 나간다. 그만큼 반대로 물러나 앉혀야
+            // 아가리가 항아리 한가운데에 오고, 밖으로 쏟는 것처럼 보이지 않는다.
+            const lean = held.home.x >= jarOpeningLocal.x ? 1 : -1;
+            mixPourPose.copy(jarOpeningLocal);
+            mixPourPose.x += lean * (held.height ?? 0.17) * 0.52;
+            mixPourPose.y += (held.height ?? 0.17) * 0.34;
+            held.node.position.lerp(mixPourPose, 0.16);
+          }
           if (pouring) {
             // 누룩은 붓는 게 아니라 덩어리를 넣는 것이다 — 재료 고르기와 똑같이
             // 항아리 위에 가져다 대면 그것으로 끝난다.
@@ -4547,15 +4563,20 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           return;
         }
         streamTime += dt;
-        held.node.getWorldPosition(actorWorld);
-        stageGroup.worldToLocal(actorWorld);
+        // 물은 통 아가리에서 나온다. 기울인 그대로의 아가리 자리를
+        // 그릇 좌표에서 뽑아 쓴다 — 원점을 쓰면 밑바닥에서 솟는 모양이 된다.
+        mixSpout.set(0, (held.height ?? 0.17) * 0.98, 0);
+        held.node.localToWorld(mixSpout);
+        stageGroup.worldToLocal(mixSpout);
+        actorWorld.copy(mixSpout);
         jarRig.localToWorld(jarOpeningWorld.set(0, liquid.position.y, 0));
         stageGroup.worldToLocal(jarOpeningWorld);
         for (let i = 0; i < 30; i++) {
           const p = (streamTime * 1.8 + i / 30) % 1;
           const offset = i * 3;
           streamPositions[offset] = THREE.MathUtils.lerp(actorWorld.x, jarOpeningWorld.x, p) + Math.sin(i * 9.1) * 0.006 * (1 - p);
-          streamPositions[offset + 1] = THREE.MathUtils.lerp(actorWorld.y, jarOpeningWorld.y, p) + Math.sin(Math.PI * p) * 0.045;
+          // 살짝만 늘어지게 둔다. 크게 띄우면 붓는 게 아니라 뿜는 모양이 된다.
+          streamPositions[offset + 1] = THREE.MathUtils.lerp(actorWorld.y, jarOpeningWorld.y, p) + Math.sin(Math.PI * p) * 0.008;
           streamPositions[offset + 2] = THREE.MathUtils.lerp(actorWorld.z, jarOpeningWorld.z, p) + Math.cos(i * 7.3) * 0.006 * (1 - p);
         }
         (streamGeometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
@@ -4897,6 +4918,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const mashWaterHeight = new THREE.Box3()
         .setFromObject(mashWaterGroup).getSize(new THREE.Vector3()).y || 0.17;
       const mashSpout = new THREE.Vector3();
+      /** 붓는 동안 물통이 앉을 자리 */
+      const mashPourPose = new THREE.Vector3();
       /** 물을 부은 정도 0~1 */
       let mashWaterPoured = 0;
       let mashWaterHeld = false;
@@ -5678,11 +5701,20 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             if (overJar) mashWaterLatched = true;
             if (mashWaterLatched) {
               // 제자리 기준으로 항아리 쪽으로 기울여 옆모습이 나오게 한다
+              const lean = mashWaterHome.x >= 0 ? 1 : -1;
               mashWaterGroup.rotation.z = THREE.MathUtils.lerp(
                 mashWaterGroup.rotation.z,
-                mashWaterHome.x >= 0 ? 1.9 : -1.9,
+                lean * 1.9,
                 0.18,
               );
+              // 기울인 만큼 반대로 물러나 앉아야 아가리가 항아리 한가운데에 온다.
+              // 손을 따라만 다니면 아가리가 테두리 밖으로 나가 밖에 쏟는 모양이 된다.
+              mashPourPose.set(
+                lean * mashWaterHeight * 0.52,
+                mashSurfaceY + mashWaterHeight * 0.62,
+                0,
+              );
+              mashWaterGroup.position.lerp(mashPourPose, 0.16);
               mashWaterPoured = Math.min(1, mashWaterPoured + 0.06);
               const surfaceY = mashSurfaceY;
               // 물은 물통 아가리에서 나온다. 기울인 그대로의 아가리 위치를
@@ -6283,9 +6315,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 냉장고와 함께 회전하는 바닥 목표 영역. 별도 충돌 GLB 대신 이 그룹의
       // 로컬 좌표를 보이지 않는 박스 영역으로 사용한다.
       const coldZoneAnchor = new THREE.Group();
-      // 실제 창고 바닥 중심에 맞춰 UI와 충돌 영역을 함께 6mm 오른쪽으로 이동한다.
-      coldZoneAnchor.position.set(0.007, 0.006, 0.034);
-      (chamberEntry?.group ?? stageGroup).add(coldZoneAnchor);
+      // 창고를 세우지 않으므로 놓는 자리는 작업대 위 한가운데로 둔다.
+      // 예전에는 창고 그룹의 자식이라 창고가 사라지면 자리도 같이 사라졌다.
+      coldZoneAnchor.position.copy(jarTarget);
+      stageGroup.add(coldZoneAnchor);
 
       const coldTargetTexture = new THREE.TextureLoader().load("/ar/ui/aging-floor-target-v2.png");
       coldTargetTexture.colorSpace = THREE.SRGBColorSpace;
@@ -6447,6 +6480,21 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       coldFloorGlow.visible = false;
       coldZoneAnchor.add(coldFloorGlow);
 
+      /* ── 찬 기운 ───────────────────────────────────────────────────
+       * 저온창고를 세우는 대신, 항아리를 놓은 자리에서 서늘한 김이 오르게 한다.
+       * 위로 솟는 김(증자)과 반대로 아래로 내려앉으며 옆으로 퍼진다 —
+       * 찬 공기는 무거워 바닥에 깔린다.
+       */
+      const coldMist = makeParticles(90, {
+        color: 0xbfe9ff, size: 0.02, opacity: 0, speed: 0.32,
+        radius: 0.055, baseY: 0.20, height: -0.19, taper: -1.5,
+      });
+      coldMist.visible = false;
+      coldZoneAnchor.add(coldMist);
+      live.particles.push(coldMist);
+      /** 찬 기운이 오른 정도 0~1 */
+      let coldMistLevel = 0;
+
       type AgingPhase = "idle" | "ready" | "holding" | "snapping" | "aging" | "complete";
       let agingPhase: AgingPhase = "idle";
       let agingT = 0;
@@ -6502,12 +6550,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         coldTarget.visible = false;
         placedIndicator.visible = true;
         agingContactShadow.visible = true;
-        chamberEmissiveInstances.forEach((material) => {
-          material.emissiveIntensity = 1.05;
-        });
-        if (coldVolumeMaterial) coldVolumeMaterial.opacity = 0.115;
-        setHandHud("dropped", "항아리가 빛나는 자리에 놓였습니다");
-        setAgingCopy("항아리가 냉장고 안에 자리 잡고 있어요", "낮은 온도에서 천천히 숙성합니다");
+        coldMist.visible = true;   // 여기서부터 찬 기운이 피어오른다
+        setHandHud("dropped", "항아리가 자리를 잡았어요");
+        setAgingCopy("찬 기운이 항아리를 감싸고 있어요", "낮은 온도에서 천천히 숙성합니다");
         navigator.vibrate?.(28);
       };
 
@@ -6534,7 +6579,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         coldFloorGlow.scale.setScalar(1);
         coldFloorGlowMaterial.opacity = 0.14;
         (coldTarget.material as THREE.MeshBasicMaterial).opacity = 0.82;
-        setAgingCopy("숙성 항아리를 손으로 감싸 안쪽에 넣어주세요", "항아리를 감싸 쥐고 빛나는 자리로 옮겨 주세요");
+        setAgingCopy("숙성 항아리를 손으로 감싸 자리로 옮겨 주세요", "항아리를 감싸 쥐고 빛나는 자리로 옮겨 주세요");
       };
 
       live.onHand = (frame, hand, interactionCamera) => {
@@ -6608,7 +6653,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (grab.justReleased) {
             agingPhase = "ready";
             arDetectMs = IDLE_AGING_DETECT_MS;
-            setHandHud("tracking", "빛나는 자리 안쪽에 놓아 주세요");
+            setHandHud("tracking", "빛나는 자리 안에 놓아 주세요");
           }
           return;
         }
@@ -6834,7 +6879,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         finishProcessModels.forEach(({ def, group }) => {
           // 저온숙성 항아리는 agingJar 하나만 사용한다. 동일 GLB의 정적
           // 복제본까지 켜면 시작부터 창고 안에도 항아리가 보인다.
-          group.visible = def.id !== "closed_jar" && !shipped && Boolean(processId && def.processSteps?.includes(processId));
+          // 저온창고는 화면을 가득 채우기만 하고 안이 보이지 않는다.
+          // 창고 대신 놓는 자리에서 찬 기운이 오르는 것으로 숙성을 보여준다.
+          const hidden = def.id === "closed_jar" || def.id === "cold_storage_chamber";
+          group.visible = !hidden && !shipped
+            && Boolean(processId && def.processSteps?.includes(processId));
         });
 
         const inAging = S.press === agingIndex;
@@ -7023,6 +7072,12 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             placedIndicator.scale.setScalar(1 + Math.sin(_t * 3.4) * 0.035);
             (agingContactShadow.material as THREE.MeshBasicMaterial).opacity = 0.72 + placedPulse * 0.12;
           }
+
+          // 찬 기운은 항아리가 자리를 잡은 뒤 서서히 짙어졌다가, 숙성이 끝나면 걷힌다
+          const wantMist = coldMist.visible && agingPhase !== "complete" ? 1 : 0;
+          coldMistLevel += (wantMist - coldMistLevel) * Math.min(1, dt * 1.6);
+          (coldMist.material as THREE.PointsMaterial).opacity = coldMistLevel * 0.5;
+          if (coldMistLevel < 0.01 && wantMist === 0) coldMist.visible = false;
 
           if (agingPhase === "ready") {
             agingJar.position.lerp(jarHome, 0.1);
