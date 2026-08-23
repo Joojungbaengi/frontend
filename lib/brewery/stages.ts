@@ -102,7 +102,7 @@ export function godubapSteps(o: GodubapOptions = {}): ProcessStep[] {
     {
       id: "semi",
       name: "세미",
-      caption: c.semi ?? `물을 받아 ${rice}을 손으로 헹궈요`,
+      caption: c.semi ?? `${rice}을 깨끗이 헹궈요`,
       models: ["rice_bowl", "bowl_rice"],
       water: 1,
     },
@@ -117,7 +117,7 @@ export function godubapSteps(o: GodubapOptions = {}): ProcessStep[] {
     {
       id: "talsu",
       name: "탈수",
-      caption: c.talsu ?? `${drain}시간 물을 빼요 · 소쿠리를 위아래로 털어 주세요`,
+      caption: c.talsu ?? `${drain}시간 동안 물을 빼줘요`,
       models: ["bamboo_basket", "bowl_rice"],
       water: 1,
     },
@@ -219,7 +219,7 @@ export function finishSteps(o: FinishOptions = {}): ProcessStep[] {
   const period = o.agePeriod ?? "한 달 넘게";
 
   const steps: ProcessStep[] = [
-    { id: "press", name: "압착·여과", caption: "보자기에 술덧을 붓고 손으로 정성껏 짜 맑게 걸러요" },
+    { id: "press", name: "압착·여과", caption: "술덧이 부어진 보자기를 일일이 손으로 짜내요" },
   ];
 
   if (o.distill) {

@@ -6662,7 +6662,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         coldFloorGlow.scale.setScalar(1);
         coldFloorGlowMaterial.opacity = 0.14;
         (coldTarget.material as THREE.MeshBasicMaterial).opacity = 0.82;
-        setAgingCopy("숙성 항아리를 손으로 감싸 자리로 옮겨 주세요", "항아리를 감싸 쥐고 빛나는 자리로 옮겨 주세요");
+        setAgingCopy("곱게 걸러낸 술은 한 달 이상의 저온 숙성을 거쳐요", "항아리를 감싸 쥐고 빛나는 자리로 옮겨 주세요");
       };
 
       live.onHand = (frame, hand, interactionCamera) => {
@@ -8025,14 +8025,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (cap) {
         if (productionCooling && S.godubap >= GB_LAST) {
           cap.textContent = S.coolingPhase === "TRAY_PULL"
-            ? "냉각① · 채반 꺼내기"
+            ? "채반 꺼내기"
             : S.coolingPhase === "RICE_SPREAD"
-              ? "냉각② · 고두밥 펼치기"
+              ? "고두밥 펼치기"
               : S.coolingPhase === "QUIZ"
-                ? "냉각③ · 장인의 질문"
+                ? ""
                 : S.coolingPhase === "FAN"
-                  ? "냉각④ · 부채질로 식히기"
-                  : "고두밥 완성 · 채반에서 충분히 식었어요";
+                  ? "고두밥 식히기"
+                  : "고두밥 완성!";
         } else {
           cap.textContent = skipToRiceSpread && S.godubap === GB_LAST
             ? "냉각② Rice Spread Debug"
@@ -8255,10 +8255,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         COMPLETE: "재료가 골고루 섞였어요 · 혼합 완료",
       } satisfies Record<typeof phase, string>;
       const captions = {
-        RICE: "밑술 — 일양 · 넓게 식힌 고두밥을 항아리에 담아요",
-        NURUK: "밑술 — 일양 · 누룩을 넣어 발효의 씨앗을 더해요",
+        RICE: "일양: 고두밥을 항아리에 담아요",
+        NURUK: "일양: 물에 불려둔 누룩을 넣어요",
         WATER: "밑술 — 일양 · 물을 부어 고두밥과 누룩을 적셔요",
-        KNEAD: "밑술 — 일양 · 손으로 치대며 재료를 고루 버무려요",
+        KNEAD: "일양: 재료를 고루 버무려요",
         COMPLETE: "밑술 — 일양 · 혼합 완료",
       } satisfies Record<typeof phase, string>;
 
@@ -8273,7 +8273,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         });
         const fermentCaptions = {
           LID: "밑술 — 일양 · 발효를 위해 항아리를 덮어요",
-          TEMPERATURE: "밑술 — 일양 · 1차 발효 온도를 25℃로 맞춰요",
+          TEMPERATURE: "",
           FERMENTING: `밑술 — 일양 · ${S.mitsulFermentDay}일차 발효 중`,
           COMPLETE: "밑술이 완성되었어요!",
         } satisfies Record<typeof fermentPhase, string>;
@@ -8408,7 +8408,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         const cap = $("#cap-ferment");
         if (cap) {
           cap.textContent = trayPending
-            ? `${current.name} · 채반을 잡고 몸 쪽으로 당겨 꺼내세요`
+            ? "채반 꺼내기"
             : current.id === "mash2"
               ? "술덧을 한 차례 더 넣어주세요"
               : current.caption;
@@ -8434,7 +8434,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           S.ferment >= 100
             ? "후발효가 완료되었습니다"
             : S.ferment < 40
-              ? "밀봉된 항아리 안에서 천천히 익어가요"
+              ? "30여일 간 발효를 시켜야 하네."
               : S.ferment < 80
                 ? "향과 탄산감이 차분히 자리 잡고 있어요"
                 : "기포가 잦아들며 풍미가 깊어지고 있어요";
@@ -9213,7 +9213,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               <div className="avatar" />
               <div>
                 <div className="who">술도가 장인</div>
-                <div className="msg" id="msg-ferment" aria-live="polite">밀봉된 항아리 안에서 천천히 익어가요</div>
+                <div className="msg" id="msg-ferment" aria-live="polite">30여일 간 발효를 시켜야 하네.</div>
               </div>
             </div>
           </div>
@@ -9238,7 +9238,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               <img src="/ar/ui/shipping-crest-jar.png" alt="" />
             </div>
             <h2>양조가 <em>완료</em>되었습니다!</h2>
-            <p className="ship-card-note">가와지쌀 삼양주 9도 · 부드럽고 새콤달콤한 맛</p>
+            <p className="ship-card-note">냥이탁주 9도 · 부드럽고 새콤달콤한 맛</p>
             <button id="btn-ship-capture" className="ship-save-row" type="button">
               <span className="ship-result-thumb">
                 <img src={recipe.finish.image} alt="완성된 냥이탁주 결과 미리보기" />
