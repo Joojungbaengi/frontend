@@ -14,6 +14,7 @@ export const LM = {
   MIDDLE_MCP: 9,
   MIDDLE_TIP: 12,
   RING_MCP: 13,
+  RING_TIP: 16,
   PINKY_MCP: 17,
   PINKY_TIP: 20,
 } as const;
@@ -60,6 +61,7 @@ export interface HandFrame {
   justPinched: boolean;
   /** 이 프레임에 막 폈다 */
   justReleased: boolean;
+
   /**
    * 화면에서 손이 차지하는 크기(손목~중지 MCP 거리, 화면 정규화).
    * 카메라에 가까울수록 커진다 — 깊이 추정에 쓴다.
@@ -67,6 +69,8 @@ export interface HandFrame {
   screenSpan: number;
   /** 왼손인가 오른손인가 — 3D 손 모델을 어느 쪽으로 세울지 정한다 */
   handedness: "left" | "right" | null;
+  /** 후면 카메라 보정 전 MediaPipe 좌우 분류의 신뢰도 */
+  handednessScore: number;
 }
 
 /** 아직 손이 없을 때 쓰는 빈 프레임 */
@@ -82,5 +86,6 @@ export function emptyHandFrame(): HandFrame {
     justReleased: false,
     screenSpan: 0.2,
     handedness: null,
+    handednessScore: 0,
   };
 }

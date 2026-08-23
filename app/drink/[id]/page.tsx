@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import AppImage from "@/components/AppImage";
+import DrinkPhotoViewer from "@/components/DrinkPhotoViewer";
 import ScreenHeader from "@/components/ScreenHeader";
 import ArEntryButton from "@/components/ArEntryButton";
 import db from "@/data/drinks.json";
@@ -8,7 +8,7 @@ import type { Drink } from "@/lib/types";
 
 /**
  * 전통주 상세 — material/전통주 상세 리디자인.html 기준.
- * 정보 순서: 제품 → 한 줄 요약 → 스탯 → 맛 → 향(감각 먼저) → 수상·인증 → 기본정보 → 제조(타임라인) → 음식 → 이야기 → CTA.
+ * 정보 순서: 제품 → 한 줄 요약 → 스탯 → 맛 → 향 → 어울리는 음식(감각 먼저) → 수상·인증 → 기본정보 → 이야기 → CTA.
  */
 
 const drinks = db.drinks as unknown as Drink[];
@@ -117,25 +117,17 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
 
   const abvText = drink.abv_variants ? drink.abv_variants.map((v) => `${v}도`).join(" · ") : `${drink.abv}도`;
 
-  // 제조 타임라인 3단계 (있는 것만)
-  const steps = [
-    { title: "담금 방식", body: drink.brewing.method },
-    { title: "빚는 과정", body: drink.brewing.detail },
-    { title: "발효 · 숙성", body: drink.brewing.fermentation_days },
-  ].filter((s) => s.body);
-
   return (
     <div style={{ position: "relative", zIndex: 5, minHeight: "100dvh" }}>
-      <ScreenHeader title="전통주 상세" />
+      <ScreenHeader title="상세 보기" />
 
       <div style={{ padding: "22px 22px 34px", display: "flex", flexDirection: "column", gap: 26 }}>
         {/* ── 히어로 (술이름+뱃지를 사진 높이의 세로 중앙에 정렬) ── */}
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           {drink.image ? (
-            <AppImage
+            <DrinkPhotoViewer
               src={drink.image}
               alt={drink.name}
-              eager
               boxStyle={{
                 width: 96,
                 height: 132,
@@ -220,13 +212,6 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
             <TasteRow label="바디감" value={drink.body} />
             <TasteRow label="탄산" value={drink.carbonation} />
             <TasteRow label="여운" value={drink.finish_length} />
-            {drink.taste_notes.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2, paddingTop: 14, borderTop: "1px solid rgba(120,95,50,.14)" }}>
-                {drink.taste_notes.map((n) => (
-                  <Chip key={n}>{n}</Chip>
-                ))}
-              </div>
-            )}
           </div>
         </div>
 
@@ -250,6 +235,20 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
             </div>
           </div>
         </div>
+
+        {/* ── 어울리는 음식 ── */}
+        {drink.pairing.length > 0 && (
+          <div>
+            <SectionHead text="어울리는 음식" />
+            <div className="card" style={{ padding: "16px 18px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {drink.pairing.map((t) => (
+                <span key={t} style={{ fontSize: 13, background: "#ece2cd", color: "#8a6a4a", padding: "7px 14px", borderRadius: 99 }}>
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── 수상 · 인증 ── */}
         {drink.awards.length > 0 && (
@@ -310,61 +309,6 @@ export default async function DrinkPage({ params }: { params: Promise<{ id: stri
             ))}
           </div>
         </div>
-
-        {/* ── 제조 방식 · 세로 타임라인 ── */}
-        {steps.length > 0 && (
-          <div>
-            <SectionHead text="제조 방식" />
-            <div style={{ position: "relative", paddingLeft: 6 }}>
-              {/* 연결선 */}
-              <div style={{ position: "absolute", left: 20, top: 14, bottom: 14, width: 2, background: "rgba(198,165,104,.5)" }} />
-              {steps.map((s, i) => (
-                <div
-                  key={s.title}
-                  style={{ position: "relative", display: "flex", gap: 16, marginBottom: i < steps.length - 1 ? 16 : 0 }}
-                >
-                  <div
-                    className="serif"
-                    style={{
-                      width: 30,
-                      height: 30,
-                      flexShrink: 0,
-                      borderRadius: "50%",
-                      background: "var(--brown)",
-                      color: "var(--gold-bright)",
-                      fontWeight: 800,
-                      fontSize: 13,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      zIndex: 1,
-                    }}
-                  >
-                    {i + 1}
-                  </div>
-                  <div style={{ paddingTop: 3 }}>
-                    <div className="serif" style={{ fontWeight: 700, fontSize: 15, color: "var(--ink)", marginBottom: 3 }}>{s.title}</div>
-                    <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--ink-soft)" }}>{s.body}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── 어울리는 음식 ── */}
-        {drink.pairing.length > 0 && (
-          <div>
-            <SectionHead text="어울리는 음식" />
-            <div className="card" style={{ padding: "16px 18px", display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {drink.pairing.map((t) => (
-                <span key={t} style={{ fontSize: 13, background: "#ece2cd", color: "#8a6a4a", padding: "7px 14px", borderRadius: 99 }}>
-                  {t}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* ── 역사 · 이야기 ── */}
         {drink.story && (

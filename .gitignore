@@ -47,5 +47,8 @@ next-env.d.ts
 # MediaPipe wasm + 손 랜드마크 모델 (dev/build 시 scripts/fetch-mediapipe.mjs 가 준비)
 /public/mediapipe/
 
+# Draco 디코더 (dev/build 시 scripts/copy-draco.mjs 가 three 에서 복사)
+/public/draco/
+
 # 팀 내부 정리 문서 — 저장소에 올리지 않는다
 /docs/

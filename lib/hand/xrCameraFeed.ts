@@ -16,7 +16,7 @@
 import * as THREE from "three";
 
 /** 내려받을 이미지 가로 크기. 손 인식은 이 정도면 충분하고, 키우면 그대로 비용이 된다. */
-const CAPTURE_W = 256;
+const CAPTURE_W = 192;
 
 export class XrCameraFeed {
   private rt: THREE.WebGLRenderTarget | null = null;
@@ -158,6 +158,11 @@ export class XrCameraFeed {
     this.imageData.data.set(this.buffer);
     this.ctx.putImageData(this.imageData, 0, 0);
     this.fresh = true;
+  }
+
+  /** 촬영용으로 마지막 정상 카메라 프레임을 읽기 전용으로 노출한다. */
+  get latestCanvas(): HTMLCanvasElement | null {
+    return this.fresh ? this.canvas : null;
   }
 
   dispose() {

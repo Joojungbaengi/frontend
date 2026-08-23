@@ -4,8 +4,7 @@ import {
   finishSteps,
   godubapStageModels,
   godubapSteps,
-  mashSteps,
-} from "@/lib/brewery/stages";
+  mashSteps, BENCH_LIFT } from "@/lib/brewery/stages";
 
 /**
  * 예시/템플릿 레시피 — "다른 술이 오면 이렇게 추가한다"를 보여주는 본보기.
@@ -41,7 +40,7 @@ export const sampleDanyangju: Recipe = {
   models: commonStageModels(),
   godubapModels: godubapStageModels(),
 
-  godubapRicePlane: { texture: "/ar/images/godubap.png", width: 0.18, depth: 0.3, y: 0.055 },
+  godubapRicePlane: { texture: "/ar/images/godubap.png", width: 0.18, depth: 0.3, y: BENCH_LIFT + 0.027 },
 
   // ── 공정 — 블록을 골라 조립한다 ──────────────────────────────────────
   godubapSteps: godubapSteps({ soakHours: 2, drainHours: 1 }),

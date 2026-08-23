@@ -89,6 +89,7 @@ export class HandVisual {
   private readonly handScene = new THREE.Scene();
   private glove: GloveHand;
   private rigged = new RiggedHand();
+
   private cursor: THREE.Mesh;
   /** 21개 관절의 월드 좌표 */
   private joints: THREE.Vector3[] = Array.from({ length: 21 }, () => new THREE.Vector3());
@@ -102,6 +103,10 @@ export class HandVisual {
    * 화면 좌표는 사용자가 보는 것("손가락이 쌀 위에 있다")과 항상 일치한다.
    */
   readonly pinchScreen = { x: 0.5, y: 0.5 };
+  /** 손바닥 한가운데의 화면 좌표(0~1) — 큰 물건을 감싸 잡는 판정에 쓴다 */
+  readonly palmScreen = { x: 0.5, y: 0.5 };
+  /** 21개 관절의 화면 좌표(0~1) — 특정 손가락 위치로 판정할 때 쓴다 */
+  readonly jointScreen = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
   /** 손까지의 거리 추정(m). 집어 든 물건을 얼마나 멀리 둘지 정하는 데 쓴다. */
   depth = 1;
 
@@ -110,6 +115,7 @@ export class HandVisual {
   }
 
   private pinchWorld = new THREE.Vector3();
+  private overlayReady = false;
 
   constructor() {
     // 한지빛 면장갑 — 어두운 나무 무대 위에서 또렷하되 튀지 않는다
@@ -126,13 +132,20 @@ export class HandVisual {
       metalness: 0.45,
     });
     this.glove = new GloveHand(glove, cuff);
-    this.handScene.add(this.glove.group);
-    this.handScene.add(this.rigged.group);
 
-    this.handScene.add(new THREE.HemisphereLight(0xfff6e6, 0x4a3a28, 1.1));
-    const key = new THREE.DirectionalLight(0xfff4e2, 2.3);
+    this.handScene.add(this.glove.group);
+
+    // 아래를 향한 면(손목 마개, 손바닥 그늘)은 하늘빛을 못 받고 바닥색만 받는다.
+    // 바닥색이 진한 갈색(0x4a3a28)이라 손목 끝이 거의 검게 나왔다 —
+    // 손목에 까만 줄이 생기던 원인이다. 살색에 가까운 밝은 바닥색으로 올린다.
+    this.handScene.add(new THREE.HemisphereLight(0xfff6e6, 0xc9a68c, 1.15));
+    const key = new THREE.DirectionalLight(0xfff4e2, 2.1);
     key.position.set(0.4, 1, 0.8);
     this.handScene.add(key);
+    // 손목 쪽을 아래에서 받쳐 주는 약한 빛. 어느 각도에서 봐도 끝이 죽지 않는다.
+    const fill = new THREE.DirectionalLight(0xffe9d8, 0.75);
+    fill.position.set(-0.3, -1, -0.4);
+    this.handScene.add(fill);
 
     this.cursor = new THREE.Mesh(
       new THREE.RingGeometry(0.22, 0.3, 28),
@@ -146,9 +159,31 @@ export class HandVisual {
       })
     );
     this.cursor.frustumCulled = false;
+    this.cursor.renderOrder = 1000;
     // 고리도 같은 씬에 둔다 — 씬을 나누면 그릴 때마다 XR 이 카메라를 다시 세팅해 비싸다
     this.handScene.add(this.cursor);
     this.handScene.visible = false;
+  }
+
+  /** 손과 커서를 메인 AR 모델과 분리된 Overlay Scene에 준비한다. */
+  attachTo() {
+    if (this.overlayReady) return;
+    // glove와 cursor는 생성자에서 이미 handScene에 들어 있다.
+    this.handScene.add(this.rigged.group);
+    this.glove.group.visible = false;
+    this.rigged.group.visible = false;
+    this.cursor.visible = false;
+    this.overlayReady = true;
+  }
+
+  /**
+   * 메인 Scene을 모두 그린 뒤 깊이만 비우고 손을 별도 패스로 덧그린다.
+   * AR 모델의 깊이 순서를 건드리지 않으면서 손 내부의 정상적인 self-occlusion을 유지한다.
+   */
+  renderOverlay(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
+    if (!this.overlayReady || !this.handScene.visible) return;
+    renderer.clearDepth();
+    renderer.render(this.handScene, camera);
   }
 
   /**
@@ -157,8 +192,22 @@ export class HandVisual {
   async loadModel() {
     try {
       await this.rigged.load();
+      this.rigged.group.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        // 메인 Scene과 분리된 두 번째 패스에서 손 자체의 깊이 판정은 정상 사용한다.
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        materials.forEach((material) => {
+          material.depthTest = true;
+          material.depthWrite = true;
+          material.needsUpdate = true;
+        });
+        mesh.renderOrder = 900;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+      });
     } catch (e) {
-      console.warn("[ar] 손 모델을 불러오지 못했습니다 — 기본 손으로 대체합니다.", e);
+      console.warn("[ar] 가상 손 모델을 불러오지 못해 기본 손을 사용합니다.", e);
     }
   }
 
@@ -172,6 +221,7 @@ export class HandVisual {
       return;
     }
     this.handScene.visible = true;
+    this.cursor.visible = true;
 
     // 집어 든 물건을 놓을 거리 — 화면에서 손이 클수록 카메라에 가깝다
     const span = Math.max(frame.screenSpan, 1e-4);
@@ -179,10 +229,22 @@ export class HandVisual {
 
     // 손 자체는 고정 거리에 그린다. 화면 좌표에서 역산하므로 거리를 바꿔도
     // 화면에 비치는 크기·모양은 똑같고, 에셋 위에 오는 건 그리는 순서가 보장한다.
+    let palmX = 0;
+    let palmY = 0;
+    let palmSamples = 0;
     for (let i = 0; i < 21; i++) {
       const s = toScreen(frame.landmarks[i], fit);
+      this.jointScreen[i].x = s.x;
+      this.jointScreen[i].y = s.y;
       screenToWorld(s.x, s.y, HAND_DRAW_DEPTH, camera, this.joints[i]);
+      if (i === 0 || i === 5 || i === 9 || i === 13 || i === 17) {
+        palmX += s.x;
+        palmY += s.y;
+        palmSamples += 1;
+      }
     }
+    this.palmScreen.x = palmX / Math.max(1, palmSamples);
+    this.palmScreen.y = palmY / Math.max(1, palmSamples);
 
     const ps = toScreen(frame.pinchPoint, fit);
     this.pinchScreen.x = ps.x;
@@ -196,20 +258,21 @@ export class HandVisual {
     if (this.rigged.loaded) {
       // 왼손·오른손 모델이 따로 있어 프레임의 좌우 정보만 넘기면 된다
       this.rigged.update(this.joints, frame, camera);
+      this.rigged.group.visible = true;
       this.glove.group.visible = false;
-
-      // 집는 지점을 **모델의 실제 손끝**으로 옮긴다.
-      // 인식 좌표는 손을 납작하게 편 값이라 3D 자세로 선 손끝과 어긋난다.
-      // 그대로 두면 고리가 손에서 뚝 떨어져 잡는 느낌이 사라진다.
-      const t = this.rigged.jointAt("thumb-tip");
-      const i = this.rigged.jointAt("index-finger-tip");
-      if (t && i) {
-        this.pinchWorld.addVectors(t, i).multiplyScalar(0.5);
-        worldToScreen(this.pinchWorld, camera, this.pinchScreen);
-      }
     } else {
       this.glove.update(this.joints, worldSpan);
       this.glove.group.visible = true;
+      this.glove.group.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        materials.forEach((material) => {
+          material.depthTest = false;
+          material.depthWrite = false;
+        });
+        mesh.renderOrder = 900;
+      });
     }
 
     this.cursor.position.copy(this.pinchWorld);
@@ -221,26 +284,51 @@ export class HandVisual {
     this.cursor.scale.setScalar(worldSpan * THREE.MathUtils.lerp(0.85, 0.5, frame.pinch));
   }
 
-  /**
-   * 손을 그린다. 엔진이 무대(L1)를 그린 뒤에 부른다.
-   *
-   * 깊이만 비우고 **한 번에** 그린다. 예전에는 그림자까지 얹느라 한 프레임에 손을
-   * 세 번 그렸는데, XR 세션에서는 render() 를 부를 때마다 카메라를 다시 세우기 때문에
-   * 그 비용이 그대로 프레임 저하로 돌아왔다. 손 인식이 렌더 루프에 물려 있어서
-   * 프레임이 떨어지면 집기·주먹 판정까지 같이 둔해진다.
-   */
-  render(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
-    if (!this.handScene.visible) return;
-    renderer.clearDepth(); // 여기부터는 무대보다 앞
-    renderer.render(this.handScene, camera);
-  }
-
   hide() {
     this.handScene.visible = false;
+    this.cursor.visible = false;
+    this.rigged.group.visible = false;
+    this.glove.group.visible = false;
     // 다시 잡혔을 때 사라진 자리에서 화면을 가로질러 쓸고 오지 않게 비운다
     this.rigged.reset();
   }
 
+  dispose() {
+    this.glove.dispose();
+    this.rigged.dispose();
+    this.cursor.geometry.dispose();
+    (this.cursor.material as THREE.Material).dispose();
+    for (const sc of [this.handScene]) {
+
+      sc.traverse(
+        (o: THREE.Object3D) => {
+
+          const mesh =
+            o as THREE.Mesh;
+
+          mesh.geometry?.dispose?.();
+
+          const mat =
+            mesh.material as
+              | THREE.Material
+              | THREE.Material[]
+              | undefined;
+
+          if (Array.isArray(mat)) {
+            mat.forEach(
+              x => x.dispose()
+            );
+          } else {
+            mat?.dispose?.();
+          }
+        }
+      );
+
+      sc.clear();
+    }
+  }
+
+  /*
   dispose() {
     this.glove.dispose();
     this.rigged.dispose();
@@ -255,4 +343,5 @@ export class HandVisual {
       sc.clear();
     }
   }
+  */
 }
