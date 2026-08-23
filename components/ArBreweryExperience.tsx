@@ -94,7 +94,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const INGREDIENTS = recipe.ingredients;
     const ESSENTIALS = INGREDIENTS.filter((i) => i.essential);
     const ESS_N = ESSENTIALS.length;                 // 주원료 개수 (술마다 달라짐)
-    const ESS_NAMES = ESSENTIALS.map((i) => i.name).join("·");
     const OPTIMAL_C = recipe.ferment.optimalC;       // 최적 발효 온도
 
     const GODUBAP_STEPS = recipe.godubapSteps;
@@ -7831,7 +7830,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (justAdded && !justAdded.essential) {
         coach("#msg-ingredient", justAdded.flavorNote ?? "부재료를 더하면 향이 한결 깊어진다네.");
       } else if (needed.length) {
-        coach("#msg-ingredient", `${ESS_NAMES}이 주원료라네. ${needed.map((i) => i.name).join("·")}을(를) 마저 담아보게.`);
+        // 몇 개가 남았는지는 아래 버튼이 이미 세어 준다.
+        // 장인은 재료를 담는 동안 이 술의 주원료 이야기를 들려준다.
+        coach("#msg-ingredient", recipe.ingredientNote);
       } else {
         coach(
           "#msg-ingredient",

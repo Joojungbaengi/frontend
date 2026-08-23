@@ -28,6 +28,8 @@ export const sampleDanyangju: Recipe = {
 
   intro:
     "이건 새 술을 붙이는 본보기라네. 쌀·정제수·누룩 세 가지 주원료만 있으면 술이 된다네. 골라 담아보게.",
+  ingredientNote:
+    "쌀과 누룩, 물 — 이 셋이 술의 뼈대라네. 무엇 하나 허투루 고를 수 없지.",
   ingredientsReady: "이제 고두밥을 지어 한 번에 담가보세.",
 
   ingredients: [

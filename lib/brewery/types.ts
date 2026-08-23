@@ -124,6 +124,13 @@ export interface Recipe {
 
   /** 원료 선택 단계 장인 인트로 */
   intro: string;
+  /**
+   * 인트로 다음, 재료를 담는 동안 계속 떠 있는 주원료 이야기.
+   *
+   * 무엇을 더 담아야 하는지는 화면 위 버튼이 이미 세어 준다. 장인은
+   * 대신 이 술이 왜 이 재료를 쓰는지를 들려준다.
+   */
+  ingredientNote: string;
   /** 주원료가 다 모였을 때 이어질 안내(행동) 문구 — 예: "이제 고두밥부터 지어…" */
   ingredientsReady: string;
 

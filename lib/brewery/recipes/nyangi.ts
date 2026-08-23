@@ -19,8 +19,10 @@ export const nyangiTakju: Recipe = {
   name: "냥이탁주 9",
 
   intro:
-    "이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 주재료 4가지를 손으로 집어 가운데 그릇에 부어보게.",
-  ingredientsReady: "이제 고두밥부터 지어 세 번 담글 준비를 하세.",
+    "이 술은 고양 가와지쌀로 세 번 담가 빚는 삼양주, 냥이탁주라네. 주원료 4가지를 손으로 집어 가운데 그릇에 부어보게.",
+  ingredientNote:
+    "가와지쌀은 찹쌀과 멥쌀의 중간 찰기를 가진 특수한 쌀로, 촉촉하며 쫄깃한 식감을 가지고 있다네. 단맛과 고소한 맛이 나며 쌀알이 작고 우윳빛인 것이 특징이지.",
+  ingredientsReady: "이제 고두밥을 만들어봅세.",
 
   // 주원료 4종. 개수가 달라져도 엔진이 essential 개수를 세어 맞춘다.
   //
@@ -52,7 +54,7 @@ export const nyangiTakju: Recipe = {
       },
     },
     {
-      id: "mil", name: "밀함유", texture: "/ar/images/mil.png", essential: true,
+      id: "mil", name: "밀", texture: "/ar/images/mil.png", essential: true,
       prop: {
         file: `${AR_ASSETS}/wheat_sack.glb`, height: 0.135, label: "밀",
         pour: true, flow: "grain", flowColor: 0xdcc38a, fillColor: 0xd6bd85, fillAmount: 0.18,
