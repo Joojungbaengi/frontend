@@ -5945,6 +5945,16 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       let pressLastPointerY = 0;
       let pressLastHandY: number | null = null;
       let pressLastHapticAt = 0;
+      /** 짜는 보자기와 거기서 떨어지는 술 */
+      let pressBojagi: THREE.Object3D | null = null;
+      let pressBojagiBaseScale = 1;
+      let pressBojagiHomeY = 0;
+      let pressDrip: THREE.Points | null = null;
+      /** 지금 쥔 정도 0(폄) ~ 1(꽉 쥠) */
+      let pressSqueeze = 0;
+      /** 방울이 떨어지는 세기 0~1 — 쥘 때마다 올라갔다 잦아든다 */
+      let pressDripLevel = 0;
+      const pressGrab = new CurledGrabGesture();
 
       if (pressEntry) {
         pressEntry.group.traverse((object) => {
@@ -6008,6 +6018,40 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         pressSplashRing.position.y = pressSurfaceEmptyY + 0.001;
         pressSplashRing.renderOrder = 5;
         pressEntry.group.add(pressSplashRing);
+
+        // 보자기 — 항아리 아가리 바로 위에 뜬다. 여기를 쥐었다 펴면 술이 떨어진다.
+        // 자리는 항아리를 실제로 재서 잡는다. 항아리 그룹의 로컬 값으로 어림하면
+        // 그룹에 걸린 배율만큼 어긋나 한참 위에 뜬다.
+        const bojagiEntry = finishProcessModels.find(({ def }) => def.id === "press_bojagi");
+        pressEntry.group.updateWorldMatrix(true, true);
+        const jarBox = new THREE.Box3().setFromObject(pressEntry.group);
+        const jarTopLocal = new THREE.Vector3(
+          (jarBox.min.x + jarBox.max.x) / 2,
+          jarBox.max.y,
+          (jarBox.min.z + jarBox.max.z) / 2,
+        );
+        stageGroup.worldToLocal(jarTopLocal);
+        const bojagiY = jarTopLocal.y + 0.1;
+
+        if (bojagiEntry) {
+          stageGroup.attach(bojagiEntry.group);
+          bojagiEntry.group.position.set(jarTopLocal.x, bojagiY, jarTopLocal.z);
+          bojagiEntry.group.rotation.set(0, 0, 0);
+          pressBojagi = bojagiEntry.group;
+          pressBojagiBaseScale = bojagiEntry.group.scale.x || 1;
+          pressBojagiHomeY = bojagiY;
+        }
+
+        // 보자기에서 떨어지는 술방울. 잘 보이도록 굵고 또렷하게 그린다.
+        pressDrip = makeParticles(70, {
+          color: 0xf6e2a8, size: 0.022, opacity: 0, speed: 1.5,
+          radius: 0.03, baseY: 0, height: -(bojagiY - jarTopLocal.y + 0.08), taper: -0.2,
+          blending: "normal", straight: true,
+        });
+        pressDrip.position.set(jarTopLocal.x, bojagiY - 0.03, jarTopLocal.z);
+        pressDrip.visible = false;
+        stageGroup.add(pressDrip);
+        live.particles.push(pressDrip);
 
         if (!pressCollider) {
           pressCollider = new THREE.Mesh(
@@ -6202,25 +6246,35 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         pressCanvas.removeEventListener("pointercancel", endPressPointer);
       });
 
+      const bojagiWorld = new THREE.Vector3();
+      const bojagiScreen = { x: 0.5, y: 0.5 };
       const handlePressHand = (frame: HandFrame, hand: HandVisual, interactionCamera: THREE.Camera) => {
-        if (!pressCollider || !pressEntry?.group.visible || !frame.present) {
+        if (!pressEntry?.group.visible || !frame.present) {
           pressLastHandY = null;
+          pressGrab.reset();
+          pressSqueeze = 0;
           return;
         }
-        const colliderWorld = new THREE.Vector3();
-        const colliderScreen = { x: 0.5, y: 0.5 };
-        pressCollider.getWorldPosition(colliderWorld);
-        worldToScreen(colliderWorld, interactionCamera, colliderScreen);
+        // 보자기 위에서 손을 쥐었다 펴면 술이 떨어진다.
+        // 허공 아무 데서나 쥐어도 되던 걸, 보자기를 쥐는 일로 바꿨다.
+        (pressBojagi ?? pressCollider)?.getWorldPosition(bojagiWorld);
+        worldToScreen(bojagiWorld, interactionCamera, bojagiScreen);
         const pinch = hand.pinchScreen;
-        const overMouth = screenDist(pinch, colliderScreen) < 0.18;
-        if (overMouth && (frame.pinching || frame.justPinched)) {
-          if (pressLastHandY !== null) addPressFill((pinch.y - pressLastHandY) * pressCanvas.clientHeight);
-          pressLastHandY = pinch.y;
-          setHandHud("holding", "천천히 짜서 맑은 술을 받아 주세요");
+        const onBojagi = screenDist(pinch, bojagiScreen) < 0.3;
+        const grab = pressGrab.update(frame, onBojagi);
+        // 쥔 정도를 그대로 받아 보자기가 오므라들게 한다
+        pressSqueeze += ((onBojagi ? grab.score : 0) - pressSqueeze) * 0.3;
+
+        if (onBojagi && grab.active) {
+          pressDripLevel = 1;
+          addPressFill(3.2);
+          setHandHud("holding", "그대로 지그시 짜 주세요");
+        } else if (onBojagi) {
+          setHandHud("hover", "보자기를 쥐었다 펴며 짜 주세요");
         } else {
-          pressLastHandY = null;
-          setHandHud(overMouth ? "hover" : "tracking", overMouth ? "보자기를 아래로 지그시 짜 주세요" : "항아리 입구로 손을 옮겨주세요");
+          setHandHud("tracking", "보자기로 손을 옮겨 주세요");
         }
+        pressLastHandY = null;
       };
 
       /* ── 저온숙성: 항아리를 손으로 감싸 냉장고 안에 넣는다 ────────────
@@ -6995,6 +7049,27 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             pressStreamUniforms.uOpacity.value = 0.88;
           }
           pressFill += (pressFillTarget - pressFill) * Math.min(1, dt * 7.5);
+
+          // 쥐면 보자기가 오므라들고, 펴면 제 크기로 돌아온다
+          if (pressBojagi) {
+            const squeezed = pressBojagiBaseScale * (1 - pressSqueeze * 0.16);
+            pressBojagi.scale.setScalar(
+              THREE.MathUtils.lerp(pressBojagi.scale.x, squeezed, Math.min(1, dt * 9)),
+            );
+            // 짜는 힘을 따라 아주 조금 눌린다
+            pressBojagi.position.y = THREE.MathUtils.lerp(
+              pressBojagi.position.y,
+              pressBojagiHomeY - pressSqueeze * 0.015,
+              Math.min(1, dt * 9),
+            );
+          }
+          // 방울은 쥘 때마다 쏟아졌다가 손을 놓으면 잦아든다
+          pressDripLevel = Math.max(0, pressDripLevel - dt * 1.3);
+          if (pressDrip) {
+            const material = pressDrip.material as THREE.PointsMaterial;
+            material.opacity += (pressDripLevel * 0.95 - material.opacity) * Math.min(1, dt * 10);
+            pressDrip.visible = material.opacity > 0.02;
+          }
           const liquidHeight = THREE.MathUtils.lerp(
             0.001,
             pressSurfaceFullY - PRESS_LIQUID_BOTTOM_Y,
@@ -8472,6 +8547,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
         }
 
+        // MediaPipe 는 WASM 힙과 GPU 자원을 따로 쥐고 있다. 이걸 닫지 않으면
+        // renderer 만 정리해도 메모리가 그대로 남아, 다음 페이지를 여는 순간
+        // 안드로이드 크롬이 탭째로 죽는다. 손 관련 자원부터 놓아준다.
+        handTracker?.setPaused(true);
+        handVisual.hide();
+        handVisual.dispose();
+        handTracker?.dispose();
+        clearStage();
         releaseAllGpuMemory();
         renderer.dispose();
         renderer.forceContextLoss();

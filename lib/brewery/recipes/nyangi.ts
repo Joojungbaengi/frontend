@@ -115,7 +115,8 @@ export const nyangiTakju: Recipe = {
       file: `${AR_ASSETS}/Closed_jar.glb`,
       step: "ferment",
       processSteps: ["post"],
-      height: 0.25,
+      // 밑술·덧술에서 쓰는 항아리와 같은 크기. 단계가 넘어간다고 작아지면 안 된다.
+      height: 0.323,
       y: BENCH_LIFT,
     },
     {
@@ -124,6 +125,14 @@ export const nyangiTakju: Recipe = {
       step: "done",
       processSteps: ["press"],
       height: 0.3,
+      y: BENCH_LIFT,
+    },
+    {
+      id: "press_bojagi",
+      file: `${AR_ASSETS}/bojagi.glb`,
+      step: "done",
+      processSteps: ["press"],
+      height: 0.2,
       y: BENCH_LIFT,
     },
     {
