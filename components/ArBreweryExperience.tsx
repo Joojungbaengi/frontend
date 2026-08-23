@@ -66,6 +66,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     const mitsulMixDebug = query.get("mitsulMixDebug") === "1";
     const mitsulFermentDebug = query.get("mitsulFermentDebug") === "1";
     const agingDebug = query.get("agingDebug") === "1";
+    /** 단계 이동 버튼 — QA 때만 띄운다 */
+    const devJump = query.get("devJump") === "1";
     const skipToCooling = trayDebug && query.get("skipTo") === "cooling";
     const skipToRiceSpread = riceSpreadDebug && query.get("skipTo") === "riceSpread";
     const skipToKnead = kneadDebug && query.get("skipTo") === "knead";
@@ -80,6 +82,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     uiRoot.classList.toggle("mitsul-mix-debug", mitsulMixDebug);
     uiRoot.classList.toggle("mitsul-ferment-debug", mitsulFermentDebug);
     uiRoot.classList.toggle("aging-debug", agingDebug);
+    uiRoot.classList.toggle("dev-jump-on", devJump);
 
     /* =====================================================================
      * 0. 상태 — 이 술의 바뀌는 데이터는 전부 recipe 에서 온다.
@@ -8805,7 +8808,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         </div>
       </div>
 
-      {/* TEMP DEBUG — 개발 완료 후 삭제. 한 줄로 묶어 간격을 맞춘다. */}
+      {/* ?devJump=1 전용 — 단계 이동. 평소에는 CSS로 감춘다. */}
       <div className="dev-jump">
         <button id="debug-skip-before-post-fermentation" type="button">DEV · 후발효 직전</button>
         <button id="debug-skip-before-press" type="button">DEV · 압착·여과 직전</button>

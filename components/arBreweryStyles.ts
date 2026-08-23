@@ -743,8 +743,9 @@ export const styles = `
 @media (prefers-reduced-motion:reduce){.ar-ui *{animation:none !important; transition:none !important}}
 
 /* ── 개발용 ─────────────────────────────────────────────
-   TEMP: 단계 이동 버튼. 오른쪽 위는 덧술2 건너뛰기가 쓰므로 왼쪽에 세로로 세운다. */
-.ar-ui .dev-jump{position:absolute; top:180px; left:12px; z-index:9998;
+   ?devJump=1 일 때만 나오는 단계 이동 버튼. 평소 화면에는 없다. */
+.ar-ui .dev-jump{display:none}
+.ar-ui.dev-jump-on .dev-jump{position:absolute; top:180px; left:12px; z-index:9998;
   display:flex; flex-direction:column; align-items:flex-start; gap:8px; pointer-events:auto}
 .ar-ui .dev-jump button{padding:8px 12px; border-radius:8px;
   border:1px solid rgba(255,255,255,.4); background:rgba(0,0,0,.7); color:#fff;
