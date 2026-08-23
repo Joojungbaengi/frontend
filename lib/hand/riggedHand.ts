@@ -19,6 +19,7 @@
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import type { HandFrame } from "@/lib/hand/types";
 
 /**
@@ -46,11 +47,14 @@ function flattenWristCap(mesh: THREE.SkinnedMesh) {
   const cap: number[] = [];
   const rest: number[] = [];
   const tri = [0, 0, 0];
+  // 손목 끝은 평평한 뚜껑이 아니라 둥글게 말려 닫힌다. 그래서 끝단 법선이
+  // 뒤(+Y)를 곧게 보지 않고 대부분 옆을 향한다 — 재 보니 중앙값이 0.07 이었다.
+  // 기준을 그 실측에 맞춘다. 곧게 뒤를 보는 것만 고르면 한 장도 안 걸린다.
+  const END_BAND = maxY - 0.022;
   for (let t = 0; t < index.count; t += 3) {
     tri[0] = index.getX(t); tri[1] = index.getX(t + 1); tri[2] = index.getX(t + 2);
-    // 세 꼭짓점이 모두 손목 끝에 붙어 있고, 면이 손끝 반대쪽(+Y)을 보면 마개다
-    const atEnd = tri.every((v) => maxY - position.getY(v) < 0.004);
-    const facingBack = tri.every((v) => normal.getY(v) > 0.55);
+    const atEnd = tri.every((v) => position.getY(v) > END_BAND);
+    const facingBack = tri.every((v) => normal.getY(v) > 0.3);
     (atEnd && facingBack ? cap : rest).push(tri[0], tri[1], tri[2]);
   }
   if (!cap.length) return;
@@ -314,6 +318,11 @@ export class RiggedHand {
   /** 두 손 모델을 모두 올린다. 합쳐 190KB 남짓이라 한 번에 받아도 부담이 없다. */
   async load() {
     const loader = new GLTFLoader();
+    // 손 모델도 다른 에셋과 같이 Draco 로 눌러 두었다.
+    // 디코더는 scripts/copy-draco.mjs 가 dev·build 때 public/draco/ 에 넣는다.
+    const draco = new DRACOLoader();
+    draco.setDecoderPath("/draco/");
+    loader.setDRACOLoader(draco);
     await Promise.all(
       (["right", "left"] as const).map(async (side) => {
         const gltf = await loader.loadAsync(MODEL[side]);
