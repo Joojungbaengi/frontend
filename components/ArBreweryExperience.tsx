@@ -168,6 +168,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       ferment: 0,
       fstage: 0,
       mashTrayDone: new Set<string>(),
+      /** 덧술2를 한 번 더 할지 이미 물어봤는가 */
+      mash2Answered: false,
       mitsulPhase: "RICE" as "RICE" | "NURUK" | "WATER" | "KNEAD" | "COMPLETE",
       mitsulPourProgress: 0,
       mitsulRiceScoops: 0,
@@ -500,6 +502,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       S.fstage = beforeFirstMashIndex;
       S.ferment = 0;
       S.mashTrayDone.clear();
+        S.mash2Answered = false;
       setStep("ferment");
 
       // 초기 로딩 중에도 발효 무대가 비지 않도록 필요한 모델을 먼저 받는다.
@@ -968,6 +971,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       }
       (pts.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     }
+
+    /**
+     * 밑술·덧술이 함께 쓰는 항아리의 원본 대비 배율.
+     *
+     * 같은 항아리인데 밑술은 이 배율(높이 0.323m), 덧술은 높이 0.25m 로
+     * 따로 맞추고 있어 단계가 넘어갈 때 항아리가 작아져 버렸다.
+     */
+    const MITSUL_JAR_SCALE = 0.17;
 
     /* --- 무대 관리 --- */
     const stageGroup = new THREE.Group();
@@ -1760,7 +1771,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           return;
         }
 
-        setHandHud("hover", `${nameOf(id)} · 엄지와 검지를 붙여 집으세요`);
+        setHandHud("hover", `${nameOf(id)}을(를) 집어 주세요`);
       };
     }
 
@@ -2052,7 +2063,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (trayMover) trayMover.position.z = 0;
         updateTrayHighlight(false);
         updateTrayDebugPanel(null, false);
-        setHandHud("tracking", "노란 표시에 손을 가까이 대세요");
+        setHandHud("tracking", "채반 앞쪽으로 손을 가져가세요");
       }
 
       // metal tray는 냉각①/②가 공유한다. riceSpreadDebug 단독 진입에서도 반드시 꺼낸다.
@@ -2372,7 +2383,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         updateRiceZones();
         updateRiceDebugPanel(null);
         $("#rice-debug-spread")?.classList.remove("visible");
-        setHandHud("tracking", "채반 위 여러 영역을 손바닥으로 쓸어주세요");
+        setHandHud("tracking", "고두밥을 이리저리 고르게 펼쳐 주세요");
       }
 
       if ((riceSpreadDebug || productionCooling) && debugGltf?.scene) {
@@ -2708,7 +2719,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           applyRiceVisual(0);
           godubapShowStage?.();
           syncGodubap();
-          setHandHud("tracking", "고두밥을 채반 위에 골고루 펼쳐주세요");
+          setHandHud("tracking", "고두밥을 채반 위에 고르게 펼쳐 주세요");
         }
 
         if (
@@ -2723,7 +2734,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           godubapShowStage?.();
           syncGodubap();
           $("#quiz")?.classList.remove("hidden");
-          setHandHud("idle", "고두밥을 골고루 펼쳤어요");
+          setHandHud("idle", "고두밥을 고르게 펼쳤어요");
         }
 
         // 침수 — 담가 두고 기다리면 다 분다. 손으로 할 일은 없다.
@@ -2926,7 +2937,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         $("#quiz")?.classList.add("hidden");
         handTracker?.setPaused(false);
         godubapShowStage?.();
-        setHandHud("tracking", "채반 앞쪽을 잡고 앞으로 당겨주세요");
+        setHandHud("tracking", "채반을 잡고 몸 쪽으로 당겨 주세요");
       };
       startCoolingFan = () => {
         S.coolingPhase = "FAN";
@@ -2936,7 +2947,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         steam.material.opacity = 0.55;
         godubapShowStage?.();
         syncGodubap();
-        setHandHud("tracking", "손을 좌우로 흔들어 고두밥을 식혀주세요");
+        setHandHud("tracking", "손으로 부채질해 고두밥을 식혀 주세요");
       };
       const trayWorld = new THREE.Vector3();
       const trayCameraLocal = new THREE.Vector3();
@@ -2991,10 +3002,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (traySnapshot.state === "COMPLETE") {
           setHandHud("dropped", debug ? "TRAY PULL OK" : "채반을 꺼냈어요");
         }
-        else if (traySnapshot.grabbed) setHandHud("holding", "잡은 채 손을 몸 쪽으로 당겨 주세요");
-        else if (hovering) setHandHud("hover", "앞쪽 테두리에서 엄지와 검지를 붙이세요");
+        else if (traySnapshot.grabbed) setHandHud("holding", "그대로 몸 쪽으로 당겨 주세요");
+        else if (hovering) setHandHud("hover", "채반 앞쪽을 잡아 주세요");
         else if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
-        else setHandHud("tracking", "노란 표시에 손을 가까이 대세요");
+        else setHandHud("tracking", "채반 앞쪽으로 손을 가져가세요");
       }
 
       function handleRiceSpread(f: HandFrame, debug = riceSpreadDebug) {
@@ -3046,14 +3057,14 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         updateRiceDebugPanel(f);
 
         if (riceSnapshot.state === "COMPLETE") {
-          setHandHud("dropped", debug ? "RICE SPREAD OK" : "고두밥을 골고루 펼쳤어요");
+          setHandHud("dropped", debug ? "RICE SPREAD OK" : "고두밥을 고르게 펼쳤어요");
         }
         else if (riceSnapshot.state === "SPREADING") {
-          setHandHud("holding", debug ? "SPREAD! · 다른 영역도 넓게 쓸어주세요" : "다른 부분도 골고루 펼쳐주세요");
+          setHandHud("holding", debug ? "SPREAD! · 다른 영역도 넓게 쓸어주세요" : "남은 자리도 고르게 펼쳐 주세요");
         }
-        else if (riceSnapshot.onRice) setHandHud("hover", "손바닥으로 고두밥 표면을 넓게 쓸어주세요");
+        else if (riceSnapshot.onRice) setHandHud("hover", "고두밥을 손으로 고르게 펼쳐 주세요");
         else if (!f.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
-        else setHandHud("tracking", "채반 위 고두밥에 손바닥을 올려주세요");
+        else setHandHud("tracking", "채반 위 고두밥에 손을 올려 주세요");
       }
 
       live.onHand = (f, hand, cam) => {
@@ -3077,7 +3088,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             return;
           }
           if (S.coolingPhase === "QUIZ") {
-            setHandHud("idle", "장인의 질문에 답해주세요");
+            setHandHud("idle", "장인의 물음에 답해 주세요");
             return;
           }
           if (S.coolingPhase === "COMPLETE") return;
@@ -3199,7 +3210,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               return;
             }
             if (f.justReleased || !f.pinching) heldLid = false;
-            setHandHud("holding", "뚜껑을 솥 위로 옮기세요");
+            setHandHud("holding", "뚜껑을 솥 위로 옮겨 주세요");
             return;
           }
 
@@ -3212,7 +3223,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             setHandHud("holding", "뚜껑을 잡았어요");
             return;
           }
-          setHandHud(nearLid ? "hover" : "tracking", nearLid ? "엄지와 검지를 붙여 뚜껑을 집으세요" : "뚜껑 가까이 손을 가져가세요");
+          setHandHud(nearLid ? "hover" : "tracking", nearLid ? "뚜껑을 집어 주세요" : "뚜껑 가까이 손을 가져가세요");
           return;
         }
 
@@ -3424,7 +3435,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         applyMashVisual();
         updateKneadPanel(null, { x: 0.5, y: 0.5 });
         $("#knead-debug-palm-marker")?.classList.remove("visible");
-        setHandHud("tracking", "항아리 위에서 손을 펴고 오므린 뒤 다시 펴주세요");
+        setHandHud("tracking", "항아리 안의 재료를 손으로 치대 주세요");
       };
 
       const resetButton = $("#knead-debug-reset") as HTMLButtonElement | null;
@@ -3472,11 +3483,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
         if (kneadSnapshot.state === "COMPLETE") setHandHud("dropped", "KNEAD OK");
         else if (!frame.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
-        else if (!onMash) setHandHud("tracking", "손바닥을 항아리 안 술덧 위로 옮겨주세요");
+        else if (!onMash) setHandHud("tracking", "항아리 속 술덧 위에 손을 올려 주세요");
         else if (kneadSnapshot.justKneaded) setHandHud("dropped", "KNEAD!");
         else if (kneadSnapshot.pose === "CLOSED") setHandHud("holding", "SQUEEZE · 다시 손을 펴주세요");
         else if (kneadSnapshot.pose === "OPEN") setHandHud("hover", "OPEN · 손을 오므려주세요");
-        else setHandHud("tracking", "손 자세를 안정적으로 유지해주세요");
+        else setHandHud("tracking", "손을 화면 안에 두고 천천히 움직여 주세요");
       };
 
       live.tick = (_t, dt) => {
@@ -3494,7 +3505,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const platformTop = addPlatform();
       frame3D(platformTop + 0.2, 0.76, 0.64);
 
-      const JAR_SCALE = 0.17;
+      const JAR_SCALE = MITSUL_JAR_SCALE;
       const PICK_RADIUS = 0.13;
       const POUR_TARGET_RADIUS = 0.23;
       const POUR_TILT_RAD = THREE.MathUtils.degToRad(38);
@@ -3675,7 +3686,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       };
 
       const trayActor = new THREE.Group();
-      const trayHome = new THREE.Vector3(-0.27, platformTop + 0.055, 0.08);
+      const trayHome = new THREE.Vector3(-0.27, platformTop + BENCH_LIFT, 0.08);
       let trayWidth = 0.18;
       let trayDepth = 0.3;
       let traySurfaceY = 0.04;
@@ -4134,7 +4145,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         applyMixVisual();
         syncMitsulMixUi();
         updateFermentPanel();
-        setHandHud("tracking", "작업대의 항아리 뚜껑을 집어주세요");
+        setHandHud("tracking", "작업대의 뚜껑을 집어 주세요");
       };
 
       resetMitsulMixInteraction = () => {
@@ -4181,7 +4192,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         applyMixVisual();
         syncMitsulMixUi();
         updateMixPanel(null);
-        setHandHud("tracking", "채반 위에서 고두밥을 한 움큼 집어주세요");
+        setHandHud("tracking", "고두밥을 한 움큼 집어 주세요");
       };
 
       const resetButton = $("#mitsul-debug-reset") as HTMLButtonElement | null;
@@ -4236,7 +4247,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               lidReturning = true;
               setHandHud("tracking", "항아리 입구 위에서 뚜껑을 놓아주세요");
             } else {
-              setHandHud("holding", "뚜껑을 항아리 입구 위로 옮겨주세요");
+              setHandHud("holding", "뚜껑을 항아리 위로 옮겨 주세요");
             }
             updateFermentPanel();
             return;
@@ -4253,7 +4264,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             setHandHud("holding", "항아리 뚜껑을 집었어요");
           } else {
             setHandHud(hovering ? "hover" : "tracking", hovering
-              ? "엄지와 검지를 붙여 뚜껑을 집으세요"
+              ? "뚜껑을 집어 주세요"
               : "작업대의 항아리 뚜껑으로 손을 옮겨주세요");
           }
           updateFermentPanel();
@@ -4307,11 +4318,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               finishRiceAfterDrop = S.mitsulRiceScoops >= REQUIRED_RICE_SCOOPS;
               applyMixVisual();
               syncMitsulMixUi();
-              setHandHud("dropped", `고두밥 투입 ${S.mitsulRiceScoops}/${REQUIRED_RICE_SCOOPS}`);
+              setHandHud("dropped", `고두밥을 넣었어요 · ${S.mitsulRiceScoops}/${REQUIRED_RICE_SCOOPS}`);
             } else if (!overMouth) {
-              setHandHud("holding", "고두밥 한 움큼을 항아리 입구 위로 옮겨주세요");
+              setHandHud("holding", "고두밥을 항아리 위로 옮겨 주세요");
             } else {
-              setHandHud("holding", "항아리 위에서 손을 펼쳐 고두밥을 놓아주세요");
+              setHandHud("holding", "항아리 위에서 손을 펴 고두밥을 넣어 주세요");
             }
           } else if (!riceDropActive && poseChanged === "CLOSED" && onTray) {
             hasRiceScoop = true;
@@ -4324,9 +4335,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           } else if (riceDropActive) {
             setHandHud("dropped", "고두밥이 항아리에 떨어지는 중이에요");
           } else if (!onTray) {
-            setHandHud("tracking", "손바닥을 채반 위 고두밥으로 옮겨주세요");
+            setHandHud("tracking", "채반 위 고두밥에 손을 올려 주세요");
           } else {
-            setHandHud("hover", "채반 위에서 손을 오므려 한 움큼 집어주세요");
+            setHandHud("hover", "고두밥을 한 움큼 집어 주세요");
           }
           updateMixPanel(frame, overMouth);
           return;
@@ -4372,10 +4383,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             updateMixPanel(frame, false, 0, onMash);
             if (S.mitsulDone) setHandHud("dropped", "혼합 완료 · 이제 발효 온도를 맞춰요");
             else if (!frame.present) setHandHud("idle", "손을 카메라에 비춰 주세요");
-            else if (!onMash) setHandHud("tracking", "손바닥을 항아리 속 재료 위에 올려주세요");
-            else if (kneadSnapshot.justKneaded) setHandHud("dropped", `치대기 ${kneadSnapshot.count}/${KNEAD.TARGET_KNEAD_COUNT}`);
-            else if (kneadSnapshot.pose === "CLOSED") setHandHud("holding", "손을 다시 펼쳐 한 번을 완성하세요");
-            else setHandHud("hover", "손을 오므렸다 다시 펼쳐 치대주세요");
+            else if (!onMash) setHandHud("tracking", "항아리 속 재료 위에 손을 올려 주세요");
+            else if (kneadSnapshot.justKneaded) setHandHud("dropped", `치대는 중 · ${kneadSnapshot.count}/${KNEAD.TARGET_KNEAD_COUNT}`);
+            else if (kneadSnapshot.pose === "CLOSED") setHandHud("holding", "손을 펴 한 번을 마무리해 주세요");
+            else setHandHud("hover", "손으로 치대며 버무려 주세요");
           }
           return;
         }
@@ -4440,7 +4451,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (frame.justReleased) {
             returnHeldHome();
             setHandHud("tracking", `${current.label}을(를) 다시 집어주세요`);
-          } else if (!nearJar) setHandHud("holding", `${current.label}을(를) 항아리 입구로 옮겨주세요`);
+          } else if (!nearJar) setHandHud("holding", `${current.label}을(를) 항아리 위로 옮겨 주세요`);
           else setHandHud("dropped", `${current.label} 붓는 중… ${Math.round(S.mitsulPourProgress * 100)}%`);
           return;
         }
@@ -4727,6 +4738,29 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
       const resetMashTray = (stepId: string) => {
         activeMashId = stepId;
+        // 앞 덧술에서 물러나며 줄여 둔 것을 되돌린다 — 안 그러면 덧술2 에
+        // 채반도 랙도 나타나지 않는다.
+        mashTrayRetire = 0;
+        mashAdvanced = false;
+        mashTrayMover.scale.setScalar(1);
+        mashTrayMover.visible = true;
+        if (mashRackProcess) {
+          mashRackProcess.group.scale.setScalar(MASH_RACK_SCALE);
+          mashRackProcess.group.visible = true;
+        }
+        if (mashTrayRice) {
+          mashTrayRice.visible = true;
+          mashTrayRice.position.z = 0;
+          mashTrayRice.position.y = mashTrayHeight * 0.34;
+          mashTrayRice.scale.setScalar(1);
+        }
+        mashRicePoured = false;
+        mashWaterPoured = 0;
+        mashWaterHeld = false;
+        mashWaterLatched = false;
+        mashStirred = 0;
+        spatulaHeld = false;
+        mashRicePour.visible = false;
         mashTrayRig.add(mashTrayMover);
         mashTrayGesture.reset();
         mashTraySnapshot = emptyMashTraySnapshot();
@@ -4753,15 +4787,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 밑술을 담갔던 그 항아리를 그대로 이어받는다 — 덧술은 새 통에 다시 담그는 게
       // 아니라, 이미 익은 술덧에 고두밥과 물을 더하는 일이다.
       const jar = new THREE.Group();
-      /** 덧술 무대에서의 항아리 높이(m). 후발효의 밀봉 항아리와 같은 크기다. */
-      const MASH_JAR_HEIGHT = 0.25;
-      let mashJarHeight = MASH_JAR_HEIGHT;
+      let mashJarHeight = 0.323;
       let mashJarWidth = 0.24;
       const mitsulJarGltf = LOADED[MITSUL_JAR_ID];
       if (mitsulJarGltf?.scene) {
         const jarModel = skinnedClone(mitsulJarGltf.scene) as THREE.Object3D;
-        const raw = new THREE.Box3().setFromObject(jarModel).getSize(new THREE.Vector3());
-        jarModel.scale.setScalar(MASH_JAR_HEIGHT / (raw.y || 1));
+        // 밑술에서 쓰던 그 배율 그대로 — 단계가 바뀐다고 항아리가 줄면 안 된다
+        jarModel.scale.setScalar(MITSUL_JAR_SCALE);
         jarModel.traverse((o: THREE.Object3D) => {
           const mesh = o as THREE.Mesh;
           if (!mesh.isMesh) return;
@@ -4885,6 +4917,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       });
       // 채반의 낮은 쪽 끝에서 항아리 아가리로 곧장 떨어진다
       mashRicePour.position.set(0, platformTop + 0.30, 0.072);
+      /**
+       * 채반 놓는 자리를 항아리 실측값에서 다시 잡는다.
+       * 낮은 쪽 끝이 아가리 안으로 넘어와야 고두밥이 항아리로 쏟아진다.
+       */
+      {
+        const tilt = 0.62;
+        const half = mashTrayDepth / 2;
+        const jarTopY = platformTop + BENCH_LIFT + mashJarHeight;
+        mashTrayDropPosition.set(
+          0,
+          jarTopY + Math.sin(tilt) * half + 0.012,
+          Math.cos(tilt) * half + mashJarWidth * 0.12,
+        );
+        mashTrayDropTarget.position.copy(mashTrayDropPosition);
+        mashRicePour.position.set(0, jarTopY + 0.02, mashJarWidth * 0.12);
+      }
       mashRicePour.visible = false;
       stageGroup.add(mashRicePour);
       live.particles.push(mashRicePour);
@@ -4902,6 +4950,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const mashStir = new StirGesture();
       /** 다 저어 쌀이 가라앉기까지 필요한 바퀴 수 */
       const REQUIRED_STIR_TURNS = 3;
+      /** 채반 랙의 배율 — 물러났다 돌아올 때 되돌릴 기준이 된다 */
+      const MASH_RACK_SCALE = 1.59 * 1.3 * 1.5;
       const fermentProcessModels = MODELS
         .filter((m) => m.step === "ferment" && m.processSteps?.length)
         // 움직이는 Metal_Tray는 mashTrayMover가 별도로 소유한다.
@@ -4912,8 +4962,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           group.position.set(0, platformTop + def.y, 0);
           if (def.id === "wooden_spatula") {
             // 물통과 같은 왼쪽 줄, 조금 안쪽에 눕혀 둔다.
+            // 기울여 두면 중심을 축으로 도느라 한쪽 끝이 상판에 파묻힌다.
             group.position.set(-0.25, platformTop + def.y, -0.14);
-            group.rotation.z = -0.72;
             spatulaGroup = group;
             spatulaHome.copy(group.position);
           }
@@ -4921,7 +4971,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             // 화면 오른쪽(+x), 사용자에게서 먼 쪽(-z)에 배치한다. 직전 크기
             // (1.59 * 1.3)에서 다시 50% 키우고 Y축 90도 회전은 유지한다.
             group.position.copy(mashRackPosition);
-            group.scale.setScalar(1.59 * 1.3 * 1.5);
+            group.scale.setScalar(MASH_RACK_SCALE);
             group.rotation.y = Math.PI / 2;
           }
           if (def.id === "mash_water_spout_jar") {
@@ -5250,7 +5300,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
         if (spatulaGroup && !spatulaHeld) {
           spatulaGroup.position.lerp(spatulaHome, 0.18);
-          spatulaGroup.rotation.z = THREE.MathUtils.lerp(spatulaGroup.rotation.z, -0.72, 0.18);
+          spatulaGroup.rotation.z = THREE.MathUtils.lerp(spatulaGroup.rotation.z, 0, 0.18);
           spatulaGroup.rotation.x = THREE.MathUtils.lerp(spatulaGroup.rotation.x, 0, 0.18);
           spatulaGroup.rotation.y = THREE.MathUtils.lerp(spatulaGroup.rotation.y, 0, 0.18);
         }
@@ -5271,9 +5321,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           mashTrayMover.position.y = mashTrayDropPosition.y + ease * 0.06;
           mashTrayMover.visible = ease < 0.99;
           if (mashRackProcess) {
-            mashRackProcess.group.scale.setScalar(
-              Math.max(0.001, (1.59 * 1.3 * 1.5) * shrink)
-            );
+            mashRackProcess.group.scale.setScalar(Math.max(0.001, MASH_RACK_SCALE * shrink));
             mashRackProcess.group.visible = ease < 0.99;
           }
         }
@@ -5464,13 +5512,13 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (!processId?.startsWith("mash")) return;
         // 다 저었으면 더 시킬 일이 없다. 아래 채반 꺼내기까지 흘러내리지 않게 막는다.
         if (mashStirred >= 1) {
-          setHandHud("dropped", "덧술을 다 마쳤어요 · 잠시 뒤 다음 공정으로 넘어가요");
+          setHandHud("dropped", "덧술을 마쳤어요 · 잠시 뒤 다음 공정으로 넘어가요");
           advanceAfterMash();
           return;
         }
         if (!mashTrayRig.visible) return;
         if (mashTrayPhase === "placed" && !mashRicePoured) {
-          setHandHud("dropped", "채반이 자리를 잡았어요 · 고두밥이 항아리로 쏟아집니다");
+          setHandHud("dropped", "채반이 자리를 잡았어요 · 고두밥이 쏟아집니다");
           return;
         }
         if (mashTrayPhase === "snapping") {
@@ -5499,7 +5547,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (mashTrayPhase === "carrying") {
           if (!frame.present) {
             mashTrayPhase = "extracted";
-            setHandHud("idle", "손이 놓였어요 · 채반을 다시 잡아 주세요");
+            setHandHud("idle", "채반을 다시 잡아 주세요");
             return;
           }
           screenToWorld(
@@ -5536,10 +5584,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           }
           if (frame.justReleased) {
             mashTrayPhase = "extracted";
-            setHandHud("tracking", "채반을 다시 잡아 노란 자리에 놓아주세요");
+            setHandHud("tracking", "채반을 다시 잡아 자리에 놓아 주세요");
             return;
           }
-          setHandHud("holding", "채반을 항아리 옆 노란 자리로 옮기세요");
+          setHandHud("holding", "채반을 항아리 옆자리로 옮겨 주세요");
           return;
         }
 
@@ -5604,7 +5652,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             return;
           }
           setHandHud(nearSpatula ? "hover" : "tracking",
-            nearSpatula ? "엄지와 검지를 붙여 주걱을 집으세요" : "작업대의 나무 주걱으로 손을 옮겨주세요");
+            nearSpatula ? "주걱을 집어 주세요" : "작업대의 나무 주걱을 집어 주세요");
           return;
         }
 
@@ -5651,7 +5699,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
               setHandHud("dropped", `정제수를 붓는 중… ${Math.round(mashWaterPoured * 100)}%`);
             } else {
               mashWaterGroup.rotation.z = THREE.MathUtils.lerp(mashWaterGroup.rotation.z, 0, 0.2);
-              setHandHud("holding", "물통을 항아리 위로 가져가세요");
+              setHandHud("holding", "물통을 항아리 위로 옮겨 주세요");
             }
             if (frame.justReleased && !mashWaterLatched) mashWaterHeld = false;
             return;
@@ -5667,7 +5715,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             return;
           }
           setHandHud(nearWater ? "hover" : "tracking",
-            nearWater ? "엄지와 검지를 붙여 물통을 집으세요" : "작업대의 물통으로 손을 옮겨주세요");
+            nearWater ? "물통을 집어 주세요" : "작업대의 물통을 집어 주세요");
           return;
         }
 
@@ -5682,8 +5730,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           else setHandHud(
             nearExtractedTray ? "hover" : "tracking",
             nearExtractedTray
-              ? "엄지와 검지를 붙여 채반을 다시 잡으세요"
-              : "꺼낸 채반 가까이 손을 가져가세요",
+              ? "채반을 다시 잡아 주세요"
+              : "꺼낸 채반을 다시 잡아 주세요",
           );
           return;
         }
@@ -5715,15 +5763,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (mashTraySnapshot.state === "COMPLETE") {
           mashTrayVisualProgress = 1;
           beginTrayCarry();
-          setHandHud("holding", "채반을 항아리 옆 노란 자리로 옮기세요");
+          setHandHud("holding", "채반을 항아리 옆자리로 옮겨 주세요");
         } else if (mashTraySnapshot.grabbed) {
-          setHandHud("holding", "채반을 잡았어요 · 손가락을 붙인 채 몸 쪽으로 당기세요");
+          setHandHud("holding", "채반을 잡았어요 · 그대로 몸 쪽으로 당겨 주세요");
         } else if (hovering) {
           setHandHud(
             "hover",
             frame.pinching
-              ? "집기 인식됨 · 잠시 그대로 유지하세요"
-              : "하늘색 표시에서 엄지와 검지를 붙이세요",
+              ? "그대로 잡고 계세요"
+              : "채반 앞쪽을 잡아 주세요",
           );
         } else if (!frame.present) {
           setHandHud("idle", "손을 카메라에 비춰 주세요");
@@ -5731,8 +5779,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           setHandHud(
             "tracking",
             frame.pinching
-              ? "빨간 손 표시는 집기 인식이에요 · 노란 원 안으로 옮기세요"
-              : "채반 앞쪽의 노란 표시에 손을 가까이 대세요",
+              ? "채반 앞쪽을 잡아 주세요"
+              : "채반 앞쪽으로 손을 가져가세요",
           );
         }
       };
@@ -6131,10 +6179,10 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (overMouth && (frame.pinching || frame.justPinched)) {
           if (pressLastHandY !== null) addPressFill((pinch.y - pressLastHandY) * pressCanvas.clientHeight);
           pressLastHandY = pinch.y;
-          setHandHud("holding", "아래로 천천히 짜서 맑은 술을 받아주세요");
+          setHandHud("holding", "천천히 짜서 맑은 술을 받아 주세요");
         } else {
           pressLastHandY = null;
-          setHandHud(overMouth ? "hover" : "tracking", overMouth ? "엄지와 검지를 모아 아래로 짜주세요" : "항아리 입구로 손을 옮겨주세요");
+          setHandHud(overMouth ? "hover" : "tracking", overMouth ? "보자기를 아래로 지그시 짜 주세요" : "항아리 입구로 손을 옮겨주세요");
         }
       };
 
@@ -6483,7 +6531,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         coldFloorGlow.scale.setScalar(1);
         coldFloorGlowMaterial.opacity = 0.14;
         (coldTarget.material as THREE.MeshBasicMaterial).opacity = 0.82;
-        setAgingCopy("숙성 항아리를 손으로 감싸 안쪽에 넣어주세요", "손가락 전체를 구부려 항아리를 감싸고 · 빛나는 자리에서 펴세요");
+        setAgingCopy("숙성 항아리를 손으로 감싸 안쪽에 넣어주세요", "항아리를 감싸 쥐고 빛나는 자리로 옮겨 주세요");
       };
 
       live.onHand = (frame, hand, interactionCamera) => {
@@ -6507,7 +6555,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             const missingGrab = agingGrabGesture.update(frame, true);
             if (missingGrab.justReleased) agingPhase = "ready";
           }
-          setHandHud("idle", "손을 카메라에 비춰 항아리를 감싸 주세요");
+          setHandHud("idle", "항아리를 감싸 쥐어 주세요");
           setAgingHandDebug(`AGING HAND · 손 없음\nphase ${agingPhase}`);
           return;
         }
@@ -6549,7 +6597,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             `curl ${grab.score.toFixed(2)} · target ${overTarget ? "IN" : "OUT"}\n` +
             `box x ${jarInColdZone.x.toFixed(3)} · y ${jarInColdZone.y.toFixed(3)} · z ${jarInColdZone.z.toFixed(3)}`,
           );
-          setHandHud("holding", overTarget ? "여기에서 손을 펴 놓아주세요" : "빛나는 자리까지 항아리를 옮겨주세요");
+          setHandHud("holding", overTarget ? "여기에 내려놓아 주세요" : "빛나는 자리로 항아리를 옮겨 주세요");
           if (overTarget) {
             beginAgingSnap();
             return;
@@ -6557,7 +6605,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (grab.justReleased) {
             agingPhase = "ready";
             arDetectMs = IDLE_AGING_DETECT_MS;
-            setHandHud("tracking", "조금 더 안쪽의 빛나는 자리에 놓아주세요");
+            setHandHud("tracking", "빛나는 자리 안쪽에 놓아 주세요");
           }
           return;
         }
@@ -7151,7 +7199,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       setTimeout(() => {
         mashHandOverPending = false;
         if (S.step !== "ferment") return;
-        buildStageFor("ferment");
+        // 밑술 무대에서 덧술 무대로 — 새 무대가 스르르 드러나게 한다
+        stageSwap(`step:ferment:mash`, () => buildStageFor("ferment"), true);
         // 밑술 뚜껑을 닫을 때 손 인식을 재웠다. 덧술은 손으로 하는 단계라 다시 깨운다.
         handTracker?.setPaused(!shouldTrackHand(S.step));
         syncFermentPhase();
@@ -7681,7 +7730,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         pct = Math.round(Math.min(1, prog) * 100);
         text =
           S.rinseTurns === 0
-            ? "그릇 안에서 손을 둥글게 돌려 쌀을 헹구세요"
+            ? "손으로 쌀을 휘저어 헹궈 주세요"
             : `헹구는 중 · ${S.rinseTurns}/${REQUIRED_RINSE_TURNS}바퀴`;
       } else if (rinseSettling()) {
         pct = 100;
@@ -7721,11 +7770,11 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           text = "채반을 잡고 앞으로 당겨 꺼내세요";
         } else if (S.coolingPhase === "RICE_SPREAD") {
           pct = Math.round(S.coolRiceProgress * 100);
-          text = "고두밥을 채반 위에 골고루 펼쳐주세요";
+          text = "고두밥을 채반 위에 고르게 펼쳐 주세요";
         } else if (S.coolingPhase === "FAN") {
           pct = Math.round((S.coolFans / REQUIRED_FANS) * 100);
           text = S.coolFans === 0
-            ? "손을 좌우로 흔들어 고두밥을 식혀주세요"
+            ? "손으로 부채질해 고두밥을 식혀 주세요"
             : `식히는 중 · ${S.coolFans}/${REQUIRED_FANS}번`;
         } else if (S.coolingPhase === "COMPLETE") {
           pct = 100;
@@ -7769,35 +7818,35 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       if (hint) {
         if (productionCooling && S.godubap >= GB_LAST) {
           hint.textContent = S.coolingPhase === "TRAY_PULL"
-            ? "채반을 잡고 앞으로 당겨 꺼내주세요"
+            ? "채반을 잡고 몸 쪽으로 당겨 꺼내 주세요"
             : S.coolingPhase === "RICE_SPREAD"
-              ? "고두밥을 채반 위에 골고루 펼쳐주세요"
+              ? "고두밥을 채반 위에 고르게 펼쳐 주세요"
               : S.coolingPhase === "QUIZ"
-                ? "장인의 질문에 답해주세요"
+                ? "장인의 물음에 답해 주세요"
                 : S.coolingPhase === "FAN"
-                  ? "손을 좌우로 흔들어 고두밥을 식혀주세요"
+                  ? "손으로 부채질해 고두밥을 식혀 주세요"
                   : "고두밥이 충분히 식었어요!";
         } else {
           hint.textContent = skipToRiceSpread && S.godubap === GB_LAST
             ? "채반 위 여러 영역을 손바닥으로 넓게 쓸어주세요"
             : skipToCooling && S.godubap === GB_LAST
-              ? "노란 표시를 pinch한 뒤 손을 몸 쪽으로 당겨주세요"
+              ? "채반을 잡고 몸 쪽으로 당겨 주세요"
             : S.godubap >= GB_N
             ? "고두밥이 완성됐어요 · 아래 버튼으로 이어가요"
             : S.godubap === GB_LAST
               ? !S.quizDone
                 ? "장인의 질문에 먼저 답해주세요"
-                : "손을 좌우로 흔들어 고두밥을 식혀주세요"
+                : "손으로 부채질해 고두밥을 식혀 주세요"
               : rinseActive()
-                ? "손을 둥글게 돌려 쌀을 헹궈주세요"
+                ? "손으로 쌀을 휘저어 헹궈 주세요"
                 : soakActive()
                   ? "쌀이 물을 머금는 동안 잠시 기다려요"
                   : drainActive()
-                    ? "소쿠리를 잡고 위아래로 털어 물을 빼주세요"
+                    ? "소쿠리를 털어 물을 빼 주세요"
                     : steamingStep()
                       ? S.lidAt
                         ? "김이 오르는 동안 잠시 기다려요"
-                        : "옆에 놓인 뚜껑을 집어 솥 위로 가져가주세요"
+                        : "뚜껑을 솥 위에 덮어 주세요"
                       : "";
         }
       }
@@ -7853,7 +7902,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
             : skipToCooling && S.godubap === GB_LAST
               ? "Tray pull 기술 검증 중"
             : S.godubap === GB_LAST && S.quizDone
-            ? "손을 좌우로 흔들어 식혀 주세요"
+            ? "부채질해 고두밥을 식혀 주세요"
             : drainActive()
               ? "소쿠리를 털어 물을 빼 주세요"
               : steamingStep() && !S.lidAt
@@ -7933,6 +7982,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         S.mitsulFermentDone = false;
         S.ferment = 0;
         S.mashTrayDone.clear();
+        S.mash2Answered = false;
         setStep("ferment");
         onFermentTick();
         syncFermentPhase();
@@ -8000,7 +8050,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           if (i !== S.fstage) return;   // 지금 켜진 단계만 누를 수 있다
           if (i >= F_LAST) return;       // 후발효는 클릭이 아니라 발효로 완료된다
           if (S.hand && st.id.startsWith("mash") && !S.mashTrayDone.has(st.id)) {
-            showNotice("채반 앞쪽을 잡고 몸 쪽으로 당겨 먼저 꺼내 주세요.");
+            showNotice("채반을 먼저 꺼내 주세요.");
             return;
           }
           S.fstage = i + 1;
@@ -8029,8 +8079,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       const overall = phase === "COMPLETE" ? 1 : (phaseIndex + currentProgress) / 4;
       const labels = {
         RICE: `고두밥을 한 움큼씩 항아리에 담아주세요 · ${S.mitsulRiceScoops}/3`,
-        NURUK: "누룩을 집어 항아리 안에 넣어주세요",
-        WATER: "물을 집어 항아리 위로 옮겨주세요",
+        NURUK: "누룩을 집어 항아리에 넣어 주세요",
+        WATER: "물을 집어 항아리 위로 옮겨 주세요",
         KNEAD: `손으로 치대며 버무리기 · ${S.mitsulKneadCount}/${KNEAD.TARGET_KNEAD_COUNT}`,
         COMPLETE: "재료가 골고루 섞였어요 · 혼합 완료",
       } satisfies Record<typeof phase, string>;
@@ -8084,7 +8134,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
 
         if (fermentPhase === "LID") {
           const label = $("#mitsul-mix-label");
-          if (label) label.textContent = "작업대의 뚜껑을 집어 항아리 위에 놓아주세요";
+          if (label) label.textContent = "작업대의 뚜껑을 항아리 위에 덮어 주세요";
           const pct = $("#mitsul-mix-pct");
           if (pct) pct.textContent = "혼합 완료";
           const bar = $("#bar-mitsul-mix") as HTMLElement | null;
@@ -8106,7 +8156,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           const message = $("#msg-ferment");
           if (message) message.textContent = temperatureReady
             ? "좋아, 발효가 잘 이루어질 온도라네. 이제 사흘을 익혀보세."
-            : "발효가 잘 이루어지도록 온도를 25℃로 맞춰보게.";
+            : "발효가 잘 되도록 온도를 25℃로 맞춰 보게.";
           const bar = $("#bar-ferment") as HTMLElement | null;
           if (bar) bar.style.width = `${THREE.MathUtils.clamp((S.temp - 18) / 7, 0, 1) * 100}%`;
           if (fermentButton) {
@@ -8174,7 +8224,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       });
       const active = S.fstage >= F_LAST; // 후발효 진행 중
       const current = FERMENT_STEPS[Math.min(S.fstage, F_LAST)];
-      $("#mash2-skip")?.classList.toggle("hidden", active || current?.id !== "mash2");
+      // 덧술2 에 막 들어왔을 때 한 번만 물어본다
+      const askMash2 = !active && current?.id === "mash2" && !S.mash2Answered;
+      $("#mash2-ask")?.classList.toggle("hidden", !askMash2);
       const mashActive = current?.id.startsWith("mash") === true;
       $("#ferment-game")?.classList.toggle("hidden", !active && !mashActive);
       // 덧술에는 온도를 맞추는 일이 없다. 코치 문구만 남기고 온도 조절부는 접는다.
@@ -8607,6 +8659,7 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         S.ferment = 0;
         S.fstage = 0;
         S.mashTrayDone.clear();
+        S.mash2Answered = false;
         S.mitsulPhase = "RICE";
         S.mitsulPourProgress = 0;
         S.mitsulRiceScoops = 0;
@@ -8651,13 +8704,22 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         debugSkipToBeforeFirstMash;
     }
 
+    const mash2AgainBtn = $("#btn-mash2-again");
+    if (mash2AgainBtn) {
+      (mash2AgainBtn as HTMLButtonElement).onclick = () => {
+        S.mash2Answered = true;
+        $("#mash2-ask")?.classList.add("hidden");
+      };
+    }
     const mash2SkipBtn = $("#btn-skip-mash2");
     if (mash2SkipBtn) {
       (mash2SkipBtn as HTMLButtonElement).onclick = () => {
+        S.mash2Answered = true;
+        $("#mash2-ask")?.classList.add("hidden");
         if (FERMENT_STEPS[S.fstage]?.id !== "mash2") return;
         S.mashTrayDone.add("mash2");
         S.fstage = Math.min(F_LAST, S.fstage + 1);
-        setHandHud("dropped", "덧술2 과정을 건너뛰었어요");
+        setHandHud("dropped", "두 번째 덧술을 건너뛰었어요");
         syncFermentPhase();
       };
     }
@@ -8728,12 +8790,19 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
     <div ref={rootRef} className="ar-ui" data-step="place">
       <canvas ref={canvasRef} id="gl" />
 
-      <div id="mash2-skip" className="mash2-skip hidden">
-        <button id="btn-skip-mash2" type="button">
-          <span>같은 과정 건너뛰기</span>
-          <strong aria-hidden="true">»</strong>
-        </button>
-        <p>덧술 1과 같은 과정이에요</p>
+      {/* 덧술2 안내 — 덧술1과 똑같은 과정이라, 한 번 더 할지 물어본다 */}
+      <div id="mash2-ask" className="ask-sheet hidden" role="dialog" aria-modal="true"
+           aria-labelledby="mash2-ask-title">
+        <div className="ask-card">
+          <span className="ask-eyebrow">덧술 2</span>
+          <strong id="mash2-ask-title">한 번 더 덧술을 넣어요</strong>
+          <p>
+            삼양주는 덧술을 두 번 넣어 빚어요.<br />
+            방금 한 것과 같은 과정이에요.
+          </p>
+          <button className="cta" id="btn-mash2-again" type="button">한 번 더 하기</button>
+          <button className="cta ghost" id="btn-skip-mash2" type="button">건너뛰고 다음으로</button>
+        </div>
       </div>
 
       {/* TEMP DEBUG — 개발 완료 후 삭제. 한 줄로 묶어 간격을 맞춘다. */}

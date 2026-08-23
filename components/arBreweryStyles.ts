@@ -501,19 +501,26 @@ export const styles = `
   color:var(--ink-strong); word-break:keep-all}
 .ar-ui .mash-tray-place-guide span{font-size:11px; line-height:1.45; color:var(--ink-faint); word-break:keep-all}
 
-/* 덧술2는 덧술1과 같은 흐름이라 상단 우측에서 선택적으로 건너뛸 수 있다. */
-.ar-ui .mash2-skip{position:absolute; top:80px; right:12px; z-index:9998;
-  display:flex; flex-direction:column; align-items:flex-end; gap:7px; pointer-events:auto}
-.ar-ui .mash2-skip button{display:flex; align-items:center; justify-content:center; gap:11px;
-  min-height:46px; padding:0 18px; border-radius:999px;
-  border:1px solid rgba(243,230,204,.68); background:rgba(42,27,17,.76);
-  box-shadow:0 5px 18px rgba(0,0,0,.28); color:#f3e6cc;
-  font:inherit; font-size:13px; font-weight:700; text-shadow:0 1px 6px rgba(0,0,0,.65);
-  backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px)}
-.ar-ui .mash2-skip button:active{transform:scale(.97); background:rgba(76,43,24,.86)}
-.ar-ui .mash2-skip button strong{font-size:25px; line-height:1; font-weight:400; transform:translateY(-1px)}
-.ar-ui .mash2-skip p{margin:0 8px 0 0; color:#f3e6cc; font-size:11px;
-  text-shadow:0 1px 7px rgba(0,0,0,.9)}
+/* 덧술2 안내 — 화면 가운데에서 한 번 더 할지 물어본다.
+   구석의 작은 버튼은 처음 하는 사람이 못 찾는다. */
+.ar-ui .ask-sheet{position:absolute; inset:0; z-index:70; display:flex;
+  align-items:center; justify-content:center; padding:26px;
+  background:rgba(16,11,6,.88); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  pointer-events:auto; animation:ar-fade .28s ease both}
+.ar-ui .ask-sheet.hidden{display:none}
+.ar-ui .ask-card{width:100%; max-width:320px; box-sizing:border-box;
+  display:flex; flex-direction:column; gap:12px; padding:24px 22px;
+  border:1px solid rgba(198,165,104,.4); border-radius:20px;
+  background:var(--cream); color:var(--ink-strong);
+  box-shadow:0 22px 54px -18px rgba(0,0,0,.7); text-align:center}
+.ar-ui .ask-eyebrow{font-size:11px; font-weight:700; letter-spacing:.06em; color:var(--clay)}
+.ar-ui .ask-card strong{font-family:var(--font-myeongjo), serif; font-size:19px;
+  line-height:1.5; color:var(--ink); word-break:keep-all}
+.ar-ui .ask-card p{margin:0 0 6px; font-size:13px; line-height:1.75;
+  color:var(--ink-soft); word-break:keep-all}
+.ar-ui .ask-card .cta{width:100%}
+.ar-ui .ask-card .cta.ghost{border:1px solid rgba(58,44,27,.28);
+  background:rgba(255,255,255,.5); color:var(--ink-soft)}
 
 .ar-ui .meter{background:var(--cream); color:var(--ink-strong); border:1px solid rgba(198,165,104,.4);
   border-radius:var(--r-md); padding:14px 15px}
