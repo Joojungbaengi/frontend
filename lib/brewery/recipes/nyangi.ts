@@ -72,9 +72,11 @@ export const nyangiTakju: Recipe = {
       file: `${AR_ASSETS}/wooden_spatula.glb`,
       step: "ferment",
       processSteps: ["mash1", "mash2"],
+      // 이 모델은 루트 노드에 자체 배율이 걸려 있어 높이 자동 정규화가 통하지 않는다
+      // (0.24 로 맞추려다 4m 가 나왔다). 원본이 이미 미터 단위라 배율 1이 실측 24cm 다.
       height: 0.24,
       y: 0.03,
-      scaleFactor: 0.05,
+      scaleFactor: 1,
     },
     {
       id: "mash_tray_rack",

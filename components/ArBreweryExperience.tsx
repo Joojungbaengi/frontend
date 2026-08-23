@@ -4488,13 +4488,15 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
       // 밑술을 담갔던 그 항아리를 그대로 이어받는다 — 덧술은 새 통에 다시 담그는 게
       // 아니라, 이미 익은 술덧에 고두밥과 물을 더하는 일이다.
       const jar = new THREE.Group();
-      const JAR_SCALE = 0.17;
-      let mashJarHeight = 0.28;
+      /** 덧술 무대에서의 항아리 높이(m). 후발효의 밀봉 항아리와 같은 크기다. */
+      const MASH_JAR_HEIGHT = 0.25;
+      let mashJarHeight = MASH_JAR_HEIGHT;
       let mashJarWidth = 0.24;
       const mitsulJarGltf = LOADED[MITSUL_JAR_ID];
       if (mitsulJarGltf?.scene) {
         const jarModel = skinnedClone(mitsulJarGltf.scene) as THREE.Object3D;
-        jarModel.scale.setScalar(JAR_SCALE);
+        const raw = new THREE.Box3().setFromObject(jarModel).getSize(new THREE.Vector3());
+        jarModel.scale.setScalar(MASH_JAR_HEIGHT / (raw.y || 1));
         jarModel.traverse((o: THREE.Object3D) => {
           const mesh = o as THREE.Mesh;
           if (!mesh.isMesh) return;
@@ -4556,7 +4558,9 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
        */
       const mashWaterProp = INGREDIENTS.find((i) => i.id === "water")?.prop;
       const mashWaterGroup = new THREE.Group();
-      const mashWaterHome = new THREE.Vector3(-0.3, platformTop + 0.03, 0.18);
+      // 밑술 혼합에서 물통을 놓던 자리(x 0.27)를 좌우만 바꿔 그대로 쓴다.
+      // 오른쪽은 채반 랙과 내려놓는 자리가 차지하고 있다.
+      const mashWaterHome = new THREE.Vector3(-0.27, platformTop + 0.03, 0.06);
       mashWaterGroup.position.copy(mashWaterHome);
       let mashWaterLiquid: THREE.Mesh | null = null;
       let mashWaterFull = 0;
@@ -4634,7 +4638,8 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
           const node = spawnModel(def);
           group.position.set(0, platformTop + def.y, 0);
           if (def.id === "wooden_spatula") {
-            group.position.x = -0.34;
+            // 물통과 같은 왼쪽 줄, 조금 안쪽에 눕혀 둔다.
+            group.position.set(-0.25, platformTop + def.y, -0.14);
             group.rotation.z = -0.72;
             spatulaGroup = group;
             spatulaHome.copy(group.position);
@@ -4923,9 +4928,17 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         if (!mashStage) activeMashId = null;
         cooled.visible = S.fstage === 0;   // 혼합에서만 채반+고두밥
         // 후발효에는 밀봉 항아리가 대신 등장한다.
-        jar.visible = S.fstage >= 1 && processId !== "post" && !mashStage;
+        // 덧술에서도 밑술을 담갔던 이 항아리를 그대로 쓴다 — 안에 든 술덧에
+        // 고두밥과 물을 더하는 것이라, 빈 항아리로 갈아 끼우면 안 된다.
+        jar.visible = S.fstage >= 1 && processId !== "post";
         fermentProcessModels.forEach(({ def, group }) => {
-          group.visible = Boolean(processId && def.processSteps?.includes(processId));
+          let show = Boolean(processId && def.processSteps?.includes(processId));
+          // 밑술 항아리가 그 자리를 지키므로 빈 덧술 항아리는 세우지 않는다.
+          if (def.id === "mash_jar_body") show = false;
+          // 물은 집어서 붓는 물통 하나로 통일한다. 주구 항아리까지 두면
+          // 작업대에 물이 둘이라 어느 쪽을 집어야 할지 알 수 없다.
+          if (def.id === "mash_water_spout_jar") show = false;
+          group.visible = show;
         });
         mashTrayRig.visible = mashStage;
         // 꺼낸 뒤 stageGroup으로 분리된 경우에도 현재 덧술 단계에서만 보인다.
@@ -4943,7 +4956,6 @@ export default function ArBreweryExperience({ recipe }: { recipe: Recipe }) {
         }
       };
       fermentShowStage();
-
       const effectCenter = new THREE.Vector3(0, platformTop + 0.14, 0);
       const localCamera = new THREE.Vector3();
       const viewDirection = new THREE.Vector3();
