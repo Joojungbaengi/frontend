@@ -117,6 +117,11 @@ export class HandVisual {
     return this.handScene.visible;
   }
 
+  /** 단계별 상호작용 판정 결과를 집는 고리 색상으로 즉시 알려준다. */
+  setCursorColor(color: THREE.ColorRepresentation) {
+    (this.cursor.material as THREE.MeshBasicMaterial).color.set(color);
+  }
+
   private pinchWorld = new THREE.Vector3();
   private collisionOffset = new THREE.Vector3();
   private collisionTarget = new THREE.Vector3();

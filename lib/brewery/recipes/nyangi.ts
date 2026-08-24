@@ -61,6 +61,14 @@ export const nyangiTakju: Recipe = {
       y: 0.03,
     },
     {
+      id: "mash_rice_grain",
+      file: `${AR_ASSETS}/rice_grain_v2.glb`,
+      step: "ferment",
+      processSteps: ["mash1", "mash2"],
+      height: 0.012,
+      y: 0,
+    },
+    {
       id: "mash_water_spout_jar",
       file: `${AR_ASSETS}/jar_with_a_spout.glb`,
       step: "ferment",
